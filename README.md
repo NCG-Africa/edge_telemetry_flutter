@@ -20,7 +20,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  edge_telemetry_flutter: ^1.3.10
+  edge_telemetry_flutter: ^1.4.10
   http: ^1.1.0  # If you're making HTTP requests
 ```
 
@@ -129,23 +129,65 @@ globalAttributes: {
 
 ## 👤 User Management
 
+### 🔄 Profile Events (v1.4.10+)
+
+Profile updates now emit **dual events** for enhanced backend integration:
+- `user.profile_updated` - Dedicated event for backend profile persistence
+- `user.profile_set` - Analytics event for tracking profile changes
+
 ```dart
 // Set user profile information (optional)
 EdgeTelemetry.instance.setUserProfile(
-name: 'John Doe',
-email: 'john@example.com',
-phone: '+1234567890',
-customAttributes: {
-'user.subscription': 'premium',
-'user.onboarding_completed': 'true',
-},
+  name: 'John Doe',
+  email: 'john@example.com',
+  phone: '+1234567890',
+  customAttributes: {
+    'department': 'engineering',  // Automatically becomes user.department
+    'role': 'senior',            // Automatically becomes user.role
+    'subscription': 'premium',   // Automatically becomes user.subscription
+  },
 );
+// ✅ Emits: user.profile_updated (backend) + user.profile_set (analytics)
+
+// Clear user profile
+EdgeTelemetry.instance.clearUserProfile();
+// ✅ Emits: user.profile_updated (backend) + user.profile_cleared (analytics)
 
 // Get current user info
 String? userId = EdgeTelemetry.instance.currentUserId;
 Map<String, String> profile = EdgeTelemetry.instance.currentUserProfile;
 Map<String, dynamic> session = EdgeTelemetry.instance.currentSessionInfo;
 ```
+
+### 📊 Profile Event Format
+
+Backend profile events include versioning and structured data:
+
+```json
+{
+  "type": "event",
+  "eventName": "user.profile_updated",
+  "attributes": {
+    "user.id": "user_1704067200123_abcd1234",
+    "user.name": "John Doe",
+    "user.email": "john@example.com",
+    "user.phone": "+1234567890",
+    "user.profile_version": "3",
+    "user.profile_updated_at": "2025-08-01T12:00:00Z",
+    "user.department": "engineering",
+    "user.role": "senior",
+    "user.subscription": "premium"
+  }
+}
+```
+
+### 🎯 Key Features
+
+- **Profile Versioning**: Automatic conflict resolution with incremental version numbers
+- **Custom Attribute Prefixing**: All custom attributes automatically prefixed with `user.`
+- **Backend Integration**: Dedicated events enable proper profile persistence in databases
+- **Backward Compatibility**: No breaking changes to existing profile API
+- **Debug Visibility**: Enhanced logging shows profile operations and event emissions
 
 ## 📊 Manual Event Tracking (Optional)
 

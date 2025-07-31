@@ -1,5 +1,80 @@
 # Changelog
 
+## [1.4.10] - 2025-08-01
+
+### 🔄 Profile Event System
+
+#### Enhanced User Profile Management
+- **NEW**: Dedicated `user.profile_updated` events for backend profile persistence
+- **NEW**: Profile versioning system with conflict resolution
+- **NEW**: Automatic custom attribute prefixing with `user.` for backend processing
+- Profile updates now emit dual events: backend persistence + analytics
+- Enhanced debug logging with detailed profile operation visibility
+
+#### Profile Versioning
+- **NEW**: Incremental profile version counters prevent update conflicts
+- Profile versions persist across app sessions via SharedPreferences
+- Each profile update/clear operation increments version number
+- Backend can use versions to resolve conflicting profile updates
+
+#### Backend Integration Events
+- `user.profile_updated` - Dedicated event for backend profile persistence
+- `user.profile_set` - Analytics event (existing, enhanced with versioning)
+- `user.profile_cleared` - Analytics event (existing, enhanced with versioning)
+- Events include user ID, profile version, and timestamp for proper backend processing
+
+### 📊 Profile Event Format
+```json
+{
+  "type": "event",
+  "eventName": "user.profile_updated",
+  "attributes": {
+    "user.id": "user_1704067200123_abcd1234",
+    "user.name": "John Doe",
+    "user.email": "john@example.com",
+    "user.phone": "+1234567890",
+    "user.profile_version": "3",
+    "user.profile_updated_at": "2025-08-01T12:00:00Z",
+    "user.department": "engineering",
+    "user.role": "senior"
+  }
+}
+```
+
+### 🔧 Technical Implementation
+- Enhanced `setUserProfile()` method with dual event emission
+- Enhanced `clearUserProfile()` method with profile clear events
+- Added profile version management with persistent storage
+- Custom attributes automatically prefixed with `user.` for backend compatibility
+- Comprehensive error handling for profile version storage failures
+- Profile version loading integrated into SDK initialization
+
+### 🎯 Benefits
+- **Backend Profile Persistence**: Dedicated events enable proper profile storage in databases
+- **Conflict Resolution**: Profile versioning prevents race conditions and conflicts
+- **Backward Compatibility**: No breaking changes to existing profile API
+- **Enhanced Analytics**: Dual events provide both persistence and analytics capabilities
+- **Custom Attribute Support**: Automatic prefixing ensures backend compatibility
+- **Debug Visibility**: Enhanced logging shows profile operations and event emissions
+
+### 💻 API Usage (No Breaking Changes)
+```dart
+// Profile updates now emit both backend and analytics events
+EdgeTelemetry.instance.setUserProfile(
+  name: 'John Doe',
+  email: 'john@example.com',
+  customAttributes: {
+    'department': 'engineering',  // Becomes user.department
+    'role': 'senior',            // Becomes user.role
+  },
+);
+// Emits: user.profile_updated (backend) + user.profile_set (analytics)
+
+// Profile clearing also emits backend events
+EdgeTelemetry.instance.clearUserProfile();
+// Emits: user.profile_updated (backend) + user.profile_cleared (analytics)
+```
+
 ## [1.3.10] - 2025-01-31
 
 ### 🆔 Device Identification System
