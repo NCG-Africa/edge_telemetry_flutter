@@ -32,6 +32,7 @@ import 'package:edge_telemetry_flutter/src/widgets/edge_navigation_observer.dart
 import 'package:flutter/cupertino.dart';
 import 'package:opentelemetry/api.dart';
 import 'package:opentelemetry/sdk.dart' as otel_sdk;
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Main EdgeTelemetry class with automatic HTTP monitoring and enhanced session tracking
 class EdgeTelemetry {
@@ -52,6 +53,10 @@ class EdgeTelemetry {
 
   // User profile data (separate from ID)
   final Map<String, String> _userProfile = {};
+
+  // Profile versioning for conflict resolution
+  int _profileVersion = 0;
+  static const String _profileVersionKey = 'edge_telemetry_profile_version';
 
   // Monitoring components
   NetworkMonitor? _networkMonitor;
@@ -152,6 +157,9 @@ class EdgeTelemetry {
 
       // Initialize session manager
       await _initializeSession();
+
+      // Load profile version from storage
+      await _loadProfileVersion();
 
       // Collect device information
       await _collectDeviceInfo();
@@ -503,6 +511,43 @@ class EdgeTelemetry {
 
   // ==================== USER PROFILE API ====================
 
+  /// Get the next profile version number
+  int _getNextProfileVersion() {
+    _profileVersion++;
+    _saveProfileVersion();
+    return _profileVersion;
+  }
+
+  /// Save profile version to persistent storage
+  void _saveProfileVersion() {
+    try {
+      // Use SharedPreferences to persist profile version
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setInt(_profileVersionKey, _profileVersion);
+      });
+    } catch (e) {
+      if (_config?.debugMode == true) {
+        print('⚠️ Failed to save profile version: $e');
+      }
+    }
+  }
+
+  /// Load profile version from persistent storage
+  Future<void> _loadProfileVersion() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _profileVersion = prefs.getInt(_profileVersionKey) ?? 0;
+      if (_config?.debugMode == true) {
+        print('📊 Loaded profile version: $_profileVersion');
+      }
+    } catch (e) {
+      _profileVersion = 0;
+      if (_config?.debugMode == true) {
+        print('⚠️ Failed to load profile version, starting from 0: $e');
+      }
+    }
+  }
+
   /// Set user profile information (name, email, phone)
   void setUserProfile({
     String? name,
@@ -515,7 +560,7 @@ class EdgeTelemetry {
     // Clear existing profile
     _userProfile.clear();
 
-    // Add profile data
+    // Add profile data to global attributes (maintain existing behavior)
     if (name != null) _userProfile['user.name'] = name;
     if (email != null) _userProfile['user.email'] = email;
     if (phone != null) _userProfile['user.phone'] = phone;
@@ -524,15 +569,49 @@ class EdgeTelemetry {
     // Apply to span manager (OpenTelemetry mode)
     _applyUserProfile();
 
-    // Track profile set event
+    // NEW: Increment profile version for conflict resolution
+    final profileVersion = _getNextProfileVersion();
+    
+    // NEW: Create dedicated profile update event for backend persistence
+    final profileEventAttributes = <String, String>{
+      'user.id': _currentUserId!,
+      'user.profile_version': profileVersion.toString(),
+      'user.profile_updated_at': DateTime.now().toIso8601String(),
+    };
+
+    // Add profile fields to event (only non-null values)
+    if (name != null) profileEventAttributes['user.name'] = name;
+    if (email != null) profileEventAttributes['user.email'] = email;
+    if (phone != null) profileEventAttributes['user.phone'] = phone;
+
+    // Add custom attributes with user. prefix for backend processing
+    if (customAttributes != null) {
+      for (final entry in customAttributes.entries) {
+        final key = entry.key.startsWith('user.') ? entry.key : 'user.${entry.key}';
+        profileEventAttributes[key] = entry.value;
+      }
+    }
+
+    // Send dedicated profile update event to backend
+    _eventTracker.trackEvent('user.profile_updated', attributes: profileEventAttributes);
+
+    // Keep existing profile set event for backward compatibility/analytics
     _eventTracker.trackEvent('user.profile_set', attributes: {
       'user.has_name': (name != null).toString(),
       'user.has_email': (email != null).toString(),
       'user.has_phone': (phone != null).toString(),
-      'user.custom_attributes_count':
-          (customAttributes?.length ?? 0).toString(),
+      'user.custom_attributes_count': (customAttributes?.length ?? 0).toString(),
       'profile_timestamp': DateTime.now().toIso8601String(),
+      'profile_version': profileVersion.toString(),
     });
+
+    if (_config?.debugMode == true) {
+      print('✅ Profile updated and events sent:');
+      print('  - user.profile_updated (for backend persistence)');
+      print('  - user.profile_set (for analytics)');
+      print('  - Profile version: $profileVersion');
+      print('  - Fields updated: ${profileEventAttributes.keys.where((k) => k.startsWith('user.') && k != 'user.id' && k != 'user.profile_version' && k != 'user.profile_updated_at').toList()}');
+    }
   }
 
   /// Apply user profile to span manager
@@ -568,7 +647,26 @@ class EdgeTelemetry {
       _spanManager!.setUser(userId: _currentUserId!);
     }
 
-    _eventTracker.trackEvent('user.profile_cleared');
+    // NEW: Increment profile version for clear operation
+    final profileVersion = _getNextProfileVersion();
+    
+    // NEW: Send profile cleared event to backend
+    _eventTracker.trackEvent('user.profile_updated', attributes: {
+      'user.id': _currentUserId!,
+      'user.profile_version': profileVersion.toString(),
+      'user.profile_updated_at': DateTime.now().toIso8601String(),
+      // Note: No profile fields means they should be cleared
+    });
+
+    // Keep existing analytics event
+    _eventTracker.trackEvent('user.profile_cleared', attributes: {
+      'profile_version': profileVersion.toString(),
+    });
+
+    if (_config?.debugMode == true) {
+      print('✅ Profile cleared and events sent');
+      print('  - Profile version: $profileVersion');
+    }
   }
 
   /// Get current user ID (read-only)
