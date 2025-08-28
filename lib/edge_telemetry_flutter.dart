@@ -98,6 +98,7 @@ class EdgeTelemetry {
     bool enablePerformanceMonitoring = true,
     bool enableNavigationTracking = true,
     bool enableHttpMonitoring = true, // NEW: Enable automatic HTTP monitoring
+    bool enableCrashReporting = true,
     bool enableLocalReporting = false,
     String? reportStoragePath,
     Duration? dataRetentionPeriod,
@@ -122,6 +123,7 @@ class EdgeTelemetry {
       eventBatchSize: eventBatchSize,
       // Add HTTP monitoring config
       enableHttpMonitoring: enableHttpMonitoring,
+      enableCrashReporting: enableCrashReporting,
     );
 
     await instance._setup(config);
@@ -174,7 +176,9 @@ class EdgeTelemetry {
       }
 
       // Setup crash handlers
-      _installGlobalCrashHandler();
+      if (config.enableCrashReporting) {
+        _installGlobalCrashHandler();
+      }
 
       // Setup navigation tracking
       _setupNavigationTracking();

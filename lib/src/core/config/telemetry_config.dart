@@ -38,6 +38,9 @@ class TelemetryConfig {
   /// This intercepts ALL HTTP requests made by the app
   final bool enableHttpMonitoring;
 
+  /// Enable automatic crash reporting
+  final bool enableCrashReporting;
+
   // Report system configuration
   /// Enable local data storage for generating reports
   final bool enableLocalReporting;
@@ -66,6 +69,7 @@ class TelemetryConfig {
     this.enableErrorReporting = true,
     this.enableNavigationTracking = true,
     this.enableHttpMonitoring = true,
+    this.enableCrashReporting = true,
     this.enableLocalReporting = false,
     this.reportStoragePath,
     this.dataRetentionPeriod = const Duration(days: 30),
@@ -86,6 +90,7 @@ class TelemetryConfig {
     bool? enableErrorReporting,
     bool? enableNavigationTracking,
     bool? enableHttpMonitoring,
+    bool? enableCrashReporting,
     bool? enableLocalReporting,
     String? reportStoragePath,
     Duration? dataRetentionPeriod,
@@ -107,6 +112,7 @@ class TelemetryConfig {
       enableNavigationTracking:
           enableNavigationTracking ?? this.enableNavigationTracking,
       enableHttpMonitoring: enableHttpMonitoring ?? this.enableHttpMonitoring,
+      enableCrashReporting: enableCrashReporting ?? this.enableCrashReporting,
       enableLocalReporting: enableLocalReporting ?? this.enableLocalReporting,
       reportStoragePath: reportStoragePath ?? this.reportStoragePath,
       dataRetentionPeriod: dataRetentionPeriod ?? this.dataRetentionPeriod,
