@@ -4,12 +4,18 @@ import 'dart:async';
 
 import '../core/interfaces/event_tracker.dart';
 import '../http/json_http_client.dart';
+import '../storage/crash_storage.dart';
+import '../managers/crash_retry_manager.dart';
 
 class JsonEventTracker implements EventTracker {
   final JsonHttpClient _httpClient;
   final Map<String, String> Function() _getAttributes;
   final int _batchSize;
   final bool _debugMode;
+
+  // Crash handling components
+  CrashStorage? _crashStorage;
+  CrashRetryManager? _retryManager;
 
   // Batching state
   final List<Map<String, dynamic>> _eventQueue = [];
@@ -21,7 +27,35 @@ class JsonEventTracker implements EventTracker {
     int batchSize = 30,
     bool debugMode = false,
   })  : _batchSize = batchSize,
-        _debugMode = debugMode;
+        _debugMode = debugMode {
+    // Initialize crash handling components
+    _initializeCrashHandling();
+  }
+
+  /// Initialize crash storage and retry manager
+  Future<void> _initializeCrashHandling() async {
+    try {
+      _crashStorage = CrashStorage(debugMode: _debugMode);
+      await _crashStorage!.initialize();
+      
+      _retryManager = CrashRetryManager(
+        _crashStorage!,
+        _httpClient,
+        debugMode: _debugMode,
+      );
+      
+      // Start retry loop for existing crashes
+      _retryManager!.startRetryLoop();
+      
+      if (_debugMode) {
+        print('🔄 Crash handling initialized with retry mechanism');
+      }
+    } catch (e) {
+      if (_debugMode) {
+        print('⚠️ Failed to initialize crash handling: $e');
+      }
+    }
+  }
 
   @override
   void trackEvent(String eventName, {Map<String, String>? attributes}) {
@@ -75,7 +109,7 @@ class JsonEventTracker implements EventTracker {
         'breadcrumbs': _getAttributes()['breadcrumbs'],
     };
 
-    _httpClient.sendTelemetryData(errorData);
+    _sendCrashWithRetry(errorData);
 
     if (_debugMode) {
       print('🚨 Error sent immediately (bypassed batching)');
@@ -84,6 +118,30 @@ class JsonEventTracker implements EventTracker {
       }
       if (attributes?['crash.breadcrumb_count'] != null) {
         print('🍞 Breadcrumbs: ${attributes!['crash.breadcrumb_count']} items');
+      }
+    }
+  }
+
+  /// Send crash with network-aware retry mechanism
+  Future<void> _sendCrashWithRetry(Map<String, dynamic> crashData) async {
+    try {
+      // Try to send immediately
+      await _httpClient.sendTelemetryData(crashData);
+      
+      if (_debugMode) {
+        print('✅ Crash sent successfully');
+      }
+    } catch (e) {
+      if (_debugMode) {
+        print('❌ Failed to send crash, storing offline: $e');
+      }
+      
+      // Store crash offline for retry
+      if (_crashStorage != null) {
+        final filename = await _crashStorage!.storeCrash(crashData);
+        if (filename != null && _debugMode) {
+          print('💾 Crash stored for retry: $filename');
+        }
       }
     }
   }
@@ -164,5 +222,21 @@ class JsonEventTracker implements EventTracker {
   void dispose() {
     flush(); // Send any remaining events
     _timeoutTimer?.cancel();
+    _retryManager?.dispose();
+  }
+
+  /// Get crash handling status
+  Map<String, dynamic> getCrashStatus() {
+    return {
+      'crash_storage_initialized': _crashStorage != null,
+      'retry_manager_initialized': _retryManager != null,
+      'retry_manager_status': _retryManager?.getStatus() ?? {},
+      'storage_stats': _crashStorage?.getStorageStats() ?? {},
+    };
+  }
+
+  /// Force retry all stored crashes
+  Future<Map<String, int>?> forceRetryStoredCrashes() async {
+    return await _retryManager?.forceRetryAll();
   }
 }
