@@ -8,9 +8,10 @@ void main() async {
 
   // Initialize your clean telemetry package
   await EdgeTelemetry.initialize(
-    endpoint: 'http://localhost:4318/v1/traces',
+    endpoint: 'http://localhost:3000/telemetry',  // JSON endpoint (not OpenTelemetry)
     serviceName: 'edge-telemetry-demo',
     debugMode: true,
+    useJsonFormat: true,  // Explicitly enable JSON format
   );
 
   // Set user context (optional)

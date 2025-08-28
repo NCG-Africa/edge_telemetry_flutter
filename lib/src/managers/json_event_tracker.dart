@@ -92,21 +92,23 @@ class JsonEventTracker implements EventTracker {
   @override
   void trackError(Object error,
       {StackTrace? stackTrace, Map<String, String>? attributes}) {
+    final timestamp = DateTime.now().toIso8601String();
+    
+    // Create crash data in the expected format
     final errorData = {
-      'type': 'error',
-      'error': error.toString(),
-      'timestamp': DateTime.now().toIso8601String(),
-      'attributes': {
-        ..._getAttributes(),
-        ...?attributes,
+      'timestamp': timestamp,
+      'data': {
+        'type': 'error',
+        'error': error.toString(),
+        'timestamp': timestamp,
+        'attributes': {
+          ..._getAttributes(),
+          ...?attributes,
+        },
+        if (stackTrace != null) 'stackTrace': stackTrace.toString(),
+        if (attributes?['crash.fingerprint'] != null)
+          'fingerprint': attributes!['crash.fingerprint'],
       },
-      if (stackTrace != null) 'stackTrace': stackTrace.toString(),
-      // Extract fingerprint from attributes for top-level crash data
-      if (attributes?['crash.fingerprint'] != null)
-        'fingerprint': attributes!['crash.fingerprint'],
-      // Include breadcrumbs if available in global attributes
-      if (_getAttributes().containsKey('breadcrumbs'))
-        'breadcrumbs': _getAttributes()['breadcrumbs'],
     };
 
     _sendCrashWithRetry(errorData);
@@ -130,15 +132,15 @@ class JsonEventTracker implements EventTracker {
       
       // Always log error report success (critical for debugging)
       print('✅ Error report sent successfully');
-      print('   📊 Error: ${crashData['error']}');
-      if (crashData['fingerprint'] != null) {
-        print('   🔍 Fingerprint: ${crashData['fingerprint']}');
+      print('   📊 Error: ${crashData['data']['error']}');
+      if (crashData['data']['fingerprint'] != null) {
+        print('   🔍 Fingerprint: ${crashData['data']['fingerprint']}');
       }
-      if (crashData['attributes']?['user.id'] != null) {
-        print('   👤 User: ${crashData['attributes']['user.id']}');
+      if (crashData['data']['attributes']?['user.id'] != null) {
+        print('   👤 User: ${crashData['data']['attributes']['user.id']}');
       }
-      if (crashData['attributes']?['session.id'] != null) {
-        print('   🔄 Session: ${crashData['attributes']['session.id']}');
+      if (crashData['data']['attributes']?['session.id'] != null) {
+        print('   🔄 Session: ${crashData['data']['attributes']['session.id']}');
       }
       print('   ⏰ Timestamp: ${crashData['timestamp']}');
     } catch (e) {

@@ -1,13 +1,27 @@
 # Changelog
 
+## [1.5.3] - 2025-08-29
+
+### 🔧 Critical Error Logging Fix
+
+#### Changed
+- **Breaking Change**: Updated JSON crash format to match backend expectations
+- JSON error reports now use nested structure with `timestamp` and `data` wrapper
+- Improved JSON crash payload structure for better backend compatibility
+- Updated error logging to work with new nested JSON format
+
+#### Fixed
+- Fixed JSON mode error telemetry structure to match expected backend format
+- Corrected logging paths for nested JSON crash data structure
+
 ## [1.5.2] - 2025-08-29
 
 ### 🔧 Critical Error Logging Fix
 
 #### Always-On Error Report Logging
-- **FIXED**: Error report logging now always shows, regardless of debug mode setting
-- **FIXED**: Enhanced visibility for error telemetry transmission status
-- **IMPROVED**: Critical error information is no longer hidden behind debug flags
+- **FIXED**: Error report logging now always shows regardless of debug mode setting
+- Removed debug mode dependency for error report logging visibility in JsonEventTracker, EventTrackerImpl, and CrashRetryManager
+- Enhanced visibility for error telemetry transmission status across all tracking modes
 
 #### Changes Made
 - **JsonEventTracker**: Always logs error report success/failure and offline storage
