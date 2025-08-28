@@ -449,6 +449,15 @@ class EdgeTelemetry {
               attributes != null &&
               attributes.containsKey('navigation.to')) {
             _sessionManager.recordScreen(attributes['navigation.to']!);
+            
+            // Auto-track navigation breadcrumb
+            _breadcrumbManager.addNavigation(
+              attributes['navigation.to']!,
+              data: {
+                'from': attributes['navigation.from'] ?? 'unknown',
+                'method': attributes['navigation.method'] ?? 'unknown',
+              },
+            );
           }
 
           // Track the event
