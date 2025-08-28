@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.5] - 2025-08-29
+
+### 🧪 Testing Methods Added
+
+#### Added
+- `testCrashReporting()` method for manual crash testing
+- `testConnectivity()` method for endpoint validation
+- Direct error telemetry testing bypassing automatic crash handlers
+- Test methods include proper crash fingerprints and breadcrumbs
+
+#### Enhanced
+- Simplified testing approach for error telemetry validation
+- Direct methods to verify error reporting functionality
+- Better testing capabilities for real application integration
+
 ## [1.5.4] - 2025-08-29
 
 ### 🔍 Enhanced Debug Logging

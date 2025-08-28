@@ -75,6 +75,18 @@ class HomeScreen extends StatelessWidget {
             ),
             SizedBox(height: 12),
             ElevatedButton(
+              onPressed: _testCrashReporting,
+              child: Text('🧪 Test Crash Reporting'),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            ),
+            SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: _testConnectivity,
+              child: Text('🧪 Test Connectivity'),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            ),
+            SizedBox(height: 12),
+            ElevatedButton(
               onPressed: () {
                 Navigator.push(
                   context,
@@ -131,6 +143,16 @@ class HomeScreen extends StatelessWidget {
         'error.user_triggered': 'true',
       });
     }
+  }
+
+  void _testCrashReporting() {
+    EdgeTelemetry.instance.testCrashReporting(
+      customMessage: 'Manual crash test from demo app'
+    );
+  }
+
+  void _testConnectivity() {
+    EdgeTelemetry.instance.testConnectivity();
   }
 }
 

@@ -974,29 +974,61 @@ class EdgeTelemetry {
     return '${errorType}_${errorMessage.hashCode}_${topStackFrame.hashCode}';
   }
 
-  /// Track an error or exception
+  /// Track a custom error or exception
   void trackError(Object error,
       {StackTrace? stackTrace, Map<String, String>? attributes}) {
     _ensureInitialized();
-
-    // Generate crash fingerprint
-    final fingerprint = _generateCrashFingerprint(error, stackTrace);
-    
-    // Get breadcrumbs for crash context
-    final breadcrumbs = _breadcrumbManager.getBreadcrumbsAsJson();
-    
-    // Add fingerprint and breadcrumbs to attributes
-    final crashAttributes = {
-      'crash.fingerprint': fingerprint,
-      'crash.breadcrumb_count': breadcrumbs.length.toString(),
-      ...?attributes,
-    };
-
-    final enrichedAttributes = _getEnrichedAttributes(crashAttributes);
-
     _eventTracker.trackError(error,
-        stackTrace: stackTrace, attributes: enrichedAttributes);
+        stackTrace: stackTrace, attributes: attributes);
   }
+
+  /// Test method: Simulate a crash for testing error telemetry
+  /// This bypasses automatic crash detection and directly sends an error report
+  void testCrashReporting({String? customMessage}) {
+    _ensureInitialized();
+    
+    final testError = Exception(customMessage ?? 'Test crash for EdgeTelemetry validation');
+    final testStack = StackTrace.current;
+    
+    print('🧪 TEST: Manually triggering crash report...');
+    
+    // Create test attributes with crash fingerprint
+    final testAttributes = <String, String>{
+      'test.manual_trigger': 'true',
+      'test.timestamp': DateTime.now().toIso8601String(),
+      'crash.fingerprint': 'TEST_${testError.hashCode}_${DateTime.now().millisecondsSinceEpoch}',
+    };
+    
+    // Add breadcrumbs if available
+    if (_breadcrumbManager != null) {
+      final breadcrumbs = _breadcrumbManager!.getBreadcrumbs();
+      if (breadcrumbs.isNotEmpty) {
+        testAttributes['breadcrumbs'] = breadcrumbs.map((b) => b.toJson()).toString();
+        testAttributes['crash.breadcrumb_count'] = breadcrumbs.length.toString();
+      }
+    }
+    
+    _eventTracker.trackError(testError, stackTrace: testStack, attributes: testAttributes);
+    
+    print('🧪 TEST: Crash report triggered - check logs above for transmission status');
+  }
+
+  /// Test method: Send a simple test event to verify connectivity
+  void testConnectivity() {
+    _ensureInitialized();
+    
+    print('🧪 TEST: Sending connectivity test event...');
+    
+    _eventTracker.trackEvent('test.connectivity_check', attributes: {
+      'test.timestamp': DateTime.now().toIso8601String(),
+      'test.type': 'connectivity_validation',
+      'telemetry.mode': _config!.useJsonFormat ? 'json' : 'opentelemetry',
+      'telemetry.endpoint': _config!.endpoint,
+    });
+    
+    print('🧪 TEST: Connectivity test sent - check logs for transmission status');
+  }
+
 
   /// Create a span manually (for advanced use cases)
   Span? startSpan(String name, {Map<String, String>? attributes}) {
