@@ -149,6 +149,12 @@ class EdgeTelemetry {
       FlutterError.presentError(details);
       trackError(details.exception, stackTrace: details.stack);
     };
+
+    // Capture Dart runtime errors (async exceptions, unhandled errors)
+    PlatformDispatcher.instance.onError = (error, stack) {
+      trackError(error, stackTrace: stack);
+      return true; // Mark as handled
+    };
   }
 
   /// Internal setup method - enhanced with HTTP monitoring
@@ -914,6 +920,18 @@ class EdgeTelemetry {
     }
 
     return result;
+  }
+
+  /// Generate crash fingerprint for grouping similar crashes
+  String _generateCrashFingerprint(Object error, StackTrace? stackTrace) {
+    final errorType = error.runtimeType.toString();
+    final errorMessage = error.toString();
+    final topStackFrame = stackTrace?.toString().split('\n').firstWhere(
+      (line) => line.trim().isNotEmpty,
+      orElse: () => 'no_stack',
+    ) ?? 'no_stack';
+    
+    return '${errorType}_${errorMessage.hashCode}_${topStackFrame.hashCode}';
   }
 
   /// Track an error or exception
