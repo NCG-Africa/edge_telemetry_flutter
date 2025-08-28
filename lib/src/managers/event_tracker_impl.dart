@@ -92,6 +92,20 @@ class EventTrackerImpl implements EventTracker {
 
       final otelAttributes = _createOpenTelemetryAttributes(errorAttributes);
       span.addEvent('error.occurred', attributes: otelAttributes);
+      
+      // Log successful error report transmission (OpenTelemetry mode)
+      print('✅ Error report sent successfully (OpenTelemetry)');
+      print('   📊 Error: ${error.toString()}');
+      if (attributes?['crash.fingerprint'] != null) {
+        print('   🔍 Fingerprint: ${attributes!['crash.fingerprint']}');
+      }
+      if (attributes?['user.id'] != null) {
+        print('   👤 User: ${attributes!['user.id']}');
+      }
+      if (attributes?['session.id'] != null) {
+        print('   🔄 Session: ${attributes!['session.id']}');
+      }
+      print('   ⏰ Timestamp: ${errorAttributes['error.timestamp']}');
     } finally {
       _spanManager.endSpan(span);
     }

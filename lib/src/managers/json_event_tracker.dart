@@ -129,18 +129,29 @@ class JsonEventTracker implements EventTracker {
       await _httpClient.sendTelemetryData(crashData);
       
       if (_debugMode) {
-        print('✅ Crash sent successfully');
+        print('✅ Error report sent successfully');
+        print('   📊 Error: ${crashData['error']}');
+        if (crashData['fingerprint'] != null) {
+          print('   🔍 Fingerprint: ${crashData['fingerprint']}');
+        }
+        if (crashData['attributes']?['user.id'] != null) {
+          print('   👤 User: ${crashData['attributes']['user.id']}');
+        }
+        if (crashData['attributes']?['session.id'] != null) {
+          print('   🔄 Session: ${crashData['attributes']['session.id']}');
+        }
+        print('   ⏰ Timestamp: ${crashData['timestamp']}');
       }
     } catch (e) {
       if (_debugMode) {
-        print('❌ Failed to send crash, storing offline: $e');
+        print('❌ Failed to send error report, storing offline: $e');
       }
       
       // Store crash offline for retry
       if (_crashStorage != null) {
         final filename = await _crashStorage!.storeCrash(crashData);
         if (filename != null && _debugMode) {
-          print('💾 Crash stored for retry: $filename');
+          print('💾 Error report stored for retry: $filename');
         }
       }
     }
