@@ -130,11 +130,15 @@ class EdgeTelemetry {
 
     await instance._setup(config);
     
-    // Show deprecation warning if runAppCallback is used
-    if (runAppCallback != null && debugMode) {
-      print('⚠️ DEPRECATED: runAppCallback parameter is deprecated and will be removed in v2.0.0');
-      print('   Crash handlers are now installed automatically during initialization.');
-      print('   Simply remove the runAppCallback parameter from EdgeTelemetry.initialize()');
+    // Backward compatibility: handle runAppCallback if provided
+    if (runAppCallback != null) {
+      if (debugMode) {
+        print('⚠️ DEPRECATED: runAppCallback parameter is deprecated and will be removed in v2.0.0');
+        print('   Crash handlers are now installed automatically during initialization.');
+        print('   Simply remove the runAppCallback parameter from EdgeTelemetry.initialize()');
+      }
+      // Execute the callback for backward compatibility
+      runAppCallback();
     }
   }
 
