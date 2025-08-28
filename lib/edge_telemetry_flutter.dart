@@ -356,10 +356,20 @@ class EdgeTelemetry {
   /// Get enriched attributes with session details
   Map<String, String> _getEnrichedAttributes(
       [Map<String, String>? customAttributes]) {
+    // Get breadcrumbs for crash context (only when tracking errors)
+    String? breadcrumbsJson;
+    if (customAttributes?.containsKey('crash.fingerprint') == true) {
+      final breadcrumbs = _breadcrumbManager.getBreadcrumbsAsJson();
+      if (breadcrumbs.isNotEmpty) {
+        breadcrumbsJson = breadcrumbs.toString(); // Convert to string for attributes
+      }
+    }
+    
     return {
       ..._globalAttributes,
       ..._sessionManager.getSessionAttributes(),
       'network.type': _networkMonitor?.currentNetworkType ?? 'unknown',
+      if (breadcrumbsJson != null) 'breadcrumbs': breadcrumbsJson,
       ...?customAttributes,
     };
   }
@@ -959,9 +969,13 @@ class EdgeTelemetry {
     // Generate crash fingerprint
     final fingerprint = _generateCrashFingerprint(error, stackTrace);
     
-    // Add fingerprint to attributes
+    // Get breadcrumbs for crash context
+    final breadcrumbs = _breadcrumbManager.getBreadcrumbsAsJson();
+    
+    // Add fingerprint and breadcrumbs to attributes
     final crashAttributes = {
       'crash.fingerprint': fingerprint,
+      'crash.breadcrumb_count': breadcrumbs.length.toString(),
       ...?attributes,
     };
 

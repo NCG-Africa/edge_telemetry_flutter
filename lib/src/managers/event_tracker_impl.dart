@@ -82,6 +82,11 @@ class EventTrackerImpl implements EventTracker {
         // Include crash fingerprint if available
         if (attributes?['crash.fingerprint'] != null)
           'crash.fingerprint': attributes!['crash.fingerprint']!,
+        // Include breadcrumbs if available
+        if (attributes?['breadcrumbs'] != null)
+          'breadcrumbs': attributes!['breadcrumbs']!,
+        if (attributes?['crash.breadcrumb_count'] != null)
+          'crash.breadcrumb_count': attributes!['crash.breadcrumb_count']!,
         ...?attributes,
       };
 

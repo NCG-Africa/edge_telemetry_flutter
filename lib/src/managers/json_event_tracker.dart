@@ -70,6 +70,9 @@ class JsonEventTracker implements EventTracker {
       // Extract fingerprint from attributes for top-level crash data
       if (attributes?['crash.fingerprint'] != null)
         'fingerprint': attributes!['crash.fingerprint'],
+      // Include breadcrumbs if available in global attributes
+      if (_getAttributes().containsKey('breadcrumbs'))
+        'breadcrumbs': _getAttributes()['breadcrumbs'],
     };
 
     _httpClient.sendTelemetryData(errorData);
@@ -78,6 +81,9 @@ class JsonEventTracker implements EventTracker {
       print('🚨 Error sent immediately (bypassed batching)');
       if (attributes?['crash.fingerprint'] != null) {
         print('🔍 Crash fingerprint: ${attributes!['crash.fingerprint']}');
+      }
+      if (attributes?['crash.breadcrumb_count'] != null) {
+        print('🍞 Breadcrumbs: ${attributes!['crash.breadcrumb_count']} items');
       }
     }
   }
