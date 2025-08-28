@@ -104,6 +104,8 @@ class EdgeTelemetry {
     Duration? dataRetentionPeriod,
     bool useJsonFormat = true, // Default to JSON for simplicity
     int eventBatchSize = 30,
+    @Deprecated('runAppCallback is deprecated. Crash handlers are now installed automatically.')
+    VoidCallback? runAppCallback,
   }) async {
     final config = TelemetryConfig(
       endpoint: endpoint,
@@ -127,6 +129,13 @@ class EdgeTelemetry {
     );
 
     await instance._setup(config);
+    
+    // Show deprecation warning if runAppCallback is used
+    if (runAppCallback != null && debugMode) {
+      print('⚠️ DEPRECATED: runAppCallback parameter is deprecated and will be removed in v2.0.0');
+      print('   Crash handlers are now installed automatically during initialization.');
+      print('   Simply remove the runAppCallback parameter from EdgeTelemetry.initialize()');
+    }
   }
 
   /// Setup global crash and error handling

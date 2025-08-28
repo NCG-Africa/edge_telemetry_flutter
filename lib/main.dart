@@ -8,10 +8,10 @@ void main() async {
 
   // Initialize your clean telemetry package
   await EdgeTelemetry.initialize(
-      endpoint: 'http://localhost:4318/v1/traces',
-      serviceName: 'edge-telemetry-demo',
-      debugMode: true,
-      runAppCallback: () => runApp(MyApp()));
+    endpoint: 'http://localhost:4318/v1/traces',
+    serviceName: 'edge-telemetry-demo',
+    debugMode: true,
+  );
 
   // Set user context (optional)
   EdgeTelemetry.instance.setUserProfile(
