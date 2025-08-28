@@ -90,7 +90,6 @@ class EdgeTelemetry {
   static Future<void> initialize({
     required String endpoint,
     required String serviceName,
-    required VoidCallback runAppCallback,
     bool debugMode = false,
     Map<String, String>? globalAttributes,
     Duration? batchTimeout,
@@ -126,7 +125,6 @@ class EdgeTelemetry {
     );
 
     await instance._setup(config);
-    _installGlobalCrashHandler(runAppCallback);
   }
 
   /// Setup global crash and error handling
