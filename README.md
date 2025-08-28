@@ -39,8 +39,9 @@ void main() async {
   await EdgeTelemetry.initialize(
     endpoint: 'https://your-backend.com/api/telemetry',
     serviceName: 'my-awesome-app',
-    runAppCallback: () => runApp(MyApp()),
   );
+  
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -102,29 +103,31 @@ Navigator.pop(context);                    // ✅ Automatically tracked
 
 ```dart
 await EdgeTelemetry.initialize(
-endpoint: 'https://your-backend.com/api/telemetry',
-serviceName: 'my-app',
-runAppCallback: () => runApp(MyApp()),
+  endpoint: 'https://your-backend.com/api/telemetry',
+  serviceName: 'my-app',
 
-// 🎯 Monitoring Controls (all default to true)
-enableHttpMonitoring: true,        // Automatic HTTP request tracking
-enableNetworkMonitoring: true,     // Network connectivity changes
-enablePerformanceMonitoring: true, // Frame drops, memory usage
-enableNavigationTracking: true,    // Screen transitions
+  // 🎯 Monitoring Controls (all default to true)
+  enableHttpMonitoring: true,        // Automatic HTTP request tracking
+  enableCrashReporting: true,        // Automatic crash & error reporting
+  enableNetworkMonitoring: true,     // Network connectivity changes
+  enablePerformanceMonitoring: true, // Frame drops, memory usage
+  enableNavigationTracking: true,    // Screen transitions
 
-// 🔧 Advanced Options
-debugMode: true,                   // Enable console logging
-useJsonFormat: true,              // Send JSON (recommended)
-eventBatchSize: 30,               // Events per batch
-enableLocalReporting: true,       // Store data locally for reports
+  // 🔧 Advanced Options
+  debugMode: true,                   // Enable console logging
+  useJsonFormat: true,              // Send JSON (recommended)
+  eventBatchSize: 30,               // Events per batch
+  enableLocalReporting: true,       // Store data locally for reports
 
-// 🏷️ Global attributes added to all telemetry
-globalAttributes: {
-'app.environment': 'production',
-'app.version': '1.2.3',
-'user.tier': 'premium',
-},
+  // 🏷️ Global attributes added to all telemetry
+  globalAttributes: {
+    'app.environment': 'production',
+    'app.version': '1.2.3',
+    'user.tier': 'premium',
+  },
 );
+
+runApp(MyApp());
 ```
 
 ## 👤 User Management
@@ -262,9 +265,12 @@ Generate comprehensive reports from collected data:
 ```dart
 // Enable local reporting
 await EdgeTelemetry.initialize(
-  // ... other config
+  endpoint: 'https://your-backend.com/api/telemetry',
+  serviceName: 'my-app',
   enableLocalReporting: true,
 );
+
+runApp(MyApp());
 
 // Generate reports
 final summaryReport = await EdgeTelemetry.instance.generateSummaryReport(
@@ -312,9 +318,12 @@ await complexBusinessLogic();
 ```dart
 // Enable detailed logging
 await EdgeTelemetry.initialize(
-debugMode: true,  // Shows all telemetry in console
-// ... other config
+  endpoint: 'https://your-backend.com/api/telemetry',
+  serviceName: 'my-app',
+  debugMode: true,  // Shows all telemetry in console
 );
+
+runApp(MyApp());
 
 // Check current status
 print('Initialized: ${EdgeTelemetry.instance.isInitialized}');
