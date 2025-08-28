@@ -939,7 +939,16 @@ class EdgeTelemetry {
       {StackTrace? stackTrace, Map<String, String>? attributes}) {
     _ensureInitialized();
 
-    final enrichedAttributes = _getEnrichedAttributes(attributes);
+    // Generate crash fingerprint
+    final fingerprint = _generateCrashFingerprint(error, stackTrace);
+    
+    // Add fingerprint to attributes
+    final crashAttributes = {
+      'crash.fingerprint': fingerprint,
+      ...?attributes,
+    };
+
+    final enrichedAttributes = _getEnrichedAttributes(crashAttributes);
 
     _eventTracker.trackError(error,
         stackTrace: stackTrace, attributes: enrichedAttributes);
