@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui';
 
 import 'package:edge_telemetry_flutter/src/collectors/flutter_device_info_collector.dart';
 import 'package:edge_telemetry_flutter/src/core/config/telemetry_config.dart';

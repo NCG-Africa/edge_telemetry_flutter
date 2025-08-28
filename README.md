@@ -5,11 +5,14 @@
 ## ✨ Features
 
 - 🌐 **Automatic HTTP Request Monitoring** - ALL network calls tracked automatically (URL, method, status, duration)
-- 🚨 **Automatic Crash & Error Reporting** - Global error handling with full stack traces
-- 📱 **Automatic Navigation Tracking** - Screen transitions and user journeys
+- 🚨 **Enhanced Crash & Error Reporting** - Global error handling with crash fingerprinting and breadcrumbs
+- 📱 **Automatic Navigation Tracking** - Screen transitions and user journeys with breadcrumb context
 - ⚡ **Automatic Performance Monitoring** - Frame drops, memory usage, app startup times
 - 🔄 **Automatic Session Management** - User sessions with auto-generated IDs
 - 👤 **User Context Management** - Associate telemetry with user profiles
+- 🍞 **Crash Context Breadcrumbs** - Rich crash context with automatic navigation breadcrumbs
+- 💾 **Offline Crash Storage** - Store crashes offline when network is unavailable
+- 🔄 **Smart Crash Retry** - Intelligent retry mechanism with exponential backoff
 - 📊 **Local Reporting** - Generate comprehensive reports without external dependencies
 - 🔧 **JSON & OpenTelemetry Support** - Industry-standard telemetry formats
 - 🎯 **Zero Configuration** - Works out of the box with sensible defaults
@@ -77,15 +80,17 @@ final response = await http.get(Uri.parse('https://api.example.com/users'));
 // - Performance category
 ```
 
-### 🚨 Crashes & Errors (Zero Setup Required)
+### 🚨 Enhanced Crash & Error Reporting (Zero Setup Required)
 ```dart
 // Any unhandled error anywhere in your app:
 throw Exception('Something went wrong');
 
 // Gets automatically tracked with:
-// - Full stack trace
+// - Full stack trace with crash fingerprinting
+// - Rich context via breadcrumbs (navigation, user actions)
 // - User and session context
 // - Device information
+// - Offline storage with smart retry mechanism
 ```
 
 ### 📱 Navigation (One Line Setup)
@@ -246,9 +251,9 @@ EdgeTelemetry.instance.trackEvent('user.profile_updated', attributes: {
 });
 ```
 
-### Error Tracking
+### Enhanced Error Tracking
 ```dart
-// Manual error tracking (usually not needed due to automatic crash reporting)
+// Manual error tracking with breadcrumb context
 try {
   await riskyOperation();
 } catch (error, stackTrace) {
@@ -256,6 +261,12 @@ try {
     stackTrace: stackTrace,
     attributes: {'context': 'payment_processing'});
 }
+
+// Add custom breadcrumbs for crash context
+EdgeTelemetry.instance.addUserActionBreadcrumb('payment_initiated');
+EdgeTelemetry.instance.addCustomBreadcrumb('Processing payment', 
+  level: BreadcrumbLevel.info,
+  data: {'amount': '99.99', 'currency': 'USD'});
 ```
 
 ## 📋 Local Reporting
@@ -289,6 +300,56 @@ await EdgeTelemetry.instance.exportReportToFile(
 ```
 
 ## 🚀 Advanced Features
+
+### 🍞 Breadcrumb Management
+```dart
+// Add breadcrumbs for crash context (automatic navigation breadcrumbs included)
+EdgeTelemetry.instance.addNavigationBreadcrumb('/checkout');
+EdgeTelemetry.instance.addUserActionBreadcrumb('button_clicked', 
+  data: {'button_id': 'purchase_now'});
+EdgeTelemetry.instance.addSystemBreadcrumb('memory_warning', 
+  level: BreadcrumbLevel.warning);
+EdgeTelemetry.instance.addNetworkBreadcrumb('connection_lost', 
+  level: BreadcrumbLevel.error);
+EdgeTelemetry.instance.addUIBreadcrumb('modal_opened', 
+  data: {'modal_type': 'payment'});
+
+// Get current breadcrumbs
+List<Breadcrumb> breadcrumbs = EdgeTelemetry.instance.getBreadcrumbs();
+
+// Clear breadcrumbs
+EdgeTelemetry.instance.clearBreadcrumbs();
+```
+
+### 🔄 Crash Fingerprinting & Grouping
+```dart
+// Crashes are automatically fingerprinted for grouping similar issues
+// Fingerprint format: ErrorType_MessageHash_StackFrameHash
+// Example: "Exception_-1234567890_987654321"
+
+// JSON crash report includes:
+{
+  "type": "error",
+  "fingerprint": "Exception_-1234567890_987654321",
+  "breadcrumbs": "[{\"message\":\"Navigated to /checkout\",\"category\":\"navigation\"}]",
+  "attributes": {
+    "crash.fingerprint": "Exception_-1234567890_987654321",
+    "crash.breadcrumb_count": "5"
+  }
+}
+```
+
+### 💾 Offline Crash Storage & Retry
+```dart
+// Crashes are automatically stored offline when network is unavailable
+// Smart retry mechanism with exponential backoff (1min → 2min → 4min → 1hr)
+// Max 3 retry attempts before cleanup
+// Automatic retry on network restoration
+
+// Manual retry control (usually not needed)
+final retryResults = await EdgeTelemetry.instance.forceRetryStoredCrashes();
+print('Retry results: ${retryResults['success']} successful, ${retryResults['failure']} failed');
+```
 
 ### Network-Aware Operations
 ```dart

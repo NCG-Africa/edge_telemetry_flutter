@@ -1,5 +1,82 @@
 # Changelog
 
+## [1.5.0] - 2025-08-28
+
+### 🚨 Enhanced Crash Reporting & Context System
+
+#### Crash Fingerprinting
+- **NEW**: Automatic crash fingerprinting for grouping similar crashes
+- Fingerprint format: `ErrorType_MessageHash_StackFrameHash`
+- Enables backend crash grouping and trend analysis
+- Included in both JSON and OpenTelemetry crash reports
+
+#### Breadcrumb Context System
+- **NEW**: Rich crash context via breadcrumb tracking system
+- Automatic navigation breadcrumbs for user journey context
+- Manual breadcrumb APIs for custom context tracking
+- Up to 50 breadcrumbs stored with automatic rotation
+- Categories: navigation, user, system, network, ui, custom
+
+#### Offline Crash Storage & Retry
+- **NEW**: Offline crash storage when network is unavailable
+- Intelligent retry mechanism with exponential backoff (1min → 2min → 4min → 1hr)
+- Maximum 3 retry attempts with automatic cleanup
+- Stores up to 100 crashes with automatic old crash cleanup
+- Network-aware retry scheduling
+
+### 🍞 Breadcrumb Management API
+```dart
+// Automatic navigation breadcrumbs (zero setup)
+Navigator.pushNamed(context, '/checkout'); // Auto-tracked
+
+// Manual breadcrumb tracking
+EdgeTelemetry.instance.addUserActionBreadcrumb('button_clicked');
+EdgeTelemetry.instance.addSystemBreadcrumb('memory_warning', level: BreadcrumbLevel.warning);
+EdgeTelemetry.instance.addNetworkBreadcrumb('connection_lost', level: BreadcrumbLevel.error);
+EdgeTelemetry.instance.addUIBreadcrumb('modal_opened');
+EdgeTelemetry.instance.addCustomBreadcrumb('Processing payment', data: {'amount': '99.99'});
+
+// Breadcrumb management
+List<Breadcrumb> breadcrumbs = EdgeTelemetry.instance.getBreadcrumbs();
+EdgeTelemetry.instance.clearBreadcrumbs();
+```
+
+### 📊 Enhanced Crash Report Format
+```json
+{
+  "type": "error",
+  "fingerprint": "Exception_-1234567890_987654321",
+  "breadcrumbs": "[{\"message\":\"Navigated to /checkout\",\"category\":\"navigation\"}]",
+  "attributes": {
+    "crash.fingerprint": "Exception_-1234567890_987654321",
+    "crash.breadcrumb_count": "5",
+    "user.id": "user_1704067200123_abcd1234",
+    "session.id": "session_1704067200456_xyz789",
+    "device.id": "device_1704067200000_a8b9c2d1_android"
+  }
+}
+```
+
+### 🔧 Technical Implementation
+- Added `Breadcrumb` model with JSON serialization
+- Added `BreadcrumbManager` with automatic rotation and categorization
+- Added `CrashStorage` with persistent file-based storage
+- Added `CrashRetryManager` with exponential backoff retry logic
+- Enhanced `JsonEventTracker` with offline storage and retry integration
+- Enhanced `EventTrackerImpl` with breadcrumb support for OpenTelemetry
+- Integrated breadcrumb collection in main `EdgeTelemetry` class
+
+### 📦 Dependencies
+- Added `path_provider: ^2.1.4` for crash file storage
+
+### 🎯 Benefits
+- **Crash Grouping**: Fingerprinting enables backend crash categorization and trend analysis
+- **Rich Context**: Breadcrumbs provide detailed user journey context for crash debugging
+- **Offline Resilience**: Crashes are never lost due to network issues
+- **Smart Retries**: Exponential backoff prevents server overload while ensuring delivery
+- **Zero Configuration**: Navigation breadcrumbs work automatically with existing setup
+- **Performance Optimized**: Breadcrumb rotation and storage limits prevent memory issues
+
 ## [1.4.10] - 2025-08-01
 
 ### 🔄 Profile Event System
