@@ -128,19 +128,12 @@ class EdgeTelemetry {
   }
 
   /// Setup global crash and error handling
-  static void _installGlobalCrashHandler(VoidCallback runAppCallback) {
+  void _installGlobalCrashHandler() {
     // Capture Flutter framework errors
     FlutterError.onError = (FlutterErrorDetails details) {
       FlutterError.presentError(details);
-      instance.trackError(details.exception, stackTrace: details.stack);
+      trackError(details.exception, stackTrace: details.stack);
     };
-
-    // Capture all other errors with runZonedGuarded
-    runZonedGuarded(() {
-      runAppCallback();
-    }, (Object error, StackTrace stackTrace) {
-      instance.trackError(error, stackTrace: stackTrace);
-    });
   }
 
   /// Internal setup method - enhanced with HTTP monitoring
@@ -179,6 +172,9 @@ class EdgeTelemetry {
       if (config.enableHttpMonitoring) {
         _setupHttpMonitoring();
       }
+
+      // Setup crash handlers
+      _installGlobalCrashHandler();
 
       // Setup navigation tracking
       _setupNavigationTracking();
