@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.5.2] - 2025-08-29
+
+### 🔧 Critical Error Logging Fix
+
+#### Always-On Error Report Logging
+- **FIXED**: Error report logging now always shows, regardless of debug mode setting
+- **FIXED**: Enhanced visibility for error telemetry transmission status
+- **IMPROVED**: Critical error information is no longer hidden behind debug flags
+
+#### Changes Made
+- **JsonEventTracker**: Always logs error report success/failure and offline storage
+- **EventTrackerImpl**: Always logs OpenTelemetry error report transmission
+- **CrashRetryManager**: Always logs retry attempts and results
+- Removed debug mode dependency for error report logging visibility
+
+#### Why This Fix Was Needed
+- Error report transmission is critical information developers need to see
+- Previous version only showed logging when `debugMode: true` was set
+- This caused confusion when error telemetry appeared to not be working
+- Error logging should always be visible for debugging and verification
+
+### 🎯 Impact
+- **Better Developer Experience**: Immediate visibility when errors are captured and sent
+- **Easier Debugging**: No need to enable debug mode to see error telemetry status
+- **Production Visibility**: Error transmission status visible in all environments
+- **Troubleshooting**: Clear feedback when error reports succeed or fail
+
 ## [1.5.1] - 2025-08-29
 
 ### 🔍 Enhanced Error Report Logging

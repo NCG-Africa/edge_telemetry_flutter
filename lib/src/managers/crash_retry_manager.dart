@@ -144,24 +144,22 @@ class CrashRetryManager {
 
       await _httpClient.sendTelemetryData(cleanCrashData);
 
-      if (_debugMode) {
-        print('✅ Error report retry successful: $filename');
-        print('   📊 Error: ${cleanCrashData['error']}');
-        if (cleanCrashData['fingerprint'] != null) {
-          print('   🔍 Fingerprint: ${cleanCrashData['fingerprint']}');
-        }
-        print('   🔄 Retry attempt: ${currentRetryCount + 1}/$_maxRetries');
-        if (cleanCrashData['attributes']?['user.id'] != null) {
-          print('   👤 User: ${cleanCrashData['attributes']['user.id']}');
-        }
-        print('   ⏰ Retry timestamp: ${cleanCrashData['retry_info']['retry_at']}');
+      // Always log retry success (critical for debugging)
+      print('✅ Error report retry successful: $filename');
+      print('   📊 Error: ${cleanCrashData['error']}');
+      if (cleanCrashData['fingerprint'] != null) {
+        print('   🔍 Fingerprint: ${cleanCrashData['fingerprint']}');
       }
+      print('   🔄 Retry attempt: ${currentRetryCount + 1}/$_maxRetries');
+      if (cleanCrashData['attributes']?['user.id'] != null) {
+        print('   👤 User: ${cleanCrashData['attributes']['user.id']}');
+      }
+      print('   ⏰ Retry timestamp: ${cleanCrashData['retry_info']['retry_at']}');
 
       return true;
     } catch (e) {
-      if (_debugMode) {
-        print('❌ Failed to retry error report $filename: $e');
-      }
+      // Always log retry failures (critical for debugging)
+      print('❌ Failed to retry error report $filename: $e');
       return false;
     }
   }
