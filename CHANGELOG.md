@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.5.1] - 2025-08-29
+
+### 🔍 Enhanced Error Report Logging
+
+#### Console Logging for Error Reports
+- **NEW**: Comprehensive console logging when error reports are successfully sent
+- **NEW**: Detailed logging for retry attempts with attempt count and metadata
+- **NEW**: Mode-specific logging (JSON vs OpenTelemetry) for better debugging
+- Enhanced visibility into error report transmission status
+
+#### Logging Features
+- **Success Logging**: Shows error message, fingerprint, user ID, session ID, and timestamp
+- **Retry Logging**: Displays retry attempt number and detailed context for retried reports
+- **Debug Mode Only**: Logging only appears when `debugMode: true` is set
+- **Rich Context**: Includes crash fingerprint, user context, and session information
+
+#### Console Output Examples
+```
+✅ Error report sent successfully
+   📊 Error: NetworkException: Connection timeout
+   🔍 Fingerprint: Exception_12345_67890
+   👤 User: user_1704067200123_abcd1234
+   🔄 Session: session_1704067200456_xyz789
+   ⏰ Timestamp: 2025-08-29T01:01:52Z
+
+✅ Error report retry successful: crash_1704067200000.json
+   📊 Error: NetworkException: Connection timeout
+   🔍 Fingerprint: Exception_12345_67890
+   🔄 Retry attempt: 2/3
+   👤 User: user_1704067200123_abcd1234
+   ⏰ Retry timestamp: 2025-08-29T01:01:52Z
+```
+
+### 🔧 Technical Implementation
+- Enhanced `JsonEventTracker._sendCrashWithRetry()` with detailed success logging
+- Enhanced `EventTrackerImpl.trackError()` with OpenTelemetry-specific logging
+- Enhanced `CrashRetryManager._retrySingleCrash()` with retry success logging
+- All logging respects debug mode settings and provides structured output
+
+### 🎯 Benefits
+- **Better Debugging**: Clear visibility when error reports are successfully transmitted
+- **Retry Visibility**: Track retry attempts and success rates in console output
+- **Development Workflow**: Immediate feedback during development and testing
+- **Production Ready**: Debug-only logging ensures no performance impact in production
+
 ## [1.5.0] - 2025-08-28
 
 ### 🚨 Enhanced Crash Reporting & Context System
