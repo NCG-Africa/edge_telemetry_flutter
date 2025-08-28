@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.4] - 2025-08-29
+
+### 🔍 Enhanced Debug Logging
+
+#### Added
+- Comprehensive debug logging for EdgeTelemetry initialization process
+- Debug output for telemetry mode selection (JSON vs OpenTelemetry)
+- Enhanced logging for crash handler installation
+- Detailed tracking of error telemetry flow for debugging
+
+#### Enhanced
+- Better visibility into EdgeTelemetry setup and configuration
+- Improved debugging capabilities for error reporting issues
+
 ## [1.5.3] - 2025-08-29
 
 ### 🔧 Critical Error Logging Fix

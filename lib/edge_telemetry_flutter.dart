@@ -183,10 +183,13 @@ class EdgeTelemetry {
       await _collectDeviceInfo();
 
       // Setup telemetry (JSON or OpenTelemetry)
+      print('🔧 Setting up telemetry mode: ${config.useJsonFormat ? 'JSON' : 'OpenTelemetry'}');
       if (config.useJsonFormat) {
         await _setupJsonTelemetry();
+        print('✅ JSON telemetry setup completed');
       } else {
         await _setupTelemetry();
+        print('✅ OpenTelemetry setup completed');
       }
 
       // Initialize core managers
@@ -205,7 +208,9 @@ class EdgeTelemetry {
 
       // Setup crash handlers
       if (config.enableCrashReporting) {
+        print('🚨 Installing global crash handlers...');
         _installGlobalCrashHandler();
+        print('✅ Global crash handlers installed');
       }
 
       // Setup navigation tracking
@@ -217,6 +222,13 @@ class EdgeTelemetry {
       }
 
       _initialized = true;
+
+      // Debug: Log initialization completion
+      print('🔧 EdgeTelemetry initialized successfully');
+      print('   📍 Mode: ${config.useJsonFormat ? 'JSON' : 'OpenTelemetry'}');
+      print('   🎯 Endpoint: ${config.endpoint}');
+      print('   🚨 Crash reporting: ${config.enableCrashReporting}');
+      print('   🔍 Debug mode: ${config.debugMode}');
 
       // Track initialization
       _eventTracker.trackEvent('telemetry.initialized', attributes: {
