@@ -22,6 +22,8 @@ import 'package:edge_telemetry_flutter/src/managers/json_event_tracker.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/span_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/user_id_manager.dart';
+import 'package:edge_telemetry_flutter/src/managers/breadcrumb_manager.dart';
+import 'package:edge_telemetry_flutter/src/core/models/breadcrumb.dart';
 import 'package:edge_telemetry_flutter/src/monitors/flutter_network_monitor.dart'
     as network_monitor;
 import 'package:edge_telemetry_flutter/src/monitors/flutter_performance_monitor.dart';
@@ -71,6 +73,9 @@ class EdgeTelemetry {
 
   // NEW: HTTP monitoring state
   bool _httpMonitoringInstalled = false;
+
+  // Breadcrumb management
+  late BreadcrumbManager _breadcrumbManager;
 
   // State
   bool _initialized = false;
@@ -185,6 +190,9 @@ class EdgeTelemetry {
 
       // Initialize core managers
       _initializeManagers();
+
+      // Initialize breadcrumb manager
+      _breadcrumbManager = BreadcrumbManager(debugMode: config.debugMode);
 
       // Setup monitoring components
       await _setupMonitoring();
@@ -1006,6 +1014,72 @@ class EdgeTelemetry {
   /// Get global attributes (now includes session details)
   Map<String, String> get globalAttributes =>
       Map.unmodifiable(_getEnrichedAttributes());
+
+  // ==================== BREADCRUMB API METHODS ====================
+
+  /// Add a breadcrumb for crash context
+  void addBreadcrumb(
+    String message, {
+    required String category,
+    BreadcrumbLevel level = BreadcrumbLevel.info,
+    Map<String, String>? data,
+  }) {
+    _ensureInitialized();
+    _breadcrumbManager.addBreadcrumb(
+      message,
+      category: category,
+      level: level,
+      data: data,
+    );
+  }
+
+  /// Add navigation breadcrumb
+  void addNavigationBreadcrumb(String route, {Map<String, String>? data}) {
+    _ensureInitialized();
+    _breadcrumbManager.addNavigation(route, data: data);
+  }
+
+  /// Add user action breadcrumb
+  void addUserActionBreadcrumb(String action, {Map<String, String>? data}) {
+    _ensureInitialized();
+    _breadcrumbManager.addUserAction(action, data: data);
+  }
+
+  /// Add system event breadcrumb
+  void addSystemBreadcrumb(String event, {BreadcrumbLevel level = BreadcrumbLevel.info, Map<String, String>? data}) {
+    _ensureInitialized();
+    _breadcrumbManager.addSystemEvent(event, level: level, data: data);
+  }
+
+  /// Add network event breadcrumb
+  void addNetworkBreadcrumb(String event, {BreadcrumbLevel level = BreadcrumbLevel.info, Map<String, String>? data}) {
+    _ensureInitialized();
+    _breadcrumbManager.addNetworkEvent(event, level: level, data: data);
+  }
+
+  /// Add UI event breadcrumb
+  void addUIBreadcrumb(String event, {Map<String, String>? data}) {
+    _ensureInitialized();
+    _breadcrumbManager.addUIEvent(event, data: data);
+  }
+
+  /// Add custom breadcrumb
+  void addCustomBreadcrumb(String message, {BreadcrumbLevel level = BreadcrumbLevel.info, Map<String, String>? data}) {
+    _ensureInitialized();
+    _breadcrumbManager.addCustom(message, level: level, data: data);
+  }
+
+  /// Get all breadcrumbs
+  List<Breadcrumb> getBreadcrumbs() {
+    _ensureInitialized();
+    return _breadcrumbManager.getBreadcrumbs();
+  }
+
+  /// Clear all breadcrumbs
+  void clearBreadcrumbs() {
+    _ensureInitialized();
+    _breadcrumbManager.clear();
+  }
 
   // ==================== REPORT API METHODS ====================
 
