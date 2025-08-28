@@ -8,7 +8,7 @@
 - **NEW**: Automatic crash fingerprinting for grouping similar crashes
 - Fingerprint format: `ErrorType_MessageHash_StackFrameHash`
 - Enables backend crash grouping and trend analysis
-- Included in both JSON and OpenTelemetry crash reports
+- Included in JSON crash reports
 
 #### Breadcrumb Context System
 - **NEW**: Rich crash context via breadcrumb tracking system
