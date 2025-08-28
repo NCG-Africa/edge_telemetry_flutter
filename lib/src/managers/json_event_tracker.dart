@@ -67,12 +67,18 @@ class JsonEventTracker implements EventTracker {
         ...?attributes,
       },
       if (stackTrace != null) 'stackTrace': stackTrace.toString(),
+      // Extract fingerprint from attributes for top-level crash data
+      if (attributes?['crash.fingerprint'] != null)
+        'fingerprint': attributes!['crash.fingerprint'],
     };
 
     _httpClient.sendTelemetryData(errorData);
 
     if (_debugMode) {
       print('🚨 Error sent immediately (bypassed batching)');
+      if (attributes?['crash.fingerprint'] != null) {
+        print('🔍 Crash fingerprint: ${attributes!['crash.fingerprint']}');
+      }
     }
   }
 
