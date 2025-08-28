@@ -79,6 +79,9 @@ class EventTrackerImpl implements EventTracker {
         'error.message': error.toString(),
         'error.timestamp': DateTime.now().toIso8601String(),
         'error.has_stack_trace': stackTrace != null ? 'true' : 'false',
+        // Include crash fingerprint if available
+        if (attributes?['crash.fingerprint'] != null)
+          'crash.fingerprint': attributes!['crash.fingerprint']!,
         ...?attributes,
       };
 
