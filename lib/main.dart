@@ -85,6 +85,18 @@ class HomeScreen extends StatelessWidget {
               child: Text('🧪 Test Connectivity'),
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             ),
+            SizedBox(height: 10),
+            ElevatedButton(
+              onPressed: _simulateCrash,
+              child: Text('💥 Simulate Crash'),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            ),
+            SizedBox(height: 10),
+            ElevatedButton(
+              onPressed: _simulateAsyncCrash,
+              child: Text('⚡ Simulate Async Crash'),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+            ),
             SizedBox(height: 12),
             ElevatedButton(
               onPressed: () {
@@ -153,6 +165,20 @@ class HomeScreen extends StatelessWidget {
 
   void _testConnectivity() {
     EdgeTelemetry.instance.testConnectivity();
+  }
+
+  void _simulateCrash() {
+    // Use Future.microtask to escape the button callback context
+    Future.microtask(() {
+      throw Exception('Simulated crash for testing EdgeTelemetry');
+    });
+  }
+
+  void _simulateAsyncCrash() {
+    // Async crash that should be caught by PlatformDispatcher.onError
+    Future.delayed(Duration(milliseconds: 100), () {
+      throw Exception('Async crash for testing EdgeTelemetry');
+    });
   }
 }
 

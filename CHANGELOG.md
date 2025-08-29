@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.6] - 2025-08-29
+
+### Enhanced Automatic Crash Detection
+
+#### Fixed
+- Enhanced global crash handler with `runZonedGuarded` for better exception catching
+- Fixed automatic crash detection not working for exceptions in button callbacks
+- Improved error handler chaining to prevent handler conflicts
+
+#### Added
+- New crash simulation methods that properly trigger automatic crash detection
+- `_simulateCrash()` using `Future.microtask()` to escape callback context
+- `_simulateAsyncCrash()` using `Future.delayed()` for async crash testing
+- Enhanced debug logging for crash handler troubleshooting
+
+#### Enhanced
+- Better exception handling flow for both sync and async crashes
+- Improved crash detection reliability in real application scenarios
+
 ## [1.5.5] - 2025-08-29
 
 ### 🧪 Testing Methods Added

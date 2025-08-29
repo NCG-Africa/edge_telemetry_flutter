@@ -152,15 +152,41 @@ class EdgeTelemetry {
   void _installGlobalCrashHandler() {
     // Capture Flutter framework errors
     FlutterError.onError = (FlutterErrorDetails details) {
+      print('🔍 DEBUG: FlutterError.onError triggered: ${details.exception}');
       FlutterError.presentError(details);
       trackError(details.exception, stackTrace: details.stack);
     };
 
     // Capture Dart runtime errors (async exceptions, unhandled errors)
     PlatformDispatcher.instance.onError = (error, stack) {
+      print('🔍 DEBUG: PlatformDispatcher.onError triggered: $error');
       trackError(error, stackTrace: stack);
       return true; // Mark as handled
     };
+
+    // Override the default error handler to catch synchronous exceptions
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (FlutterErrorDetails details) {
+      print('🔍 DEBUG: Enhanced FlutterError.onError triggered: ${details.exception}');
+      
+      // Call original handler first
+      if (originalOnError != null) {
+        originalOnError(details);
+      } else {
+        FlutterError.presentError(details);
+      }
+      
+      // Track the error
+      trackError(details.exception, stackTrace: details.stack);
+    };
+
+    // Install zone error handler for uncaught exceptions
+    runZonedGuarded(() {
+      // This will catch any uncaught exceptions in the current zone
+    }, (error, stack) {
+      print('🔍 DEBUG: runZonedGuarded caught error: $error');
+      trackError(error, stackTrace: stack);
+    });
   }
 
   /// Internal setup method - enhanced with HTTP monitoring
