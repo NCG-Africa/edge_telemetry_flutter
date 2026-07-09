@@ -1,0 +1,15 @@
+name: Publish to pub.dev
+
+# Distribution happens ONLY on a version tag (e.g. v1.5.2). No other trigger publishes.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+jobs:
+  publish:
+    permissions:
+      id-token: write # required for OIDC auth to pub.dev (no secret token needed)
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: edge_telemetry_flutter
