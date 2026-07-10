@@ -59,7 +59,7 @@ class PerfCaptureHook implements CaptureHook {
     final startupMs = DateTime.now().difference(_appStartTime!).inMilliseconds;
     final startupType = _determineStartupType(startupMs);
 
-    sink.add(EdgeEvent.event('performance.app_startup', attributes: {
+    sink.add(EdgeEvent.event('page_load', attributes: {
       'startup.duration_ms': startupMs.toString(),
       'startup.type': startupType,
       'startup.timestamp': DateTime.now().toIso8601String(),
@@ -79,8 +79,7 @@ class PerfCaptureHook implements CaptureHook {
     final frameType = _determineFrameType(totalDuration);
     final isDropped = totalDuration > 16.67;
 
-    sink.add(
-        EdgeEvent.metric('performance.frame_time', totalDuration, attributes: {
+    sink.add(EdgeEvent.metric('frame_render_time', totalDuration, attributes: {
       'frame.build_duration_ms': buildDuration.toString(),
       'frame.raster_duration_ms': rasterDuration.toString(),
       'frame.type': frameType,
@@ -90,7 +89,8 @@ class PerfCaptureHook implements CaptureHook {
 
     if (isDropped) {
       final severity = totalDuration > 33.33 ? 'severe' : 'minor';
-      sink.add(EdgeEvent.event('performance.frame_drop', attributes: {
+      // Canon: a dropped frame is the `long_task` metric (event→metric, §4).
+      sink.add(EdgeEvent.metric('long_task', totalDuration, attributes: {
         'frame.build_duration_ms': buildDuration.toString(),
         'frame.raster_duration_ms': rasterDuration.toString(),
         'frame.total_duration_ms': totalDuration.toString(),
@@ -104,8 +104,7 @@ class PerfCaptureHook implements CaptureHook {
     try {
       final memoryUsage = _getMemoryUsage();
       if (memoryUsage != null) {
-        sink.add(EdgeEvent.metric(
-            'performance.memory_usage', memoryUsage.toDouble(),
+        sink.add(EdgeEvent.metric('memory_usage', memoryUsage.toDouble(),
             attributes: {
               'memory.type': 'rss',
               'memory.unit': 'bytes',

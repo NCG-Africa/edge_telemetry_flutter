@@ -11,13 +11,10 @@ class EdgeNavigationObserver extends NavigatorObserver {
   final Map<String, DateTime> _screenStartTimes = {};
 
   final Function(String, {Map<String, String>? attributes})? _onEvent;
-  final Function(String, double, {Map<String, String>? attributes})? _onMetric;
 
   EdgeNavigationObserver({
     Function(String, {Map<String, String>? attributes})? onEvent,
-    Function(String, double, {Map<String, String>? attributes})? onMetric,
-  })  : _onEvent = onEvent,
-        _onMetric = onMetric;
+  }) : _onEvent = onEvent;
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
@@ -93,13 +90,12 @@ class EdgeNavigationObserver extends NavigatorObserver {
     if (startTime == null) return;
 
     final duration = DateTime.now().difference(startTime);
-    _onMetric?.call(
-        'performance.screen_duration', duration.inMilliseconds.toDouble(),
-        attributes: {
-          'screen.name': routeName,
-          'navigation.exit_method': exitMethod,
-          'metric.unit': 'milliseconds',
-        });
+    // Canon: screen dwell is the `screen.duration` event (metric→event, §2).
+    _onEvent?.call('screen.duration', attributes: {
+      'screen.name': routeName,
+      'screen.duration_ms': duration.inMilliseconds.toString(),
+      'screen.exit_method': exitMethod,
+    });
   }
 
   /// Track navigation event
@@ -124,7 +120,7 @@ class EdgeNavigationObserver extends NavigatorObserver {
           route.settings.arguments.runtimeType.toString();
     }
 
-    _onEvent?.call('navigation.route_change', attributes: navigationAttributes);
+    _onEvent?.call('navigation', attributes: navigationAttributes);
   }
 
   /// Clean up any remaining timing for a route

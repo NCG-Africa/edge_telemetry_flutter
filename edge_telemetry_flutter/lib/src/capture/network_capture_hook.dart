@@ -59,7 +59,7 @@ class NetworkCaptureHook implements CaptureHook {
     _currentNetworkType = newType;
     context.networkType = newType;
 
-    sink.add(EdgeEvent.event('network.connectivity_change', attributes: {
+    sink.add(EdgeEvent.event('network_change', attributes: {
       'network.previous_type': previous,
       'network.current_type': newType,
       'network.change_timestamp': DateTime.now().toIso8601String(),
