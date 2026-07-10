@@ -2,12 +2,11 @@
 
 import 'dart:async';
 
-import '../core/interfaces/event_tracker.dart';
 import '../http/json_http_client.dart';
 import '../storage/crash_storage.dart';
 import '../managers/crash_retry_manager.dart';
 
-class JsonEventTracker implements EventTracker {
+class JsonEventTracker {
   final JsonHttpClient _httpClient;
   final Map<String, String> Function() _getAttributes;
   final int _batchSize;
@@ -57,7 +56,6 @@ class JsonEventTracker implements EventTracker {
     }
   }
 
-  @override
   void trackEvent(String eventName, {Map<String, String>? attributes}) {
     final eventData = {
       'type': 'event',
@@ -72,7 +70,6 @@ class JsonEventTracker implements EventTracker {
     _addToBatch(eventData);
   }
 
-  @override
   void trackMetric(String metricName, double value,
       {Map<String, String>? attributes}) {
     final metricData = {
@@ -89,7 +86,6 @@ class JsonEventTracker implements EventTracker {
     _addToBatch(metricData);
   }
 
-  @override
   void trackError(Object error,
       {StackTrace? stackTrace, Map<String, String>? attributes}) {
     final errorData = {
@@ -228,7 +224,6 @@ class JsonEventTracker implements EventTracker {
     };
   }
 
-  @override
   void dispose() {
     // Release resources only. Buffered events are dropped, matching v1.5.2
     // (flush-on-shutdown is a wire-behaviour change deferred to v2.0.0).

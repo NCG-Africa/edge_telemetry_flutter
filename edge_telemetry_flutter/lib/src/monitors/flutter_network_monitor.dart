@@ -4,8 +4,8 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 
-import '../core/interfaces/event_tracker.dart';
 import '../core/interfaces/network_monitor.dart';
+import '../managers/json_event_tracker.dart';
 
 /// Flutter implementation of network connectivity monitoring
 ///
@@ -18,9 +18,9 @@ class FlutterNetworkMonitor implements NetworkMonitor {
 
   final StreamController<String> _networkTypeController =
       StreamController<String>.broadcast();
-  final EventTracker? _eventTracker;
+  final JsonEventTracker? _eventTracker;
 
-  FlutterNetworkMonitor({EventTracker? eventTracker})
+  FlutterNetworkMonitor({JsonEventTracker? eventTracker})
       : _eventTracker = eventTracker;
 
   @override

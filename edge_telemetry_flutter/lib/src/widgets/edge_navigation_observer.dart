@@ -1,7 +1,6 @@
 // lib/src/widgets/edge_navigation_observer.dart
 
 import 'package:flutter/material.dart';
-import 'package:opentelemetry/api.dart';
 
 /// Navigation observer that automatically tracks screen changes
 ///
@@ -9,23 +8,16 @@ import 'package:opentelemetry/api.dart';
 /// screen tracking and navigation analytics
 class EdgeNavigationObserver extends NavigatorObserver {
   String? _currentRoute;
-  final Map<String, Span> _activeScreenSpans = {};
   final Map<String, DateTime> _screenStartTimes = {};
 
   final Function(String, {Map<String, String>? attributes})? _onEvent;
   final Function(String, double, {Map<String, String>? attributes})? _onMetric;
-  final Function(String, {Map<String, String>? attributes})? _onSpanStart;
-  final Function(Span)? _onSpanEnd;
 
   EdgeNavigationObserver({
     Function(String, {Map<String, String>? attributes})? onEvent,
     Function(String, double, {Map<String, String>? attributes})? onMetric,
-    Function(String, {Map<String, String>? attributes})? onSpanStart,
-    Function(Span)? onSpanEnd,
   })  : _onEvent = onEvent,
-        _onMetric = onMetric,
-        _onSpanStart = onSpanStart,
-        _onSpanEnd = onSpanEnd;
+        _onMetric = onMetric;
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
@@ -63,13 +55,13 @@ class EdgeNavigationObserver extends NavigatorObserver {
         ? _extractRouteName(previousRoute)
         : _currentRoute;
 
-    // End previous screen span
+    // Close out the previous screen (emit its duration metric)
     if (previousRouteName != null) {
-      _endScreenSpan(previousRouteName, method);
+      _endScreen(previousRouteName, method);
     }
 
-    // Start new screen span
-    _startScreenSpan(routeName, method, previousRouteName);
+    // Start timing the new screen
+    _startScreen(routeName);
 
     // Track navigation event
     _trackNavigationEvent(routeName, previousRouteName, method, route);
@@ -90,64 +82,24 @@ class EdgeNavigationObserver extends NavigatorObserver {
     return 'screen_${routeType}_$routeHash';
   }
 
-  /// Start a new screen span
-  void _startScreenSpan(
-      String routeName, String method, String? previousRouteName) {
-    final startTime = DateTime.now();
-
-    // Notify about span start (will be handled by the main telemetry class)
-    _onSpanStart?.call('screen.$routeName', attributes: {
-      'screen.name': routeName,
-      'screen.start_time': startTime.toIso8601String(),
-      'navigation.method': method,
-      if (previousRouteName != null) 'navigation.from': previousRouteName,
-      'screen.type': 'auto_tracked',
-    });
-
-    _screenStartTimes[routeName] = startTime;
+  /// Begin timing a screen
+  void _startScreen(String routeName) {
+    _screenStartTimes[routeName] = DateTime.now();
   }
 
-  /// End a screen span and track duration
-  void _endScreenSpan(String routeName, String exitMethod) {
-    final span = _activeScreenSpans.remove(routeName);
+  /// End a screen and track its duration metric
+  void _endScreen(String routeName, String exitMethod) {
     final startTime = _screenStartTimes.remove(routeName);
+    if (startTime == null) return;
 
-    if (span != null && startTime != null) {
-      final duration = DateTime.now().difference(startTime);
-
-      // Add duration to span
-      span.setAttribute(Attribute.fromString(
-        'screen.duration_ms',
-        duration.inMilliseconds.toString(),
-      ));
-
-      span.setAttribute(Attribute.fromString(
-        'screen.exit_method',
-        exitMethod,
-      ));
-
-      // Track screen duration metric
-      _onMetric?.call(
-          'performance.screen_duration', duration.inMilliseconds.toDouble(),
-          attributes: {
-            'screen.name': routeName,
-            'navigation.exit_method': exitMethod,
-            'metric.unit': 'milliseconds',
-          });
-
-      // End the span
-      _onSpanEnd?.call(span);
-    } else if (startTime != null) {
-      // We have start time but no span, still track the metric
-      final duration = DateTime.now().difference(startTime);
-      _onMetric?.call(
-          'performance.screen_duration', duration.inMilliseconds.toDouble(),
-          attributes: {
-            'screen.name': routeName,
-            'navigation.exit_method': exitMethod,
-            'metric.unit': 'milliseconds',
-          });
-    }
+    final duration = DateTime.now().difference(startTime);
+    _onMetric?.call(
+        'performance.screen_duration', duration.inMilliseconds.toDouble(),
+        attributes: {
+          'screen.name': routeName,
+          'navigation.exit_method': exitMethod,
+          'metric.unit': 'milliseconds',
+        });
   }
 
   /// Track navigation event
@@ -175,31 +127,17 @@ class EdgeNavigationObserver extends NavigatorObserver {
     _onEvent?.call('navigation.route_change', attributes: navigationAttributes);
   }
 
-  /// Clean up any remaining spans for a route
+  /// Clean up any remaining timing for a route
   void _cleanupRoute(Route<dynamic> route) {
     final routeName = _extractRouteName(route);
-    _endScreenSpan(routeName, 'removed');
-  }
-
-  /// Register a span for a screen (called by main telemetry class)
-  void registerScreenSpan(String routeName, Span span) {
-    _activeScreenSpans[routeName] = span;
+    _endScreen(routeName, 'removed');
   }
 
   /// Get current route name
   String? get currentRoute => _currentRoute;
 
-  /// Get active screen spans (for debugging)
-  Map<String, Span> get activeScreenSpans =>
-      Map.unmodifiable(_activeScreenSpans);
-
   /// Clean up all resources
   void dispose() {
-    // End all active spans
-    for (final entry in _activeScreenSpans.entries) {
-      _endScreenSpan(entry.key, 'disposed');
-    }
-    _activeScreenSpans.clear();
     _screenStartTimes.clear();
   }
 }

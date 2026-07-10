@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — 2.0.0-dev
+
+OpenTelemetry removal + sanctioned public-API break (Phase 2 of the atomic
+v2.0.0). Wire behaviour is held byte-identical to 1.5.2 — this slice is a pure
+restructure. Version bump, migration guide, and wire flip land with the rest of
+v2.0.0.
+
+### 💥 Breaking (source break on upgrade)
+- **REMOVED**: `startSpan()` / `endSpan()` — returned/consumed the deleted OTel
+  `Span` type.
+- **REMOVED**: `EdgeNavigationObserver.activeScreenSpans` and its
+  `registerScreenSpan()` / `onSpanStart` / `onSpanEnd` constructor params.
+- **REMOVED**: `initialize(runAppCallback:)` — deprecated in 1.5.2 with a
+  stated "removed in v2.0.0"; crash handlers install automatically.
+
+### ⚠️ Deprecated (now no-ops, removed in v3.0.0)
+- `initialize(useJsonFormat:)` — ignored; the SDK is custom-JSON only.
+- `withSpan()` / `withNetworkSpan()` — just run your function, record nothing.
+- Each warns once per process when `debugMode` is on.
+
+### 🧹 Internal
+- **REMOVED**: `opentelemetry` dependency, `SpanManager`, `EventTrackerImpl`,
+  the `EventTracker` interface, and the `useJsonFormat` dual-backend branches.
+
 ## [1.6.0] - 2026-07-10
 
 Backward-compatible cleanup release. Wire format and public API are unchanged
