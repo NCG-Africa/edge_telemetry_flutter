@@ -1,4 +1,6 @@
-// lib/src/http/telemetry_http_overrides.dart
+// lib/src/capture/http_overrides.dart
+// (relocated verbatim from lib/src/http/telemetry_http_overrides.dart — the
+//  low-level HttpOverrides wrappers + HttpRequestTelemetry data class)
 
 import 'dart:async';
 import 'dart:convert'; // Add this import for Encoding class
