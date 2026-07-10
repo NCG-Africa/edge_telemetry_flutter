@@ -174,6 +174,7 @@ class EdgeTelemetry {
 
       if (config.enableCrashReporting) {
         _installGlobalCrashHandler();
+        await _drainNativeCrashes();
       }
 
       if (config.enableLocalReporting) {
@@ -212,6 +213,20 @@ class EdgeTelemetry {
         print('Stack trace: $stackTrace');
       }
       rethrow;
+    }
+  }
+
+  /// Pull native crashes surfaced by the OS since last launch, once on init.
+  ///
+  /// No-op until the Phase-4 native plugin registers the channel — the drain
+  /// returns `[]` and nothing is sent. When the plugin lands, Phase 4 wires the
+  /// returned payloads into the immediate crash rail here.
+  Future<void> _drainNativeCrashes() async {
+    final crashes = await _wiring!.nativeCrash.drainNativeCrashes();
+    // ponytail: drop until Phase 4; routing to app.crash lands with the native
+    // plugin + the app.crash wire event (spec #15 Phase 4). Contract-only here.
+    if (_config?.debugMode == true && crashes.isNotEmpty) {
+      print('📥 Drained ${crashes.length} native crash(es)');
     }
   }
 

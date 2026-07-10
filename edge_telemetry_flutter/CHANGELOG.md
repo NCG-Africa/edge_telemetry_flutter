@@ -23,6 +23,10 @@ v2.0.0.
 ### 🧹 Internal
 - **REMOVED**: `opentelemetry` dependency, `SpanManager`, `EventTrackerImpl`,
   the `EventTracker` interface, and the `useJsonFormat` dual-backend branches.
+- **ADDED**: `NativeCrashChannel` — the pull-only `edge_telemetry/native_crash`
+  MethodChannel contract (`drainNativeCrashes()` + documented per-crash payload
+  schema) the Phase-4 iOS/Android native plugin builds against. Drained once on
+  init; no-op until the natives land. Internal seam, not exported.
 
 ## [1.6.0] - 2026-07-10
 
