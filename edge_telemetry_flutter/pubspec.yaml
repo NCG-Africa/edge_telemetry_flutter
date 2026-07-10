@@ -1,0 +1,26 @@
+name: edge_telemetry_flutter
+description: Real User Monitoring and telemetry package for Flutter, performance tracking, and local reporting.
+version: 1.6.0
+homepage: https://github.com/NCG-Africa/edge_telemetry_flutter
+repository: https://github.com/NCG-Africa/edge_telemetry_flutter
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  opentelemetry: ^0.18.10
+  device_info_plus: ^11.5.0
+  package_info_plus: ^8.3.0
+  connectivity_plus: ^6.1.4
+  shared_preferences: ^2.5.3
+  path_provider: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
