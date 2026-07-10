@@ -6,8 +6,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../core/interfaces/event_tracker.dart';
 import '../core/interfaces/performance_monitor.dart';
+import '../managers/json_event_tracker.dart';
 
 /// Flutter implementation of performance monitoring
 ///
@@ -18,10 +18,10 @@ class FlutterPerformanceMonitor implements PerformanceMonitor {
   Timer? _performanceTimer;
   Timer? _memoryTimer;
 
-  final EventTracker? _eventTracker;
+  final JsonEventTracker? _eventTracker;
   bool _isInitialized = false;
 
-  FlutterPerformanceMonitor({EventTracker? eventTracker})
+  FlutterPerformanceMonitor({JsonEventTracker? eventTracker})
       : _eventTracker = eventTracker;
 
   @override

@@ -14,7 +14,6 @@
 - 💾 **Offline Crash Storage** - Store crashes offline when network is unavailable
 - 🔄 **Smart Crash Retry** - Intelligent retry mechanism with exponential backoff
 - 📊 **Local Reporting** - Generate comprehensive reports without external dependencies
-- 🔧 **JSON & OpenTelemetry Support** - Industry-standard telemetry formats
 - 🎯 **Zero Configuration** - Works out of the box with sensible defaults
 
 ## 🚀 Installation
@@ -120,7 +119,6 @@ await EdgeTelemetry.initialize(
 
   // 🔧 Advanced Options
   debugMode: true,                   // Enable console logging
-  useJsonFormat: true,              // Send JSON (recommended)
   eventBatchSize: 30,               // Events per batch
   enableLocalReporting: true,       // Store data locally for reports
 
@@ -356,14 +354,6 @@ print('Retry results: ${retryResults['success']} successful, ${retryResults['fai
 // Get current network status
 String networkType = EdgeTelemetry.instance.currentNetworkType;
 Map<String, String> connectivity = EdgeTelemetry.instance.getConnectivityInfo();
-```
-
-### Custom Span Management (OpenTelemetry mode)
-```dart
-// Automatic span management for complex operations
-await EdgeTelemetry.instance.withSpan('complex_operation', () async {
-await complexBusinessLogic();
-});
 ```
 
 ## 🔒 Privacy & Security

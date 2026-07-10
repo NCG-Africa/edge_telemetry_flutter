@@ -108,20 +108,12 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _testNetworkOperation() async {
-    await EdgeTelemetry.instance.withNetworkSpan(
-      'demo_api_call',
-      'https://api.example.com/demo',
-      'GET',
-      () async {
-        // Simulate network request
-        await Future.delayed(const Duration(milliseconds: 500));
-        return 'Demo Response';
-      },
-      attributes: {
-        'api.version': 'v1',
-        'request.timeout': '5000',
-      },
-    );
+    // HTTP is now monitored automatically; this just simulates a request.
+    await Future.delayed(const Duration(milliseconds: 500));
+    EdgeTelemetry.instance.trackEvent('demo.network_operation', attributes: {
+      'api.version': 'v1',
+      'request.timeout': '5000',
+    });
   }
 
   void _testError() {
