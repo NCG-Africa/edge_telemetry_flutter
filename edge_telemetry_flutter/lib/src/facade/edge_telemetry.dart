@@ -22,6 +22,7 @@ import '../core/models/report_data.dart';
 import '../core/models/telemetry_session.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
+import '../managers/identity_format.dart';
 import '../managers/session_manager.dart';
 import '../managers/user_id_manager.dart';
 import '../reports/simple_report_generator.dart';
@@ -687,15 +688,10 @@ class EdgeTelemetry {
     return result;
   }
 
-  String _generateSessionId() => _generateRandomString(16);
-
-  String _generateRandomString(int length) {
-    const chars =
-        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final random = Random.secure();
-    return String.fromCharCodes(Iterable.generate(
-        length, (_) => chars.codeUnitAt(random.nextInt(chars.length))));
-  }
+  /// Format: `session_<epochMs>_<16hex>_<platform>` — the family session leg of
+  /// the identity contract (ticket #20).
+  String _generateSessionId() =>
+      'session_${DateTime.now().millisecondsSinceEpoch}_${secureHex16()}_${platformTag()}';
 
   String _generateEventId() =>
       'event_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1000)}';

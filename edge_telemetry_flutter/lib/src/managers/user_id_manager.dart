@@ -2,11 +2,13 @@
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Manages auto-generated user IDs with persistent storage
+import 'identity_format.dart';
+
+/// Manages the SDK-owned, anonymous user ID.
 ///
-/// - Generates UUID on first app install
-/// - Persists across app sessions
-/// - New ID only on app reinstall
+/// Format: `user_<epochMs>_<16hex>`. Generated once on first launch, persisted
+/// across sessions, and stable across `identify()` / `setUserProfile()` — a new
+/// ID only ever appears on reinstall.
 class UserIdManager {
   static const String _userIdKey = 'edge_telemetry_user_id';
 
@@ -35,24 +37,10 @@ class UserIdManager {
     return _currentUserId!;
   }
 
-  /// Generate a unique user ID
+  /// Format: `user_<epochMs>_<16hex>`.
   String _generateUserId() {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final randomPart = _generateRandomString(8);
-    return 'user_${timestamp}_$randomPart';
-  }
-
-  /// Generate random string for user ID uniqueness
-  String _generateRandomString(int length) {
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    final random = DateTime.now().microsecondsSinceEpoch;
-    var result = '';
-
-    for (int i = 0; i < length; i++) {
-      result += chars[(random + i) % chars.length];
-    }
-
-    return result;
+    return 'user_${timestamp}_${secureHex16()}';
   }
 
   /// Clear stored user ID (for testing purposes)
