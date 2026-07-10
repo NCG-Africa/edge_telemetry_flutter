@@ -20,7 +20,7 @@ class SimpleReportGenerator implements ReportGenerator {
 
     // Set default time range if not provided
     final end = endTime ?? DateTime.now();
-    final start = startTime ?? end.subtract(Duration(hours: 24));
+    final start = startTime ?? end.subtract(const Duration(hours: 24));
 
     // Get data from storage
     final events = await _storage.getEvents(startTime: start, endTime: end);
@@ -93,7 +93,7 @@ class SimpleReportGenerator implements ReportGenerator {
     final stopwatch = Stopwatch()..start();
 
     final end = endTime ?? DateTime.now();
-    final start = startTime ?? end.subtract(Duration(hours: 24));
+    final start = startTime ?? end.subtract(const Duration(hours: 24));
 
     // Get performance-related metrics
     final metrics = await _storage.getMetrics(startTime: start, endTime: end);
@@ -172,7 +172,7 @@ class SimpleReportGenerator implements ReportGenerator {
     final stopwatch = Stopwatch()..start();
 
     final end = endTime ?? DateTime.now();
-    final start = startTime ?? end.subtract(Duration(hours: 24));
+    final start = startTime ?? end.subtract(const Duration(hours: 24));
 
     // Get user behavior events
     final events = await _storage.getEvents(startTime: start, endTime: end);

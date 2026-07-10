@@ -132,7 +132,8 @@ class MemoryReportStorage implements ReportStorage {
   Future<void> cleanupData({DateTime? olderThan}) async {
     _ensureInitialized();
 
-    final cutoffDate = olderThan ?? DateTime.now().subtract(Duration(days: 30));
+    final cutoffDate =
+        olderThan ?? DateTime.now().subtract(const Duration(days: 30));
 
     // Remove old events
     final oldEventCount = _events.length;

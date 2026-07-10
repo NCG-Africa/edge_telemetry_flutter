@@ -261,6 +261,7 @@ class TelemetryHttpClient implements HttpClient {
 /// HTTP request wrapper that tracks timing and response data
 class TelemetryHttpClientRequest implements HttpClientRequest {
   final HttpClientRequest _baseRequest;
+  @override
   final String method;
   final Uri url;
   final Function(HttpRequestTelemetry) _onRequestComplete;
@@ -315,7 +316,7 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
   @override
   Future<HttpClientResponse> close() async {
     if (debugMode) {
-      print('🌐 HTTP ${method.toUpperCase()} ${url} - Starting request...');
+      print('🌐 HTTP ${method.toUpperCase()} $url - Starting request...');
     }
 
     try {
@@ -433,7 +434,7 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
 
     if (debugMode) {
       print(
-          '🌐 HTTP ${method.toUpperCase()} ${url} - ${statusCode} (${duration.inMilliseconds}ms)');
+          '🌐 HTTP ${method.toUpperCase()} $url - $statusCode (${duration.inMilliseconds}ms)');
     }
 
     final telemetry = HttpRequestTelemetry(

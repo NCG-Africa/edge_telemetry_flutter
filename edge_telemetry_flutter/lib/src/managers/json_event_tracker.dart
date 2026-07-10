@@ -197,7 +197,7 @@ class JsonEventTracker implements EventTracker {
   /// Reset timeout timer (send partial batch after 5 minutes)
   void _resetTimeoutTimer() {
     _timeoutTimer?.cancel();
-    _timeoutTimer = Timer(Duration(minutes: 5), () {
+    _timeoutTimer = Timer(const Duration(minutes: 5), () {
       if (_eventQueue.isNotEmpty) {
         if (_debugMode) {
           print(

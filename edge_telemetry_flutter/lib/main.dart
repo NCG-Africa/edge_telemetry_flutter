@@ -19,31 +19,35 @@ void main() async {
     name: 'Demo User',
   );
 
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'EdgeTelemetry Demo',
       // Add automatic navigation tracking
       navigatorObservers: [EdgeTelemetry.instance.navigationObserver],
-      home: HomeScreen(),
+      home: const HomeScreen(),
     );
   }
 }
 
 class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('EdgeTelemetry Demo'),
+        title: const Text('EdgeTelemetry Demo'),
         backgroundColor: Colors.blue,
       ),
       body: Padding(
-        padding: EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -52,35 +56,35 @@ class HomeScreen extends StatelessWidget {
               style: Theme.of(context).textTheme.headlineSmall,
               textAlign: TextAlign.center,
             ),
-            SizedBox(height: 24),
+            const SizedBox(height: 24),
             ElevatedButton(
               onPressed: _testCustomEvent,
-              child: Text('Track Custom Event'),
+              child: const Text('Track Custom Event'),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _testMetric,
-              child: Text('Track Custom Metric'),
+              child: const Text('Track Custom Metric'),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _testNetworkOperation,
-              child: Text('Test Network Operation'),
+              child: const Text('Test Network Operation'),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _testError,
-              child: Text('Test Error Tracking'),
+              child: const Text('Test Error Tracking'),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             ElevatedButton(
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => SecondScreen()),
+                  MaterialPageRoute(builder: (context) => const SecondScreen()),
                 );
               },
-              child: Text('Navigate to Second Screen'),
+              child: const Text('Navigate to Second Screen'),
             ),
           ],
         ),
@@ -110,7 +114,7 @@ class HomeScreen extends StatelessWidget {
       'GET',
       () async {
         // Simulate network request
-        await Future.delayed(Duration(milliseconds: 500));
+        await Future.delayed(const Duration(milliseconds: 500));
         return 'Demo Response';
       },
       attributes: {
@@ -134,11 +138,13 @@ class HomeScreen extends StatelessWidget {
 }
 
 class SecondScreen extends StatelessWidget {
+  const SecondScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Second Screen'),
+        title: const Text('Second Screen'),
         backgroundColor: Colors.green,
       ),
       body: Center(
@@ -149,7 +155,7 @@ class SecondScreen extends StatelessWidget {
               'Second Screen',
               style: Theme.of(context).textTheme.headlineMedium,
             ),
-            SizedBox(height: 24),
+            const SizedBox(height: 24),
             ElevatedButton(
               onPressed: () {
                 EdgeTelemetry.instance
@@ -158,14 +164,14 @@ class SecondScreen extends StatelessWidget {
                   'screen.name': 'second',
                 });
               },
-              child: Text('Track Action on Second Screen'),
+              child: const Text('Track Action on Second Screen'),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(context);
               },
-              child: Text('Go Back'),
+              child: const Text('Go Back'),
             ),
           ],
         ),

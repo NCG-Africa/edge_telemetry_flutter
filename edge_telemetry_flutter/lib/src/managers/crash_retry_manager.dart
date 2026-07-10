@@ -29,7 +29,8 @@ class CrashRetryManager {
   void startRetryLoop() {
     if (_retryTimer?.isActive == true) return;
 
-    _scheduleNextRetry(Duration(seconds: 30)); // Initial check after 30 seconds
+    _scheduleNextRetry(
+        const Duration(seconds: 30)); // Initial check after 30 seconds
 
     if (_debugMode) {
       print('🔄 Crash retry manager started');
@@ -63,7 +64,7 @@ class CrashRetryManager {
 
       if (storedCrashes.isEmpty) {
         // No crashes to retry, check again in 5 minutes
-        _scheduleNextRetry(Duration(minutes: 5));
+        _scheduleNextRetry(const Duration(minutes: 5));
         return;
       }
 
@@ -103,7 +104,7 @@ class CrashRetryManager {
         }
 
         // Small delay between retries to avoid overwhelming the server
-        await Future.delayed(Duration(milliseconds: 100));
+        await Future.delayed(const Duration(milliseconds: 100));
       }
 
       if (_debugMode) {
@@ -119,7 +120,7 @@ class CrashRetryManager {
         print('⚠️ Error during retry attempt: $e');
       }
       // Retry again in 2 minutes on error
-      _scheduleNextRetry(Duration(minutes: 2));
+      _scheduleNextRetry(const Duration(minutes: 2));
     } finally {
       _isRetrying = false;
     }
@@ -170,7 +171,7 @@ class CrashRetryManager {
   Duration _calculateNextRetryDelay(bool hasFailures) {
     if (!hasFailures) {
       // No failures, check again in 5 minutes
-      return Duration(minutes: 5);
+      return const Duration(minutes: 5);
     }
 
     // Exponential backoff: 1min, 2min, 4min, 8min, up to 1 hour

@@ -56,7 +56,7 @@ void main() {
 
     test('TelemetrySession should calculate duration correctly', () {
       final startTime = DateTime.now();
-      final endTime = startTime.add(Duration(minutes: 30));
+      final endTime = startTime.add(const Duration(minutes: 30));
 
       final session = TelemetrySession(
         sessionId: 'session_123',
@@ -68,7 +68,7 @@ void main() {
       );
 
       // Verify duration calculation
-      expect(session.duration, Duration(minutes: 30));
+      expect(session.duration, const Duration(minutes: 30));
 
       // Test copyWith for ending session
       final endedSession = session.copyWith(endTime: DateTime.now());

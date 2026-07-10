@@ -63,8 +63,8 @@ void main() {
 
     test('should filter events by time range', () async {
       final now = DateTime.now();
-      final oneHourAgo = now.subtract(Duration(hours: 1));
-      final twoHoursAgo = now.subtract(Duration(hours: 2));
+      final oneHourAgo = now.subtract(const Duration(hours: 1));
+      final twoHoursAgo = now.subtract(const Duration(hours: 2));
 
       // Store events at different times
       await storage.storeEvent(TelemetryEvent(
@@ -139,7 +139,7 @@ void main() {
 
     test('should cleanup old data', () async {
       final now = DateTime.now();
-      final oldDate = now.subtract(Duration(days: 35));
+      final oldDate = now.subtract(const Duration(days: 35));
 
       // Add old data
       await storage.storeEvent(TelemetryEvent(
@@ -158,7 +158,8 @@ void main() {
       ));
 
       // Cleanup data older than 30 days
-      await storage.cleanupData(olderThan: now.subtract(Duration(days: 30)));
+      await storage.cleanupData(
+          olderThan: now.subtract(const Duration(days: 30)));
 
       // Verify only recent data remains
       final events = await storage.getEvents();
