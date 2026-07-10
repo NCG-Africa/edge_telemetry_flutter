@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.6.0] - 2026-07-10
+
+Backward-compatible cleanup release. Wire format and public API are unchanged
+from 1.5.2 — this is a safe drop-in upgrade.
+
+### 🧹 Cleanup & leak fixes
+- **FIXED**: `EdgeTelemetry.dispose()` now tears down the event tracker —
+  previously the JSON batch timeout `Timer`, the crash-retry `Timer`, and the
+  underlying `HttpClient` connection pool were leaked on shutdown.
+- **CHANGED**: `EventTracker` interface gained a `dispose()` method
+  (internal `lib/src/` type — not part of the public API).
+- **REMOVED**: Dead empty file `lib/src/telemetry/edge_telemetry.dart`.
+- **REMOVED**: Dead unreachable null-aware fallback on `idleTimeout` in the
+  HTTP override.
+
+Wire traffic and dispose-time behaviour are unchanged from 1.5.2 (buffered
+events are still dropped on shutdown; flush-on-dispose is deferred to 2.0.0).
+
 ## [1.5.2] - 2025-08-29
 
 ### 🔧 Critical Error Logging Fix

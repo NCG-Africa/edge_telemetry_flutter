@@ -110,7 +110,8 @@ class EdgeTelemetry {
     Duration? dataRetentionPeriod,
     bool useJsonFormat = true, // Default to JSON for simplicity
     int eventBatchSize = 30,
-    @Deprecated('runAppCallback is deprecated. Crash handlers are now installed automatically.')
+    @Deprecated(
+        'runAppCallback is deprecated. Crash handlers are now installed automatically.')
     VoidCallback? runAppCallback,
   }) async {
     final config = TelemetryConfig(
@@ -135,13 +136,16 @@ class EdgeTelemetry {
     );
 
     await instance._setup(config);
-    
+
     // Backward compatibility: handle runAppCallback if provided
     if (runAppCallback != null) {
       if (debugMode) {
-        print('⚠️ DEPRECATED: runAppCallback parameter is deprecated and will be removed in v2.0.0');
-        print('   Crash handlers are now installed automatically during initialization.');
-        print('   Simply remove the runAppCallback parameter from EdgeTelemetry.initialize()');
+        print(
+            '⚠️ DEPRECATED: runAppCallback parameter is deprecated and will be removed in v2.0.0');
+        print(
+            '   Crash handlers are now installed automatically during initialization.');
+        print(
+            '   Simply remove the runAppCallback parameter from EdgeTelemetry.initialize()');
       }
       // Execute the callback for backward compatibility
       runAppCallback();
@@ -237,7 +241,8 @@ class EdgeTelemetry {
         print('📱 Service: ${config.serviceName}');
         print('🔗 Endpoint: ${config.endpoint}');
         print('📡 Format: ${config.useJsonFormat ? 'JSON' : 'OpenTelemetry'}');
-        print('🆔 Device ID: ${_globalAttributes['device.id'] ?? 'Not available'}');
+        print(
+            '🆔 Device ID: ${_globalAttributes['device.id'] ?? 'Not available'}');
         print('👤 User ID: $_currentUserId');
         print('🔄 Session ID: ${_sessionManager.currentSessionId}');
         print('📊 Session Stats: ${_sessionManager.getSessionStats()}');
@@ -335,7 +340,7 @@ class EdgeTelemetry {
 
     // Add auto-generated user ID to global attributes
     _globalAttributes['user.id'] = _currentUserId!;
-    
+
     // Verify device ID is present and log status
     if (_globalAttributes.containsKey('device.id')) {
       final deviceId = _globalAttributes['device.id']!;
@@ -362,10 +367,11 @@ class EdgeTelemetry {
     if (customAttributes?.containsKey('crash.fingerprint') == true) {
       final breadcrumbs = _breadcrumbManager.getBreadcrumbsAsJson();
       if (breadcrumbs.isNotEmpty) {
-        breadcrumbsJson = breadcrumbs.toString(); // Convert to string for attributes
+        breadcrumbsJson =
+            breadcrumbs.toString(); // Convert to string for attributes
       }
     }
-    
+
     return {
       ..._globalAttributes,
       ..._sessionManager.getSessionAttributes(),
@@ -460,7 +466,7 @@ class EdgeTelemetry {
               attributes != null &&
               attributes.containsKey('navigation.to')) {
             _sessionManager.recordScreen(attributes['navigation.to']!);
-            
+
             // Auto-track navigation breadcrumb
             _breadcrumbManager.addNavigation(
               attributes['navigation.to']!,
@@ -616,7 +622,7 @@ class EdgeTelemetry {
 
     // NEW: Increment profile version for conflict resolution
     final profileVersion = _getNextProfileVersion();
-    
+
     // NEW: Create dedicated profile update event for backend persistence
     final profileEventAttributes = <String, String>{
       'user.id': _currentUserId!,
@@ -632,20 +638,23 @@ class EdgeTelemetry {
     // Add custom attributes with user. prefix for backend processing
     if (customAttributes != null) {
       for (final entry in customAttributes.entries) {
-        final key = entry.key.startsWith('user.') ? entry.key : 'user.${entry.key}';
+        final key =
+            entry.key.startsWith('user.') ? entry.key : 'user.${entry.key}';
         profileEventAttributes[key] = entry.value;
       }
     }
 
     // Send dedicated profile update event to backend
-    _eventTracker.trackEvent('user.profile_updated', attributes: profileEventAttributes);
+    _eventTracker.trackEvent('user.profile_updated',
+        attributes: profileEventAttributes);
 
     // Keep existing profile set event for backward compatibility/analytics
     _eventTracker.trackEvent('user.profile_set', attributes: {
       'user.has_name': (name != null).toString(),
       'user.has_email': (email != null).toString(),
       'user.has_phone': (phone != null).toString(),
-      'user.custom_attributes_count': (customAttributes?.length ?? 0).toString(),
+      'user.custom_attributes_count':
+          (customAttributes?.length ?? 0).toString(),
       'profile_timestamp': DateTime.now().toIso8601String(),
       'profile_version': profileVersion.toString(),
     });
@@ -655,7 +664,8 @@ class EdgeTelemetry {
       print('  - user.profile_updated (for backend persistence)');
       print('  - user.profile_set (for analytics)');
       print('  - Profile version: $profileVersion');
-      print('  - Fields updated: ${profileEventAttributes.keys.where((k) => k.startsWith('user.') && k != 'user.id' && k != 'user.profile_version' && k != 'user.profile_updated_at').toList()}');
+      print(
+          '  - Fields updated: ${profileEventAttributes.keys.where((k) => k.startsWith('user.') && k != 'user.id' && k != 'user.profile_version' && k != 'user.profile_updated_at').toList()}');
     }
   }
 
@@ -694,7 +704,7 @@ class EdgeTelemetry {
 
     // NEW: Increment profile version for clear operation
     final profileVersion = _getNextProfileVersion();
-    
+
     // NEW: Send profile cleared event to backend
     _eventTracker.trackEvent('user.profile_updated', attributes: {
       'user.id': _currentUserId!,
@@ -955,10 +965,11 @@ class EdgeTelemetry {
     final errorType = error.runtimeType.toString();
     final errorMessage = error.toString();
     final topStackFrame = stackTrace?.toString().split('\n').firstWhere(
-      (line) => line.trim().isNotEmpty,
-      orElse: () => 'no_stack',
-    ) ?? 'no_stack';
-    
+              (line) => line.trim().isNotEmpty,
+              orElse: () => 'no_stack',
+            ) ??
+        'no_stack';
+
     return '${errorType}_${errorMessage.hashCode}_${topStackFrame.hashCode}';
   }
 
@@ -969,10 +980,10 @@ class EdgeTelemetry {
 
     // Generate crash fingerprint
     final fingerprint = _generateCrashFingerprint(error, stackTrace);
-    
+
     // Get breadcrumbs for crash context
     final breadcrumbs = _breadcrumbManager.getBreadcrumbsAsJson();
-    
+
     // Add fingerprint and breadcrumbs to attributes
     final crashAttributes = {
       'crash.fingerprint': fingerprint,
@@ -1070,13 +1081,17 @@ class EdgeTelemetry {
   }
 
   /// Add system event breadcrumb
-  void addSystemBreadcrumb(String event, {BreadcrumbLevel level = BreadcrumbLevel.info, Map<String, String>? data}) {
+  void addSystemBreadcrumb(String event,
+      {BreadcrumbLevel level = BreadcrumbLevel.info,
+      Map<String, String>? data}) {
     _ensureInitialized();
     _breadcrumbManager.addSystemEvent(event, level: level, data: data);
   }
 
   /// Add network event breadcrumb
-  void addNetworkBreadcrumb(String event, {BreadcrumbLevel level = BreadcrumbLevel.info, Map<String, String>? data}) {
+  void addNetworkBreadcrumb(String event,
+      {BreadcrumbLevel level = BreadcrumbLevel.info,
+      Map<String, String>? data}) {
     _ensureInitialized();
     _breadcrumbManager.addNetworkEvent(event, level: level, data: data);
   }
@@ -1088,7 +1103,9 @@ class EdgeTelemetry {
   }
 
   /// Add custom breadcrumb
-  void addCustomBreadcrumb(String message, {BreadcrumbLevel level = BreadcrumbLevel.info, Map<String, String>? data}) {
+  void addCustomBreadcrumb(String message,
+      {BreadcrumbLevel level = BreadcrumbLevel.info,
+      Map<String, String>? data}) {
     _ensureInitialized();
     _breadcrumbManager.addCustom(message, level: level, data: data);
   }
@@ -1196,13 +1213,14 @@ class EdgeTelemetry {
   }
 
   /// Validate device ID format
-  /// 
+  ///
   /// Expected format: device_<timestamp>_<random>_<platform>
   /// Example: device_1704067200000_a8b9c2d1_android
   bool _isValidDeviceId(String deviceId) {
     try {
       // Expected format: device_<timestamp>_<random>_<platform>
-      final regex = RegExp(r'^device_\d{13}_[a-z0-9]{8}_(android|ios|web|windows|macos|linux|fuchsia|unknown)$');
+      final regex = RegExp(
+          r'^device_\d{13}_[a-z0-9]{8}_(android|ios|web|windows|macos|linux|fuchsia|unknown)$');
       return regex.hasMatch(deviceId);
     } catch (e) {
       if (_config?.debugMode == true) {
@@ -1241,6 +1259,8 @@ class EdgeTelemetry {
     _networkMonitor?.dispose();
     _performanceMonitor?.dispose();
     _navigationObserver.dispose();
+    // Free the batch timeout timer, crash-retry timer, and HTTP connection pool.
+    _eventTracker.dispose();
     _initialized = false;
 
     if (_config?.debugMode == true) {

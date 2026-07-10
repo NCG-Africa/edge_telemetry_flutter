@@ -29,4 +29,9 @@ abstract class EventTracker {
   /// [attributes] - Optional additional context
   void trackError(Object error,
       {StackTrace? stackTrace, Map<String, String>? attributes});
+
+  /// Release resources (timers, connections, buffered events).
+  ///
+  /// Call once when telemetry is shutting down.
+  void dispose();
 }

@@ -37,16 +37,16 @@ class JsonEventTracker implements EventTracker {
     try {
       _crashStorage = CrashStorage(debugMode: _debugMode);
       await _crashStorage!.initialize();
-      
+
       _retryManager = CrashRetryManager(
         _crashStorage!,
         _httpClient,
         debugMode: _debugMode,
       );
-      
+
       // Start retry loop for existing crashes
       _retryManager!.startRetryLoop();
-      
+
       if (_debugMode) {
         print('🔄 Crash handling initialized with retry mechanism');
       }
@@ -127,7 +127,7 @@ class JsonEventTracker implements EventTracker {
     try {
       // Try to send immediately
       await _httpClient.sendTelemetryData(crashData);
-      
+
       // Always log error report success (critical for debugging)
       print('✅ Error report sent successfully');
       print('   📊 Error: ${crashData['error']}');
@@ -144,7 +144,7 @@ class JsonEventTracker implements EventTracker {
     } catch (e) {
       // Always log error report failures (critical for debugging)
       print('❌ Failed to send error report, storing offline: $e');
-      
+
       // Store crash offline for retry
       if (_crashStorage != null) {
         final filename = await _crashStorage!.storeCrash(crashData);
@@ -228,10 +228,13 @@ class JsonEventTracker implements EventTracker {
     };
   }
 
+  @override
   void dispose() {
-    flush(); // Send any remaining events
+    // Release resources only. Buffered events are dropped, matching v1.5.2
+    // (flush-on-shutdown is a wire-behaviour change deferred to v2.0.0).
     _timeoutTimer?.cancel();
     _retryManager?.dispose();
+    _httpClient.dispose(); // free the HTTP connection pool
   }
 
   /// Get crash handling status

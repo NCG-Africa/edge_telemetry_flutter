@@ -92,7 +92,7 @@ class EventTrackerImpl implements EventTracker {
 
       final otelAttributes = _createOpenTelemetryAttributes(errorAttributes);
       span.addEvent('error.occurred', attributes: otelAttributes);
-      
+
       // Always log error report transmission (OpenTelemetry mode)
       print('✅ Error report sent successfully (OpenTelemetry)');
       print('   📊 Error: ${error.toString()}');
@@ -109,6 +109,12 @@ class EventTrackerImpl implements EventTracker {
     } finally {
       _spanManager.endSpan(span);
     }
+  }
+
+  @override
+  void dispose() {
+    // No-op: spans are short-lived (ended immediately); the tracer provider
+    // is owned and shut down by the caller, not here.
   }
 
   /// Convert string attributes to OpenTelemetry attributes
