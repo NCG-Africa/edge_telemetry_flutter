@@ -11,6 +11,7 @@ import '../core/pipeline.dart';
 import '../core/retry_transport.dart';
 import '../core/config/telemetry_config.dart';
 import '../crash/crash_reporting.dart';
+import '../crash/native_crash_channel.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
 import '../managers/session_manager.dart';
@@ -28,6 +29,7 @@ class TelemetryWiring {
   final ContextManager context;
   final BreadcrumbManager breadcrumbs;
   final CrashReporting crashReporting;
+  final NativeCrashChannel nativeCrash;
   final OfflineQueue queue;
   final RetryTransport transport;
   final Pipeline pipeline;
@@ -48,9 +50,11 @@ class TelemetryWiring {
     required this.pipeline,
     required this.collector,
     required List<DisposeHandle> disposers,
+    NativeCrashChannel? nativeCrash,
     this.navHook,
     this.networkHook,
-  }) : _disposers = disposers;
+  })  : _disposers = disposers,
+        nativeCrash = nativeCrash ?? NativeCrashChannel();
 
   EdgeNavigationObserver? get navigationObserver => navHook?.observer;
 
