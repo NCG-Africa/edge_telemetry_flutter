@@ -11,11 +11,11 @@ class CrashRetryManager {
   final CrashStorage _crashStorage;
   final JsonHttpClient _httpClient;
   final bool _debugMode;
-  
+
   static const int _maxRetries = 3;
   static const Duration _baseRetryDelay = Duration(minutes: 1);
   static const Duration _maxRetryDelay = Duration(hours: 1);
-  
+
   Timer? _retryTimer;
   bool _isRetrying = false;
 
@@ -28,9 +28,9 @@ class CrashRetryManager {
   /// Start the retry mechanism
   void startRetryLoop() {
     if (_retryTimer?.isActive == true) return;
-    
+
     _scheduleNextRetry(Duration(seconds: 30)); // Initial check after 30 seconds
-    
+
     if (_debugMode) {
       print('🔄 Crash retry manager started');
     }
@@ -40,7 +40,7 @@ class CrashRetryManager {
   void stopRetryLoop() {
     _retryTimer?.cancel();
     _retryTimer = null;
-    
+
     if (_debugMode) {
       print('⏹️ Crash retry manager stopped');
     }
@@ -55,12 +55,12 @@ class CrashRetryManager {
   /// Perform a retry attempt for stored crashes
   Future<void> _performRetryAttempt() async {
     if (_isRetrying) return;
-    
+
     _isRetrying = true;
-    
+
     try {
       final storedCrashes = await _crashStorage.getStoredCrashes();
-      
+
       if (storedCrashes.isEmpty) {
         // No crashes to retry, check again in 5 minutes
         _scheduleNextRetry(Duration(minutes: 5));
@@ -91,8 +91,9 @@ class CrashRetryManager {
         }
 
         // Attempt to send the crash
-        final success = await _retrySingleCrash(crashData, filename, retryCount);
-        
+        final success =
+            await _retrySingleCrash(crashData, filename, retryCount);
+
         if (success) {
           successCount++;
           await _crashStorage.deleteCrash(filename);
@@ -106,13 +107,13 @@ class CrashRetryManager {
       }
 
       if (_debugMode) {
-        print('✅ Retry results: $successCount successful, $failureCount failed');
+        print(
+            '✅ Retry results: $successCount successful, $failureCount failed');
       }
 
       // Schedule next retry with exponential backoff
       final nextDelay = _calculateNextRetryDelay(failureCount > 0);
       _scheduleNextRetry(nextDelay);
-
     } catch (e) {
       if (_debugMode) {
         print('⚠️ Error during retry attempt: $e');
@@ -154,7 +155,8 @@ class CrashRetryManager {
       if (cleanCrashData['attributes']?['user.id'] != null) {
         print('   👤 User: ${cleanCrashData['attributes']['user.id']}');
       }
-      print('   ⏰ Retry timestamp: ${cleanCrashData['retry_info']['retry_at']}');
+      print(
+          '   ⏰ Retry timestamp: ${cleanCrashData['retry_info']['retry_at']}');
 
       return true;
     } catch (e) {
@@ -208,7 +210,7 @@ class CrashRetryManager {
       }
 
       final success = await _retrySingleCrash(crashData, filename, retryCount);
-      
+
       if (success) {
         successCount++;
         await _crashStorage.deleteCrash(filename);

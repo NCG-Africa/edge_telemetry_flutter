@@ -9,7 +9,7 @@ class CrashStorage {
   static const String _crashDir = 'edge_telemetry_crashes';
   static const String _filePrefix = 'crash_';
   static const int _maxStoredCrashes = 100;
-  
+
   final bool _debugMode;
   Directory? _storageDir;
 
@@ -20,7 +20,7 @@ class CrashStorage {
     try {
       final appDir = await getApplicationDocumentsDirectory();
       _storageDir = Directory('${appDir.path}/$_crashDir');
-      
+
       if (!await _storageDir!.exists()) {
         await _storageDir!.create(recursive: true);
         if (_debugMode) {
@@ -82,12 +82,13 @@ class CrashStorage {
     try {
       final files = await _storageDir!
           .list()
-          .where((entity) => entity is File && entity.path.contains(_filePrefix))
+          .where(
+              (entity) => entity is File && entity.path.contains(_filePrefix))
           .cast<File>()
           .toList();
 
       final crashes = <Map<String, dynamic>>[];
-      
+
       for (final file in files) {
         try {
           final content = await file.readAsString();
@@ -149,7 +150,7 @@ class CrashStorage {
       if (await file.exists()) {
         final content = await file.readAsString();
         final crashData = jsonDecode(content) as Map<String, dynamic>;
-        
+
         // Update retry count
         crashData['storage'] = {
           ...crashData['storage'] as Map<String, dynamic>,
@@ -173,14 +174,16 @@ class CrashStorage {
     try {
       final files = await _storageDir!
           .list()
-          .where((entity) => entity is File && entity.path.contains(_filePrefix))
+          .where(
+              (entity) => entity is File && entity.path.contains(_filePrefix))
           .cast<File>()
           .toList();
 
       if (files.length <= _maxStoredCrashes) return;
 
       // Sort by modification time (oldest first)
-      files.sort((a, b) => a.statSync().modified.compareTo(b.statSync().modified));
+      files.sort(
+          (a, b) => a.statSync().modified.compareTo(b.statSync().modified));
 
       // Delete oldest files
       final filesToDelete = files.take(files.length - _maxStoredCrashes);
@@ -213,7 +216,8 @@ class CrashStorage {
     try {
       final files = await _storageDir!
           .list()
-          .where((entity) => entity is File && entity.path.contains(_filePrefix))
+          .where(
+              (entity) => entity is File && entity.path.contains(_filePrefix))
           .cast<File>()
           .toList();
 

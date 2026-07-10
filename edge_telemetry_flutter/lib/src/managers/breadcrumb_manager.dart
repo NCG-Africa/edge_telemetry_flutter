@@ -35,7 +35,8 @@ class BreadcrumbManager {
     }
 
     if (_debugMode) {
-      print('🍞 Breadcrumb: [$category] $message (${_breadcrumbs.length}/$_maxBreadcrumbs)');
+      print(
+          '🍞 Breadcrumb: [$category] $message (${_breadcrumbs.length}/$_maxBreadcrumbs)');
     }
   }
 
@@ -63,7 +64,9 @@ class BreadcrumbManager {
   }
 
   /// Add system event breadcrumb
-  void addSystemEvent(String event, {BreadcrumbLevel level = BreadcrumbLevel.info, Map<String, String>? data}) {
+  void addSystemEvent(String event,
+      {BreadcrumbLevel level = BreadcrumbLevel.info,
+      Map<String, String>? data}) {
     addBreadcrumb(
       'System: $event',
       category: BreadcrumbCategory.system,
@@ -73,7 +76,9 @@ class BreadcrumbManager {
   }
 
   /// Add network event breadcrumb
-  void addNetworkEvent(String event, {BreadcrumbLevel level = BreadcrumbLevel.info, Map<String, String>? data}) {
+  void addNetworkEvent(String event,
+      {BreadcrumbLevel level = BreadcrumbLevel.info,
+      Map<String, String>? data}) {
     addBreadcrumb(
       'Network: $event',
       category: BreadcrumbCategory.network,
@@ -93,7 +98,9 @@ class BreadcrumbManager {
   }
 
   /// Add custom breadcrumb
-  void addCustom(String message, {BreadcrumbLevel level = BreadcrumbLevel.info, Map<String, String>? data}) {
+  void addCustom(String message,
+      {BreadcrumbLevel level = BreadcrumbLevel.info,
+      Map<String, String>? data}) {
     addBreadcrumb(
       message,
       category: BreadcrumbCategory.custom,

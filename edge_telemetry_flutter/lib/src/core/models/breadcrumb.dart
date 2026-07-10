@@ -26,7 +26,7 @@ class Breadcrumb {
         orElse: () => BreadcrumbLevel.info,
       ),
       timestamp: DateTime.parse(json['timestamp'] as String),
-      data: json['data'] != null 
+      data: json['data'] != null
           ? Map<String, String>.from(json['data'] as Map)
           : null,
     );
