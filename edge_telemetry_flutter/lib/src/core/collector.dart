@@ -35,6 +35,11 @@ class Collector implements EventSink {
 
   @override
   void add(EdgeEvent event) {
+    // Lazy idle check on the "next event" (spec #15 §2.1): may rotate the
+    // session (finalize old + start new) before this event is processed.
+    // Guarded internally against the bookends it re-emits here.
+    session.beforeEvent();
+
     if (!_shouldSample(event)) return;
 
     // Allowlist gate: only the canon 12 events / 4 metrics reach the wire.
@@ -49,6 +54,16 @@ class Collector implements EventSink {
     // include itself (matches v1.5.2 recordEvent-before-enrich ordering).
     if (event.countsToSession) {
       event.type == 'metric' ? session.recordMetric() : session.recordEvent();
+    }
+
+    // Journey counters by canon name (§2.3). app.crash counts as a crash, and
+    // as a non-fatal error when is_fatal=false (all Dart errors); http.request
+    // counts an HTTP hit. These feed the session.finalized summary.
+    if (event.name == 'app.crash') {
+      session.recordCrash();
+      if (event.attributes['is_fatal'] == 'false') session.recordError();
+    } else if (event.name == 'http.request') {
+      session.recordHttpRequest();
     }
 
     // The single wire choke point for the geo/tenant strip: every path below

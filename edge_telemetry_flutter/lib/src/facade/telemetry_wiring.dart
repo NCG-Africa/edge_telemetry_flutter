@@ -2,6 +2,7 @@
 
 import '../capture/capture_hook.dart';
 import '../capture/http_capture_hook.dart';
+import '../capture/lifecycle_capture_hook.dart';
 import '../capture/nav_capture_hook.dart';
 import '../capture/network_capture_hook.dart';
 import '../capture/perf_capture_hook.dart';
@@ -91,6 +92,11 @@ class TelemetryWiring {
       pipeline: pipeline,
     );
 
+    // Late-bind the session bookend sink now the Collector exists (breaks the
+    // session↔collector construction cycle). session.started/finalized route
+    // here from now on.
+    session.bindSink(collector);
+
     const crashReporting = CrashReporting();
 
     final disposers = <DisposeHandle>[];
@@ -112,6 +118,14 @@ class TelemetryWiring {
       navHook = NavCaptureHook(session: session, breadcrumbs: breadcrumbs);
       disposers.add(navHook.start(collector));
     }
+
+    // The lifecycle→session bridge (paused=flush+mark, resume=rotate-if-idle)
+    // plus the canon app_lifecycle event. Always on — it drives the session
+    // model, not an optional monitor.
+    disposers.add(
+      LifecycleCaptureHook(session: session, flush: pipeline.flush)
+          .start(collector),
+    );
 
     return TelemetryWiring(
       config: config,
