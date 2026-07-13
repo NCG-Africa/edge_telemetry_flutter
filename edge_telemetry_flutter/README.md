@@ -35,6 +35,22 @@ deployment target of iOS 14**. Set it in your app's `ios/Podfile`:
 platform :ios, '14.0'
 ```
 
+### Android coverage
+
+Android native crash capture is **tiered by OS version**, with no watchdog
+threads or hand-rolled signal handlers:
+
+| API level | JVM/Kotlin crashes | Native (NDK) crashes | ANRs | `sdk.native_capture_tier` |
+|-----------|:---:|:---:|:---:|:---:|
+| **30+**   | ✅ | ✅ | ✅ | `full` |
+| **< 30**  | ✅ | ❌ | ❌ | `jvm_only` |
+
+Below API 30, native (NDK) crashes and ANRs are a **documented gap** — the OS
+`ApplicationExitInfo` API that surfaces them only exists on API 30+. JVM crashes
+are captured on every level via `UncaughtExceptionHandler`. Each captured crash
+carries `sdk.native_capture_tier` so per-device coverage is visible on the
+dashboard. No minimum-SDK bump — the existing low floor is preserved.
+
 ## ⚡ Quick Start
 
 ### One-Line Setup (Everything Automatic!)

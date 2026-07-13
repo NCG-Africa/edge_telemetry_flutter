@@ -127,6 +127,25 @@ section below. Final version bump + migration guide land with the rest of v2.0.0
   `platform :ios, '14.0'` (or higher) in their `Podfile`. Android native
   capture ships separately.
 
+### 📱 Native crash capture — Android (Phase 4)
+- **ADDED**: Kotlin plugin behind the same `edge_telemetry/native_crash`
+  channel. JVM/Kotlin crashes via `Thread.setDefaultUncaughtExceptionHandler`
+  on **all** API levels (persist-then-chain, `crash.source: uncaught_handler`);
+  native + ANR crashes via `ActivityManager.getHistoricalProcessExitReasons`
+  (`ApplicationExitInfo`) on **API 30+** — `REASON_CRASH_NATIVE` →
+  `cause: NativeCrash`, `REASON_ANR` → `cause: ANR`, `crash.source:
+  app_exit_info`. Zero watchdogs, zero signal handlers. `REASON_CRASH` (JVM)
+  from `ApplicationExitInfo` is ignored so JVM crashes aren't double-reported.
+- **ADDED**: `sdk.native_capture_tier` on every Android crash payload — `full`
+  on API 30+ (JVM + native + ANR), `jvm_only` below (native/ANR is a documented
+  gap; the `ApplicationExitInfo` API doesn't exist pre-30). Per-device coverage
+  is honest on the dashboard.
+- A persisted watermark (last-seen exit timestamp) prevents re-reading OS exit
+  records across launches; JVM crash files are read-then-deleted on drain. Raw
+  tombstone / ANR traces are sent for server-side symbolication.
+- **No minimum-SDK bump** — the existing low floor is preserved
+  (`ApplicationExitInfo` is runtime-guarded for API 30+).
+
 ### 🧹 Internal
 - **REMOVED**: `opentelemetry` dependency, `SpanManager`, `EventTrackerImpl`,
   the `EventTracker` interface, and the `useJsonFormat` dual-backend branches.

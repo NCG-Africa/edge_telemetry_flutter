@@ -29,9 +29,14 @@ dev_dependencies:
 flutter:
   plugin:
     platforms:
-      # iOS-only for now (#27): MetricKit native crash/hang capture.
-      # Android (#28) registers under `android:` when it lands. On any platform
+      # Native crash capture (#27 iOS MetricKit, #28 Android). On any platform
       # without a registered handler, drainNativeCrashes() no-ops via
       # MissingPluginException (see NativeCrashChannel).
       ios:
+        pluginClass: EdgeTelemetryFlutterPlugin
+      # Android (#28): JVM UncaughtExceptionHandler (all APIs) + ApplicationExitInfo
+      # native/ANR (API 30+). Pre-30 native/ANR is a documented gap surfaced via
+      # sdk.native_capture_tier.
+      android:
+        package: com.ncgafrica.edge_telemetry_flutter
         pluginClass: EdgeTelemetryFlutterPlugin
