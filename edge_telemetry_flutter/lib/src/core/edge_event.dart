@@ -95,4 +95,17 @@ class EdgeEvent {
         stackTrace = null,
         countsToSession = false,
         priority = EventPriority.immediate;
+
+  /// The session bookends (`session.started` / `session.finalized`). Immediate
+  /// rail + bypass: they always reach the wire (never batched away, never
+  /// sampled out — a sampled-out session must still bracket itself) and never
+  /// bump the session counters. Attributes are carried verbatim (the finalize
+  /// journey summary is pre-built by [SessionManager]).
+  const EdgeEvent.session(this.name, this.attributes)
+      : type = 'event',
+        value = null,
+        error = null,
+        stackTrace = null,
+        countsToSession = false,
+        priority = EventPriority.immediate;
 }

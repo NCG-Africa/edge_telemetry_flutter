@@ -164,9 +164,10 @@ class EdgeTelemetry {
       _userIdManager = UserIdManager();
       _currentUserId = await _userIdManager!.getUserId();
 
-      _sessionManager = SessionManager();
-      _currentSessionId = _generateSessionId();
-      await _sessionManager!.startSession(_currentSessionId!);
+      // Timer-free lazy session model. The session is started *after* the
+      // wiring is built (below) so `recoverAndStart` can emit session.started
+      // (and any backdated kill-recovery finalize) through the Collector.
+      _sessionManager = SessionManager(newSessionId: _generateSessionId);
 
       await _loadProfileVersion();
 
@@ -182,13 +183,17 @@ class EdgeTelemetry {
         global: _globalAttributes,
       );
 
-      // Build + start the graph.
+      // Build + start the graph (binds the session bookend sink to the
+      // Collector), then recover any killed prior session and start a fresh one.
       _wiring = await TelemetryWiring.build(
         config: config,
         session: _sessionManager!,
         context: context,
         breadcrumbs: breadcrumbs,
       );
+
+      await _sessionManager!.recoverAndStart();
+      _currentSessionId = _sessionManager!.currentSessionId;
 
       if (config.enableCrashReporting) {
         _installGlobalCrashHandler();
