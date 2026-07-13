@@ -42,4 +42,25 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (call) async => null);
     expect(await NativeCrashChannel().drainNativeCrashes(), isEmpty);
   });
+
+  test('passes through Android keys (tier + app_exit_info source)', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      return <dynamic>[
+        {
+          'message': 'ANR in com.example',
+          'stacktrace': 'main thread trace',
+          'exception_type': 'REASON_ANR',
+          'cause': 'ANR',
+          'is_fatal': 'true',
+          'crash.source': 'app_exit_info',
+          'sdk.native_capture_tier': 'full',
+        },
+      ];
+    });
+
+    final crashes = await NativeCrashChannel().drainNativeCrashes();
+    expect(crashes.first['cause'], 'ANR');
+    expect(crashes.first['crash.source'], 'app_exit_info');
+    expect(crashes.first['sdk.native_capture_tier'], 'full');
+  });
 }

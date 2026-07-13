@@ -1,0 +1,49 @@
+group 'com.ncgafrica.edge_telemetry_flutter'
+version '1.0'
+
+buildscript {
+    ext.kotlin_version = '1.9.10'
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace 'com.ncgafrica.edge_telemetry_flutter'
+    compileSdk 34
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    // Keeps the existing low floor (Africa-market devices on 9/10 stay
+    // supported). ApplicationExitInfo is guarded at runtime for API 30+;
+    // JVM crash capture works on every level.
+    defaultConfig {
+        minSdk 19
+    }
+
+    dependencies {
+        implementation "androidx.annotation:annotation:1.7.1"
+    }
+}
