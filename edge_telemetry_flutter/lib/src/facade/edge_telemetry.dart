@@ -249,17 +249,22 @@ class EdgeTelemetry {
     }
   }
 
-  /// Pull native crashes surfaced by the OS since last launch, once on init.
+  /// Pull native crashes surfaced by the OS since last launch, once on init,
+  /// and route each into the immediate `app.crash` rail (spec #15 Phase 4, #29).
   ///
-  /// No-op until the Phase-4 native plugin registers the channel — the drain
-  /// returns `[]` and nothing is sent. When the plugin lands, Phase 4 wires the
-  /// returned payloads into the immediate crash rail here.
+  /// Each payload arrives pre-shaped by the native plugin (unprefixed keys,
+  /// `cause` ∈ NativeCrash/ANR/Hang, `is_fatal:true`, `crash.source`,
+  /// `sdk.native_capture_tier`); the Collector folds in identity context and
+  /// sends immediately (bypass batch). Empty until the native plugin registers
+  /// the channel — the drain returns `[]` and nothing is sent.
   Future<void> _drainNativeCrashes() async {
     final crashes = await _wiring!.nativeCrash.drainNativeCrashes();
-    // ponytail: drop until Phase 4; routing to app.crash lands with the native
-    // plugin + the app.crash wire event (spec #15 Phase 4). Contract-only here.
+    for (final crash in crashes) {
+      _wiring!.collector
+          .add(_wiring!.crashReporting.buildNativeCrashEvent(crash));
+    }
     if (_config?.debugMode == true && crashes.isNotEmpty) {
-      print('📥 Drained ${crashes.length} native crash(es)');
+      print('📥 Drained ${crashes.length} native crash(es) → app.crash');
     }
   }
 

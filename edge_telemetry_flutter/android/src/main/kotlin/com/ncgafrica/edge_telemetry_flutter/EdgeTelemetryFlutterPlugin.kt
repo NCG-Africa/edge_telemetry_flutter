@@ -133,10 +133,14 @@ class EdgeTelemetryFlutterPlugin : FlutterPlugin, MethodCallHandler {
   }
 
   @RequiresApi(Build.VERSION_CODES.R)
-  private fun mapExit(info: ApplicationExitInfo, cause: String): Map<String, String> = mapOf(
+  private fun mapExit(
+    info: ApplicationExitInfo,
+    cause: String,
+    exceptionType: String,
+  ): Map<String, String> = mapOf(
     "message" to (info.description ?: cause),
     "stacktrace" to readTrace(info),
-    "exception_type" to "REASON_${info.reason}",
+    "exception_type" to exceptionType,
     "cause" to cause,
     "is_fatal" to "true",
     "crash.source" to "app_exit_info",
