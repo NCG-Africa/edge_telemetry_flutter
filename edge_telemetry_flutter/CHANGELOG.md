@@ -71,6 +71,18 @@ section below. Final version bump + migration guide land with the rest of v2.0.0
   flush). Old `eventBatchSize` / `batchTimeout` / `maxBatchSize` are deprecated
   (still honored as fallbacks, removed in v3.0.0).
 
+### 🛟 Reliability rail (Phase 3)
+- **ADDED**: normal batches now persist on send failure (was crash-only). The
+  `OfflineQueue` is one-file-per-batch under
+  `<app documents>/edge_telemetry_queue/` — the assembled payload is stored
+  verbatim, and draining lists files lexically (== FIFO), POSTs each, and
+  deletes on 2xx. No on-device dedup.
+- **ADDED**: `RetryTransport` batch backoff `[0, 2s, 8s, 30s]` — a reachable
+  failure exhausts the schedule before queueing; an offline result
+  (`status == 0`) hands off to the queue immediately.
+- **ADDED**: `maxQueueSize` config knob (default 200) — batches drop-oldest
+  past the cap; crashes (`crash_` filename prefix) are exempt and never dropped.
+
 ### 🧹 Internal
 - **REMOVED**: `opentelemetry` dependency, `SpanManager`, `EventTrackerImpl`,
   the `EventTracker` interface, and the `useJsonFormat` dual-backend branches.

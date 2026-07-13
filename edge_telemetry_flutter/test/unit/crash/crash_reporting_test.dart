@@ -29,7 +29,9 @@ class _NoopQueue extends OfflineQueue {
   @override
   Future<void> initialize() async {}
   @override
-  Future<String?> persist(Map<String, dynamic> p) async => null;
+  Future<String?> persist(Map<String, dynamic> p,
+          {bool isCrash = false}) async =>
+      null;
   @override
   Future<int> drain(Future<bool> Function(Map<String, dynamic>) s) async => 0;
 }
