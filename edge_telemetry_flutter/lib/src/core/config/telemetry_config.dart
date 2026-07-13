@@ -7,8 +7,16 @@ class TelemetryConfig {
   /// Name of the service/app for telemetry identification
   final String serviceName;
 
-  /// Backend endpoint URL for sending telemetry data
+  /// Base backend URL. The SDK POSTs to `<endpoint>/collector/telemetry`.
   final String endpoint;
+
+  /// API key sent as the `X-API-Key` header. Null = header omitted (the
+  /// Collector 401s without it in api_key mode — dev/self-hosted only).
+  final String? apiKey;
+
+  /// Fraction of sessions kept (0.0–1.0). Config key landed for family
+  /// alignment; the per-session sampling roll is wired in #9.
+  final double sampleRate;
 
   /// Enable debug logging and console output
   final bool debugMode;
@@ -16,10 +24,18 @@ class TelemetryConfig {
   /// Global attributes added to all spans and events
   final Map<String, String> globalAttributes;
 
-  /// Batch timeout for sending telemetry data
+  /// Number of events per batch before a send (canon name).
+  final int batchSize;
+
+  /// Idle time before a partial batch is sent, in ms (canon name; default 5s).
+  final int flushIntervalMs;
+
+  /// Batch timeout for sending telemetry data.
+  @Deprecated('Use flushIntervalMs. Removed in v3.0.0.')
   final Duration batchTimeout;
 
-  /// Maximum number of spans in a batch
+  /// Maximum number of spans in a batch (OTel-era, unused).
+  @Deprecated('Use batchSize. Removed in v3.0.0.')
   final int maxBatchSize;
 
   /// Enable automatic network monitoring (connectivity changes)
@@ -54,14 +70,19 @@ class TelemetryConfig {
   /// Use JSON format instead of OpenTelemetry (simpler for most use cases)
   final bool useJsonFormat;
 
-  /// Number of events to batch before sending
+  /// Number of events to batch before sending.
+  @Deprecated('Use batchSize. Removed in v3.0.0.')
   final int eventBatchSize;
 
   const TelemetryConfig({
     required this.serviceName,
     required this.endpoint,
+    this.apiKey,
+    this.sampleRate = 1.0,
     this.debugMode = false,
     this.globalAttributes = const {},
+    this.batchSize = 30,
+    this.flushIntervalMs = 5000,
     this.batchTimeout = const Duration(seconds: 5),
     this.maxBatchSize = 512,
     this.enableNetworkMonitoring = true,
@@ -81,8 +102,12 @@ class TelemetryConfig {
   TelemetryConfig copyWith({
     String? serviceName,
     String? endpoint,
+    String? apiKey,
+    double? sampleRate,
     bool? debugMode,
     Map<String, String>? globalAttributes,
+    int? batchSize,
+    int? flushIntervalMs,
     Duration? batchTimeout,
     int? maxBatchSize,
     bool? enableNetworkMonitoring,
@@ -100,9 +125,15 @@ class TelemetryConfig {
     return TelemetryConfig(
       serviceName: serviceName ?? this.serviceName,
       endpoint: endpoint ?? this.endpoint,
+      apiKey: apiKey ?? this.apiKey,
+      sampleRate: sampleRate ?? this.sampleRate,
       debugMode: debugMode ?? this.debugMode,
       globalAttributes: globalAttributes ?? this.globalAttributes,
+      batchSize: batchSize ?? this.batchSize,
+      flushIntervalMs: flushIntervalMs ?? this.flushIntervalMs,
+      // ignore: deprecated_member_use_from_same_package
       batchTimeout: batchTimeout ?? this.batchTimeout,
+      // ignore: deprecated_member_use_from_same_package
       maxBatchSize: maxBatchSize ?? this.maxBatchSize,
       enableNetworkMonitoring:
           enableNetworkMonitoring ?? this.enableNetworkMonitoring,
@@ -117,6 +148,7 @@ class TelemetryConfig {
       reportStoragePath: reportStoragePath ?? this.reportStoragePath,
       dataRetentionPeriod: dataRetentionPeriod ?? this.dataRetentionPeriod,
       useJsonFormat: useJsonFormat ?? this.useJsonFormat,
+      // ignore: deprecated_member_use_from_same_package
       eventBatchSize: eventBatchSize ?? this.eventBatchSize,
     );
   }
@@ -151,7 +183,7 @@ EdgeTelemetry Configuration:
   Format: ${useJsonFormat ? 'JSON' : 'OpenTelemetry'}
   Debug: $debugMode
   Features: ${enabledFeatures.entries.where((e) => e.value).map((e) => e.key).join(', ')}
-  Batch: $eventBatchSize events / ${batchTimeout.inSeconds}s
+  Batch: $batchSize events / ${flushIntervalMs}ms
   Local Reports: $enableLocalReporting
 ''';
   }

@@ -1,0 +1,28 @@
+{
+  "_comment": "Golden canon batch shape (eventname-envelope-mapping.md §1/§2/§4). Volatile timestamps are '<TS>'; session.*/network.* attrs are normalized out before comparison (they are #9's concern, not the wire-flip canon).",
+  "type": "telemetry_batch",
+  "timestamp": "<TS>",
+  "batch_size": 2,
+  "events": [
+    {
+      "type": "event",
+      "eventName": "navigation",
+      "timestamp": "<TS>",
+      "attributes": {
+        "device.id": "device_abc",
+        "user.id": "user_abc",
+        "navigation.to": "/home"
+      }
+    },
+    {
+      "type": "metric",
+      "metricName": "frame_render_time",
+      "value": 12.5,
+      "timestamp": "<TS>",
+      "attributes": {
+        "device.id": "device_abc",
+        "user.id": "user_abc"
+      }
+    }
+  ]
+}

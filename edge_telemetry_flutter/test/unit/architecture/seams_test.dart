@@ -116,17 +116,19 @@ void main() {
 
       expect(sender.sent, hasLength(1));
       final batch = sender.sent.single;
-      expect(batch['type'], 'batch');
+      expect(batch['type'], 'telemetry_batch');
       final events = batch['events'] as List;
-      expect(events.single['eventName'], 'demo.click');
+      // Host names wrap into custom_event with event.name carrying the name.
+      expect(events.single['eventName'], 'custom_event');
       final attrs = events.single['attributes'] as Map;
+      expect(attrs['event.name'], 'demo.click');
       expect(attrs['button'], 'x');
       expect(attrs['device.id'], 'device_x');
     });
   });
 
   group('Seam 2 — EventSink injected into a CaptureHook', () {
-    test('NavCaptureHook emits navigation.route_change to a fake sink', () {
+    test('NavCaptureHook emits navigation to a fake sink', () {
       final sink = _FakeSink();
       final hook = NavCaptureHook(
           session: SessionManager(), breadcrumbs: BreadcrumbManager());
@@ -139,8 +141,7 @@ void main() {
         null,
       );
 
-      final nav =
-          sink.events.firstWhere((e) => e.name == 'navigation.route_change');
+      final nav = sink.events.firstWhere((e) => e.name == 'navigation');
       expect(nav.type, 'event');
       expect(nav.attributes['navigation.to'], '/home');
       expect(nav.countsToSession, isFalse); // nav sent direct in v1.5.2
@@ -182,7 +183,7 @@ void main() {
 
       expect(sender.sent, hasLength(1));
       final batch = sender.sent.single;
-      expect(batch['type'], 'batch');
+      expect(batch['type'], 'telemetry_batch');
       expect(batch['batch_size'], 2);
       expect((batch['events'] as List).map((e) => e['eventName']), ['a', 'b']);
     });
@@ -215,7 +216,8 @@ void main() {
       final collector =
           Collector(context: context, session: session, pipeline: pipeline);
 
-      collector.add(const EdgeEvent.event('batched.dropped'));
+      // A canon event (passes the allowlist) so the drop is purely sampling.
+      collector.add(const EdgeEvent.event('navigation'));
       await Future<void>(() {});
       expect(sender.sent, isEmpty); // batched event dropped
 

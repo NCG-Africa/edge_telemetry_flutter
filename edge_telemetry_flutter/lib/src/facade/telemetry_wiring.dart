@@ -70,6 +70,7 @@ class TelemetryWiring {
 
     final transport = RetryTransport(
       endpoint: config.endpoint,
+      apiKey: config.apiKey,
       queue: queue,
       debugMode: config.debugMode,
     );
@@ -78,7 +79,8 @@ class TelemetryWiring {
 
     final pipeline = Pipeline(
       transport: transport,
-      batchSize: config.eventBatchSize,
+      batchSize: config.batchSize,
+      flushInterval: Duration(milliseconds: config.flushIntervalMs),
       debugMode: config.debugMode,
     );
 

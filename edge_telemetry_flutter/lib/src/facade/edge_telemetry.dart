@@ -85,10 +85,15 @@ class EdgeTelemetry {
   static Future<void> initialize({
     required String endpoint,
     required String serviceName,
+    String? apiKey,
+    double sampleRate = 1.0,
     bool debugMode = false,
     Map<String, String>? globalAttributes,
+    int? batchSize,
+    int? flushIntervalMs,
+    @Deprecated('Use flushIntervalMs. Removed in v3.0.0.')
     Duration? batchTimeout,
-    int? maxBatchSize,
+    @Deprecated('Ignored (OTel-era). Removed in v3.0.0.') int? maxBatchSize,
     bool enableNetworkMonitoring = true,
     bool enablePerformanceMonitoring = true,
     bool enableNavigationTracking = true,
@@ -100,15 +105,22 @@ class EdgeTelemetry {
     @Deprecated(
         'useJsonFormat is ignored; the SDK is custom-JSON only. Remove the argument. Removed in v3.0.0.')
     bool useJsonFormat = true,
-    int eventBatchSize = 30,
+    @Deprecated('Use batchSize. Removed in v3.0.0.') int? eventBatchSize,
   }) async {
+    // New canon keys win; deprecated keys are the fallback (backward-compat).
+    final resolvedBatchSize = batchSize ?? eventBatchSize ?? 30;
+    final resolvedFlushMs =
+        flushIntervalMs ?? batchTimeout?.inMilliseconds ?? 5000;
+
     final config = TelemetryConfig(
       endpoint: endpoint,
       serviceName: serviceName,
+      apiKey: apiKey,
+      sampleRate: sampleRate,
       debugMode: debugMode,
       globalAttributes: globalAttributes ?? {},
-      batchTimeout: batchTimeout ?? const Duration(seconds: 5),
-      maxBatchSize: maxBatchSize ?? 512,
+      batchSize: resolvedBatchSize,
+      flushIntervalMs: resolvedFlushMs,
       enableNetworkMonitoring: enableNetworkMonitoring,
       enablePerformanceMonitoring: enablePerformanceMonitoring,
       enableNavigationTracking: enableNavigationTracking,
@@ -117,7 +129,8 @@ class EdgeTelemetry {
       reportStoragePath: reportStoragePath,
       dataRetentionPeriod: dataRetentionPeriod ?? const Duration(days: 30),
       useJsonFormat: true, // custom-JSON is the only backend now
-      eventBatchSize: eventBatchSize,
+      // ignore: deprecated_member_use_from_same_package
+      eventBatchSize: resolvedBatchSize,
       enableHttpMonitoring: enableHttpMonitoring,
       enableCrashReporting: enableCrashReporting,
     );
@@ -249,8 +262,11 @@ class EdgeTelemetry {
     _ensureInitialized();
     final stringAttributes = _convertToStringMap(attributes);
 
-    _wiring!.collector.add(EdgeEvent.event(eventName,
-        attributes: stringAttributes, countsToSession: true));
+    // Host names are arbitrary → wrap into the canon `custom_event` with the
+    // host-supplied name carried in `event.name` (mapping §2).
+    _wiring!.collector.add(EdgeEvent.event('custom_event',
+        attributes: {'event.name': eventName, ...stringAttributes},
+        countsToSession: true));
 
     if (isLocalReportingEnabled && _currentSessionId != null) {
       final event = TelemetryEvent(
@@ -367,16 +383,8 @@ class EdgeTelemetry {
       }
     }
 
-    _emitProfileEvent('user.profile_updated', profileEventAttributes);
-    _emitProfileEvent('user.profile_set', {
-      'user.has_name': (name != null).toString(),
-      'user.has_email': (email != null).toString(),
-      'user.has_phone': (phone != null).toString(),
-      'user.custom_attributes_count':
-          (customAttributes?.length ?? 0).toString(),
-      'profile_timestamp': DateTime.now().toIso8601String(),
-      'profile_version': profileVersion.toString(),
-    });
+    // Canon: one `user.profile.update` (folds v1 profile_updated/set/cleared).
+    _emitProfileEvent('user.profile.update', profileEventAttributes);
   }
 
   /// Emit a profile event direct — no session-counter bump, no local store —
@@ -392,13 +400,10 @@ class EdgeTelemetry {
     _userProfile.clear();
     final profileVersion = _getNextProfileVersion();
 
-    _emitProfileEvent('user.profile_updated', {
+    _emitProfileEvent('user.profile.update', {
       'user.id': _currentUserId!,
       'user.profile_version': profileVersion.toString(),
       'user.profile_updated_at': DateTime.now().toIso8601String(),
-    });
-    _emitProfileEvent('user.profile_cleared', {
-      'profile_version': profileVersion.toString(),
     });
   }
 

@@ -2,10 +2,10 @@
 
 ## [Unreleased] — 2.0.0-dev
 
-OpenTelemetry removal + sanctioned public-API break (Phase 2 of the atomic
-v2.0.0). Wire behaviour is held byte-identical to 1.5.2 — this slice is a pure
-restructure. Version bump, migration guide, and wire flip land with the rest of
-v2.0.0.
+OpenTelemetry removal + sanctioned public-API break, the identity contract, and
+the **wire flip to the family canon** (Phases 2–3 of the atomic v2.0.0). The
+public Dart API stays backward-compatible; the **wire breaks** — see the wire
+section below. Final version bump + migration guide land with the rest of v2.0.0.
 
 ### 💥 Breaking (source break on upgrade)
 - **REMOVED**: `startSpan()` / `endSpan()` — returned/consumed the deleted OTel
@@ -33,6 +33,34 @@ v2.0.0.
 - The device-ID validator accepts BOTH the legacy 8-alnum and new 16-hex random
   widths, so IDs minted before this release upgrade in place. `user.id` stays
   stable across `setUserProfile()` / reinstall-only regeneration.
+
+### 📡 Wire flip to family canon (Phase 3) — **breaking wire change**
+- **CHANGED**: batch envelope is now `type: "telemetry_batch"` (was `"batch"`),
+  fields ordered `type`/`timestamp`/`batch_size`/`events`.
+- **CHANGED**: transport POSTs to `<endpoint>/collector/telemetry` with an
+  `X-API-Key` header. `endpoint` is now a **base URL** — new `apiKey:` param on
+  `initialize()` supplies the key (omit → header not sent; the Collector 401s).
+- **CHANGED**: the wire now carries **only the 12-event / 4-metric canon
+  allowlist**. Event renames: `navigation.route_change`→`navigation`,
+  `performance.screen_duration` (metric)→`screen.duration` (event),
+  `performance.app_startup`→`page_load`, `network.connectivity_change`→
+  `network_change`; host `trackEvent(name)`→`custom_event` (name in
+  `event.name`); the `user.profile_*` trio folds into one `user.profile.update`.
+- **CHANGED**: metric renames `performance.frame_time`→`frame_render_time`,
+  `performance.memory_usage`→`memory_usage`, `performance.frame_drop` (event)→
+  `long_task` (metric).
+- **REMOVED from wire**: `http.error` / `http.slow_request` (fold into
+  `http.request`), the 4 internal-noise events (`telemetry.initialized`,
+  `*.monitor_initialized`, `performance.system_check`), and the
+  `network.quality_score` / `http.response_time` / `performance.startup_time`
+  metrics.
+- **GUARANTEED**: `location` / `tenant_id` / `geo` are never sent (stripped at
+  the context boundary — the Collector injects them). Batches are capped at
+  1000 events.
+- **CHANGED (config)**: `batchSize` / `flushIntervalMs` / `sampleRate` are the
+  canon keys; `flushIntervalMs` **defaults to 5000ms** (fixes the latent 5-min
+  flush). Old `eventBatchSize` / `batchTimeout` / `maxBatchSize` are deprecated
+  (still honored as fallbacks, removed in v3.0.0).
 
 ### 🧹 Internal
 - **REMOVED**: `opentelemetry` dependency, `SpanManager`, `EventTrackerImpl`,

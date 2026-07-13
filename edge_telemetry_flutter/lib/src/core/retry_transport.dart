@@ -3,6 +3,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'offline_queue.dart';
 
 /// Low-level POST primitive. Returns true on a 2xx response. Injectable so tests
@@ -16,20 +18,39 @@ typedef Sender = Future<bool> Function(Map<String, dynamic> payload);
 /// (persist + drain). One persistence/backoff system, not two.
 class RetryTransport {
   final String endpoint;
+  final String? apiKey;
   final OfflineQueue queue;
   final bool debugMode;
 
   final HttpClient _httpClient;
   final Sender? _sender;
 
+  /// The resolved POST target: `<endpoint>/collector/telemetry` (family canon),
+  /// unless [endpoint] already ends with that path.
+  final Uri _url;
+
   RetryTransport({
     required this.endpoint,
     required this.queue,
+    this.apiKey,
     this.debugMode = false,
     HttpClient? httpClient,
     Sender? sender,
   })  : _httpClient = httpClient ?? HttpClient(),
-        _sender = sender;
+        _sender = sender,
+        _url = _resolveUrl(endpoint);
+
+  /// The resolved POST target (test seam).
+  @visibleForTesting
+  Uri get resolvedUrl => _url;
+
+  static Uri _resolveUrl(String endpoint) {
+    final base = endpoint.endsWith('/')
+        ? endpoint.substring(0, endpoint.length - 1)
+        : endpoint;
+    if (base.endsWith('/collector/telemetry')) return Uri.parse(base);
+    return Uri.parse('$base/collector/telemetry');
+  }
 
   /// Send a batch. Byte-identical to v1.5.2 `JsonHttpClient.sendTelemetryData`.
   /// On success, opportunistically drains any queued crash payloads.
@@ -82,8 +103,9 @@ class RetryTransport {
 
   Future<bool> _httpPost(Map<String, dynamic> data) async {
     try {
-      final request = await _httpClient.postUrl(Uri.parse(endpoint));
+      final request = await _httpClient.postUrl(_url);
       request.headers.set('Content-Type', 'application/json');
+      if (apiKey != null) request.headers.set('X-API-Key', apiKey!);
       request.write(json.encode(data));
       final response = await request.close();
 

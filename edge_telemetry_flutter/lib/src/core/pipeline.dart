@@ -21,12 +21,12 @@ class Pipeline {
 
   Pipeline({
     required this.transport,
-    this.batchSize = 30,
-    // ponytail: 5-min flush kept byte-identical with v1.5.2 (the latent 60×
-    // defect). The fix to flushIntervalMs=5s is the Phase-3 wire flip, not #18.
-    this.flushInterval = const Duration(minutes: 5),
+    int batchSize = 30,
+    this.flushInterval = const Duration(seconds: 5),
     this.debugMode = false,
-  });
+    // ponytail: Collector caps batches at 1000 (collector-contract §2); clamp
+    // the flush threshold so the buffer can never exceed it.
+  }) : batchSize = batchSize.clamp(1, 1000);
 
   /// Buffer a batched event; flush when the buffer hits [batchSize].
   void enqueue(Map<String, dynamic> event) {
@@ -55,10 +55,10 @@ class Pipeline {
   void _flush() {
     if (_buffer.isEmpty) return;
     final batch = {
-      'type': 'batch',
-      'events': List<Map<String, dynamic>>.from(_buffer),
-      'batch_size': _buffer.length,
+      'type': 'telemetry_batch',
       'timestamp': DateTime.now().toIso8601String(),
+      'batch_size': _buffer.length,
+      'events': List<Map<String, dynamic>>.from(_buffer),
     };
     transport.send(batch);
     if (debugMode) print('📤 Sent batch of ${_buffer.length} events');

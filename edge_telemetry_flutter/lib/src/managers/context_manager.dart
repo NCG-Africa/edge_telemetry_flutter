@@ -26,6 +26,9 @@ class ContextManager {
 
   /// The enriched attribute set right now: globals, then live session attrs,
   /// then `network.type`. Order matches v1.5.2 `_getEnrichedAttributes`.
+  ///
+  /// The geo/tenant strip (`location`/`tenant_id`/`geo`) lives in `Collector`,
+  /// downstream of where event attributes merge in — see `Collector.add`.
   Map<String, String> snapshot() => {
         ..._global,
         ...sessionManager.getSessionAttributes(),

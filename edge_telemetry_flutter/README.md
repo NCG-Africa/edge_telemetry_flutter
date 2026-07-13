@@ -39,8 +39,9 @@ void main() async {
 
   // 🚀 ONE CALL - EVERYTHING IS AUTOMATIC!
   await EdgeTelemetry.initialize(
-    endpoint: 'https://your-backend.com/api/telemetry',
+    endpoint: 'https://your-backend.com', // base URL — SDK posts to /collector/telemetry
     serviceName: 'my-awesome-app',
+    apiKey: 'edgekey_xxx_yyy', // sent as X-API-Key (required by the collector)
   );
   
   runApp(MyApp());
