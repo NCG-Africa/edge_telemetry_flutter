@@ -59,6 +59,10 @@ class MyApp extends StatelessWidget {
 }
 ```
 
+> ⏱️ **Call `initialize()` as early as possible in `main()`.** `page_load`'s
+> `startup.time_to_first_frame_ms` is measured from SDK init, not process start,
+> so anything before this call is not counted.
+
 **That's it! 🎉** Your app now has comprehensive telemetry:
 - ✅ All HTTP requests automatically tracked
 - ✅ All crashes and errors automatically reported
@@ -126,6 +130,10 @@ await EdgeTelemetry.initialize(
                                      // events, but crashes, session bookends, and
                                      // user.profile.update always land. 1.0 = keep all.
   enableLocalReporting: true,       // Store data locally for reports
+  captureAccessibilityContext: false, // Opt-in: adds device.text_scale_factor +
+                                      // device.reduce_motion (accessibility-
+                                      // sensitive). device.platform_brightness is
+                                      // captured regardless.
 
   // 🏷️ Global attributes added to all telemetry
   globalAttributes: {

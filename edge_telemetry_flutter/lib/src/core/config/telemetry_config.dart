@@ -76,6 +76,11 @@ class TelemetryConfig {
   /// Use JSON format instead of OpenTelemetry (simpler for most use cases)
   final bool useJsonFormat;
 
+  /// Capture the accessibility-sensitive device keys (`device.text_scale_factor`,
+  /// `device.reduce_motion`). Off by default pending privacy sign-off (glossary
+  /// §6). `device.platform_brightness` is captured regardless — it carries no flag.
+  final bool captureAccessibilityContext;
+
   /// Number of events to batch before sending.
   @Deprecated('Use batchSize. Removed in v3.0.0.')
   final int eventBatchSize;
@@ -103,6 +108,7 @@ class TelemetryConfig {
     this.dataRetentionPeriod = const Duration(days: 30),
     this.useJsonFormat = true,
     this.eventBatchSize = 30,
+    this.captureAccessibilityContext = false,
   });
 
   /// Create a copy of this config with some values overridden
@@ -129,6 +135,7 @@ class TelemetryConfig {
     Duration? dataRetentionPeriod,
     bool? useJsonFormat,
     int? eventBatchSize,
+    bool? captureAccessibilityContext,
   }) {
     return TelemetryConfig(
       serviceName: serviceName ?? this.serviceName,
@@ -159,6 +166,8 @@ class TelemetryConfig {
       useJsonFormat: useJsonFormat ?? this.useJsonFormat,
       // ignore: deprecated_member_use_from_same_package
       eventBatchSize: eventBatchSize ?? this.eventBatchSize,
+      captureAccessibilityContext:
+          captureAccessibilityContext ?? this.captureAccessibilityContext,
     );
   }
 

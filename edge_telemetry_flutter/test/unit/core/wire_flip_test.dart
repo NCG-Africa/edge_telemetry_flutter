@@ -63,8 +63,9 @@ Future<(Collector, _RecordingSender)> _wire({
 }
 
 /// Normalize an assembled batch for golden comparison: blank the volatile
-/// timestamps and drop the session.*/network.* attrs (owned by #9, not the
-/// wire-flip canon this fixture pins).
+/// timestamps and drop the session.*/network.* attrs (owned by #9) plus the
+/// live device-context keys (`device.platform_brightness` — owned by #26), none
+/// of which the wire-flip canon (#21) this fixture pins is concerned with.
 Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
       ...batch,
       'timestamp': '<TS>',
@@ -72,8 +73,12 @@ Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
         final ev = Map<String, dynamic>.from(e as Map);
         ev['timestamp'] = '<TS>';
         ev['attributes'] = Map<String, dynamic>.from(ev['attributes'] as Map)
-          ..removeWhere(
-              (k, _) => k.startsWith('session.') || k.startsWith('network.'));
+          ..removeWhere((k, _) =>
+              k.startsWith('session.') ||
+              k.startsWith('network.') ||
+              k == 'device.platform_brightness' ||
+              k == 'device.text_scale_factor' ||
+              k == 'device.reduce_motion');
         return ev;
       }).toList(),
     };

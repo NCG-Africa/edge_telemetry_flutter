@@ -60,8 +60,13 @@ class PerfCaptureHook implements CaptureHook {
     final startupType = _determineStartupType(startupMs);
 
     sink.add(EdgeEvent.event('page_load', attributes: {
-      'startup.duration_ms': startupMs.toString(),
       'startup.type': startupType,
+      // SDK-init-relative (undercounts anything before initialize()); documented
+      // caveat in README. Measured from hook start → first post-frame callback.
+      'startup.time_to_first_frame_ms': startupMs.toString(),
+      // Kept for backward-compat (== time_to_first_frame_ms); the split is
+      // purely additive — no existing key dropped.
+      'startup.duration_ms': startupMs.toString(),
       'startup.timestamp': DateTime.now().toIso8601String(),
       'startup.first_frame': 'true',
     }));
@@ -80,8 +85,10 @@ class PerfCaptureHook implements CaptureHook {
     final isDropped = totalDuration > 16.67;
 
     sink.add(EdgeEvent.metric('frame_render_time', totalDuration, attributes: {
-      'frame.build_duration_ms': buildDuration.toString(),
-      'frame.raster_duration_ms': rasterDuration.toString(),
+      // Canon split (glossary §1, dotless metric internals): UI-thread build vs
+      // GPU raster — the whole jank-triage decision the single total can't make.
+      'build_time_ms': buildDuration.toString(),
+      'raster_time_ms': rasterDuration.toString(),
       'frame.type': frameType,
       'frame.dropped': isDropped.toString(),
       'metric.unit': 'milliseconds',
@@ -130,11 +137,13 @@ class PerfCaptureHook implements CaptureHook {
     }));
   }
 
-  String _determineStartupType(int durationMs) {
-    if (durationMs < 1000) return 'hot_start';
-    if (durationMs < 3000) return 'warm_start';
-    return 'cold_start';
-  }
+  // Canon startup taxonomy is cold | warm (glossary §4). This hook only runs at
+  // SDK init, so it can't truly see a warm (already-resident) start; a duration
+  // threshold is the passive Dart-side proxy.
+  // ponytail: threshold heuristic; true cold/warm needs the native engine-init
+  // timeline (deferred to the native-crash ticket #10).
+  String _determineStartupType(int durationMs) =>
+      durationMs < 2000 ? 'warm' : 'cold';
 
   String _determineFrameType(double durationMs) {
     if (durationMs <= 16.67) return 'smooth';

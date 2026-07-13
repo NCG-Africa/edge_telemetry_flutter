@@ -8,7 +8,11 @@ import 'package:flutter/material.dart';
 /// screen tracking and navigation analytics
 class EdgeNavigationObserver extends NavigatorObserver {
   String? _currentRoute;
-  final Map<String, DateTime> _screenStartTimes = {};
+
+  // One record per open screen: its start time + the route context, so
+  // `screen.duration` can carry the same `route.type` / `route.has_arguments`
+  // the `navigation` event did (glossary §3).
+  final Map<String, _ScreenVisit> _screens = {};
 
   final Function(String, {Map<String, String>? attributes})? _onEvent;
 
@@ -57,8 +61,8 @@ class EdgeNavigationObserver extends NavigatorObserver {
       _endScreen(previousRouteName, method);
     }
 
-    // Start timing the new screen
-    _startScreen(routeName);
+    // Start timing the new screen (recording its route context)
+    _startScreen(routeName, route);
 
     // Track navigation event
     _trackNavigationEvent(routeName, previousRouteName, method, route);
@@ -79,22 +83,31 @@ class EdgeNavigationObserver extends NavigatorObserver {
     return 'screen_${routeType}_$routeHash';
   }
 
-  /// Begin timing a screen
-  void _startScreen(String routeName) {
-    _screenStartTimes[routeName] = DateTime.now();
+  /// Begin timing a screen (and record its route context for screen.duration)
+  void _startScreen(String routeName, Route<dynamic> route) {
+    _screens[routeName] = _ScreenVisit(DateTime.now(), _routeContext(route));
   }
+
+  /// The two sanctioned route attrs (glossary §3): the runtime `Route` type and
+  /// a boolean args-present flag — never the argument values (PII). Shared by
+  /// the `navigation` event and `screen.duration`.
+  Map<String, String> _routeContext(Route<dynamic> route) => {
+        'route.type': route.runtimeType.toString(),
+        'route.has_arguments': (route.settings.arguments != null).toString(),
+      };
 
   /// End a screen and track its duration metric
   void _endScreen(String routeName, String exitMethod) {
-    final startTime = _screenStartTimes.remove(routeName);
-    if (startTime == null) return;
+    final visit = _screens.remove(routeName);
+    if (visit == null) return;
 
-    final duration = DateTime.now().difference(startTime);
+    final duration = DateTime.now().difference(visit.start);
     // Canon: screen dwell is the `screen.duration` event (metric→event, §2).
     _onEvent?.call('screen.duration', attributes: {
       'screen.name': routeName,
       'screen.duration_ms': duration.inMilliseconds.toString(),
       'screen.exit_method': exitMethod,
+      ...visit.routeContext,
     });
   }
 
@@ -106,18 +119,12 @@ class EdgeNavigationObserver extends NavigatorObserver {
       'navigation.method': method,
       'navigation.type': 'route_change',
       'navigation.timestamp': DateTime.now().toIso8601String(),
-      'route.type': route.runtimeType.toString(),
+      // route.type + boolean route.has_arguments — never the argument values.
+      ..._routeContext(route),
     };
 
     if (previousRouteName != null) {
       navigationAttributes['navigation.from'] = previousRouteName;
-    }
-
-    // Add route arguments if available
-    if (route.settings.arguments != null) {
-      navigationAttributes['route.has_arguments'] = 'true';
-      navigationAttributes['route.arguments_type'] =
-          route.settings.arguments.runtimeType.toString();
     }
 
     _onEvent?.call('navigation', attributes: navigationAttributes);
@@ -134,6 +141,13 @@ class EdgeNavigationObserver extends NavigatorObserver {
 
   /// Clean up all resources
   void dispose() {
-    _screenStartTimes.clear();
+    _screens.clear();
   }
+}
+
+/// One open screen's timing anchor + its (PII-safe) route context.
+class _ScreenVisit {
+  final DateTime start;
+  final Map<String, String> routeContext;
+  const _ScreenVisit(this.start, this.routeContext);
 }

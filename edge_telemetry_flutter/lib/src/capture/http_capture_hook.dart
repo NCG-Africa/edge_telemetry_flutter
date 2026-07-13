@@ -1,6 +1,8 @@
 // lib/src/capture/http_capture_hook.dart
 
 import '../core/edge_event.dart';
+import '../core/models/breadcrumb.dart';
+import '../managers/breadcrumb_manager.dart';
 import 'capture_hook.dart';
 import 'http_overrides.dart';
 
@@ -12,9 +14,14 @@ import 'http_overrides.dart';
 /// hot-restarts.
 class HttpCaptureHook implements CaptureHook {
   final bool debugMode;
+
+  /// Crash-context ring: each completed request drops a sanitized-path
+  /// breadcrumb (path only — never the query string, which can carry PII).
+  final BreadcrumbManager? breadcrumbs;
+
   bool _installed = false;
 
-  HttpCaptureHook({this.debugMode = false});
+  HttpCaptureHook({this.debugMode = false, this.breadcrumbs});
 
   @override
   DisposeHandle start(EventSink sink) {
@@ -40,5 +47,17 @@ class HttpCaptureHook implements CaptureHook {
   void _emit(EventSink sink, HttpRequestTelemetry t) {
     sink.add(EdgeEvent.event('http.request',
         attributes: t.toAttributes(), countsToSession: true));
+
+    // Sanitized path only — drop query/fragment so no PII rides the ring.
+    final path = Uri.tryParse(t.url)?.path ?? t.url;
+    breadcrumbs?.addNetworkEvent(
+      '${t.method} $path',
+      level: t.isSuccess ? BreadcrumbLevel.info : BreadcrumbLevel.error,
+      data: {
+        'path': path,
+        'method': t.method,
+        'status': t.statusCode.toString(),
+      },
+    );
   }
 }

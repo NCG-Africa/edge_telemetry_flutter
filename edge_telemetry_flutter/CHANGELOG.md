@@ -93,6 +93,26 @@ section below. Final version bump + migration guide land with the rest of v2.0.0
   bookends are immediate+bypass; `user.profile.update` is **batched-but-bypass**
   — an identity mutation always lands even in a sampled-out session.
 
+### 🍞 Breadcrumbs & Flutter diagnostics (Phase 3)
+- **CHANGED**: the breadcrumb ring is now **20 entries**, crash-scoped. It is
+  attached to every `app.crash` as `crash.breadcrumbs` (JSON-encoded) and never
+  appears in the global snapshot. Auto-crumbs now come from navigation, HTTP
+  (sanitized **path only** — no query string), and lifecycle transitions;
+  `addBreadcrumb(message, {category, level, data})` adds manual ones.
+- **ADDED**: `frame_render_time` now carries `build_time_ms` (UI-thread build)
+  and `raster_time_ms` (GPU raster) — the UI-vs-GPU jank split.
+- **ADDED**: `navigation` and `screen.duration` carry `route.type` and
+  `route.has_arguments` (**boolean only** — argument values are never captured).
+- **CHANGED**: `page_load` now carries `startup.type` (`cold`/`warm`) and
+  `startup.time_to_first_frame_ms`. The latter is **SDK-init-relative** — it
+  undercounts everything before `initialize()`, so call it as early as possible
+  in `main()`.
+- **ADDED**: `app_lifecycle` carries `lifecycle.state` (raw `AppLifecycleState`).
+- **ADDED**: every event carries `device.platform_brightness` (`light`/`dark`).
+  `device.text_scale_factor` / `device.reduce_motion` are **opt-in** behind the
+  new `initialize(captureAccessibilityContext:)` flag (default `false`, pending
+  privacy sign-off — they are accessibility-sensitive).
+
 ### 🧹 Internal
 - **REMOVED**: `opentelemetry` dependency, `SpanManager`, `EventTrackerImpl`,
   the `EventTracker` interface, and the `useJsonFormat` dual-backend branches.
