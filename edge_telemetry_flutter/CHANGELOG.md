@@ -57,6 +57,15 @@ section below. Final version bump + migration guide land with the rest of v2.0.0
 - **GUARANTEED**: `location` / `tenant_id` / `geo` are never sent (stripped at
   the context boundary — the Collector injects them). Batches are capped at
   1000 events.
+- **CHANGED (crash unification)**: the bare `type:"error"` item is gone — every
+  Dart error path (`FlutterError.onError`, `PlatformDispatcher.onError`,
+  `runZonedGuarded`, the now-wired isolate error-listener, host `trackError`)
+  funnels into one immediate `app.crash` **event** with **unprefixed** keys
+  (`message`, `stacktrace`, `exception_type`, `cause="Error"`, `is_fatal=false`)
+  and the catching handler in the secondary `crash.source`
+  (`flutter_error`/`platform_dispatcher`/`zone`/`isolate`). The client no longer
+  derives `crash_hash` / `severity` / `breadcrumbs` — the server computes those.
+  Crashes still send immediately and persist+drain on network failure.
 - **CHANGED (config)**: `batchSize` / `flushIntervalMs` / `sampleRate` are the
   canon keys; `flushIntervalMs` **defaults to 5000ms** (fixes the latent 5-min
   flush). Old `eventBatchSize` / `batchTimeout` / `maxBatchSize` are deprecated
