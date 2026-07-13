@@ -22,7 +22,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  edge_telemetry_flutter: ^1.4.10
+  edge_telemetry_flutter: ^2.0.0
   http: ^1.1.0  # If you're making HTTP requests
 ```
 
@@ -50,6 +50,17 @@ Below API 30, native (NDK) crashes and ANRs are a **documented gap** — the OS
 are captured on every level via `UncaughtExceptionHandler`. Each captured crash
 carries `sdk.native_capture_tier` so per-device coverage is visible on the
 dashboard. No minimum-SDK bump — the existing low floor is preserved.
+
+## 🧭 Migrating from 1.x to 2.0.0
+
+**The wire changed — your code mostly didn't.** Three steps: (1) set the iOS
+Podfile floor to `14.0` (MetricKit — the one guaranteed build break), (2) pass
+`apiKey:` to `initialize()` and treat `endpoint` as a base URL (`X-API-Key` auth;
+posts to `<endpoint>/collector/telemetry`), (3) delete the 4 removed OTel-leak /
+long-deprecated symbols if you used them (`startSpan` / `endSpan` /
+`activeScreenSpans` / `initialize(runAppCallback:)`). Everything else compiles
+unchanged. **The full checklist — removals, deprecated no-ops, and what you
+gain — is in [`CHANGELOG.md`](CHANGELOG.md) under `[2.0.0]`.**
 
 ## ⚡ Quick Start
 

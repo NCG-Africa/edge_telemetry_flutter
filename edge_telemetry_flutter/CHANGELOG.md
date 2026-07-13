@@ -1,11 +1,35 @@
 # Changelog
 
-## [Unreleased] — 2.0.0-dev
+## [2.0.0] - 2026-07-13
 
-OpenTelemetry removal + sanctioned public-API break, the identity contract, and
-the **wire flip to the family canon** (Phases 2–3 of the atomic v2.0.0). The
-public Dart API stays backward-compatible; the **wire breaks** — see the wire
-section below. Final version bump + migration guide land with the rest of v2.0.0.
+**The wire changed — your code mostly didn't.** This is the atomic v2.0.0:
+OpenTelemetry is gone, the wire is aligned to the Edge RUM family canon, native
+crash capture (iOS + Android) is in, and the 1251-line barrel god-object is
+split into the family's 5-layer architecture. For the common consumer the
+upgrade is a two-line checklist, not an investigation.
+
+### 🧭 Migrating from 1.x — the whole checklist
+
+1. **Bump the iOS Podfile floor to 14** (`platform :ios, '14.0'`). Required by
+   MetricKit native crash capture — this is the one guaranteed build break.
+2. **Pass `apiKey:` to `initialize()`** — the collector now authenticates via an
+   `X-API-Key` header (omit it and the collector 401s). `endpoint` is now a
+   **base URL**; the SDK posts to `<endpoint>/collector/telemetry`.
+3. **Delete 4 removed symbols if you used them** (all OTel-leak / long-deprecated
+   — see 💥 below): `startSpan()`, `endSpan()`, `activeScreenSpans`,
+   `initialize(runAppCallback:)`. Crash handlers now install automatically.
+
+Everything else compiles unchanged. `withSpan` / `withNetworkSpan` /
+`useJsonFormat:` are kept as deprecated no-ops (removed in v3.0.0); your one
+`navigationObserver` wiring line is untouched. **What you gain:** native crash
+visibility, family-aligned dashboards (Flutter sessions render beside native
+ones), a real 5-second flush (was a latent 5-*minute* default), offline
+durability for all telemetry (was crash-only), and no dead OTel weight.
+
+> **Ship gate.** v2.0.0's wire + backend-accommodation asks require
+> **backend-team sign-off** (spec #15 §10 / #30) — engineering-green does not
+> ship alone. On-device native-crash e2e is verified on a device matrix
+> post-merge (#29 deviation). Both are tracked outside this changelog.
 
 ### 💥 Breaking (source break on upgrade)
 - **REMOVED**: `startSpan()` / `endSpan()` — returned/consumed the deleted OTel
