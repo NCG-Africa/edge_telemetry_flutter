@@ -98,6 +98,16 @@ class EdgeEvent {
         ...?attributes,
       });
 
+  /// The native-crash leg of the same `app.crash` rail (spec #15 Phase 4, #29).
+  ///
+  /// The native plugin already built the unprefixed payload — `message`,
+  /// `stacktrace`, `exception_type`, `cause` (`NativeCrash`/`ANR`/`Hang`),
+  /// `is_fatal:"true"`, `crash.source`, and the `sdk.native_capture_tier`
+  /// passthrough — so this factory carries the map verbatim onto the immediate
+  /// rail (no `cause`/`is_fatal` synthesis; those come from the OS, not us).
+  factory EdgeEvent.nativeCrash(Map<String, String> payload) =>
+      EdgeEvent._crash(Map<String, String>.unmodifiable(payload));
+
   const EdgeEvent._crash(this.attributes)
       : type = 'event',
         name = 'app.crash',

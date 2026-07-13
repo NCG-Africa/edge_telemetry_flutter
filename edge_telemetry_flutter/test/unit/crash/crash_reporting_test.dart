@@ -102,6 +102,42 @@ void main() {
     });
   });
 
+  group('buildNativeCrashEvent — native taxonomy carried verbatim', () {
+    test('cause/is_fatal/tier are the OS values, not synthesized', () {
+      final event = reporting.buildNativeCrashEvent({
+        'message': 'SIGSEGV',
+        'stacktrace': 'frame0\nframe1',
+        'exception_type': 'EXC_BAD_ACCESS',
+        'cause': 'NativeCrash',
+        'is_fatal': 'true',
+        'crash.source': 'metrickit',
+        'sdk.native_capture_tier': 'full',
+      });
+
+      expect(event.name, 'app.crash');
+      expect(event.priority, EventPriority.immediate);
+      expect(event.bypassSampling, isTrue);
+
+      final a = event.attributes;
+      expect(a['cause'], 'NativeCrash'); // native taxonomy, not 'Error'
+      expect(a['is_fatal'], 'true'); // fatal, not the Dart 'false'
+      expect(a['crash.source'], 'metrickit');
+      expect(a['sdk.native_capture_tier'], 'full');
+    });
+
+    test('ANR + jvm_only tier pass through unchanged', () {
+      final a = reporting.buildNativeCrashEvent({
+        'message': 'ANR in com.example',
+        'cause': 'ANR',
+        'is_fatal': 'true',
+        'crash.source': 'app_exit_info',
+        'sdk.native_capture_tier': 'jvm_only',
+      }).attributes;
+      expect(a['cause'], 'ANR');
+      expect(a['sdk.native_capture_tier'], 'jvm_only');
+    });
+  });
+
   group('immediate routing', () {
     Future<(Collector, _RecordingSender)> wire() async {
       final sender = _RecordingSender();
@@ -136,6 +172,28 @@ void main() {
       expect(attrs['cause'], 'Error');
       expect(attrs['is_fatal'], 'false');
       expect(attrs['crash.source'], 'platform_dispatcher');
+      expect(attrs['device.id'], 'device_x'); // identity context folded in
+    });
+
+    test('native crash reaches the wire as app.crash with tier asserted',
+        () async {
+      final (collector, sender) = await wire();
+
+      collector.add(reporting.buildNativeCrashEvent({
+        'message': 'SIGSEGV',
+        'cause': 'NativeCrash',
+        'is_fatal': 'true',
+        'crash.source': 'metrickit',
+        'sdk.native_capture_tier': 'full',
+      }));
+      await Future<void>(() {});
+
+      expect(sender.sent, hasLength(1));
+      final attrs = sender.sent.single['attributes'] as Map;
+      expect(sender.sent.single['eventName'], 'app.crash');
+      expect(attrs['cause'], 'NativeCrash');
+      expect(attrs['is_fatal'], 'true');
+      expect(attrs['sdk.native_capture_tier'], 'full'); // tiering asserted
       expect(attrs['device.id'], 'device_x'); // identity context folded in
     });
   });

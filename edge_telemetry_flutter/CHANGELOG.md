@@ -146,13 +146,33 @@ section below. Final version bump + migration guide land with the rest of v2.0.0
 - **No minimum-SDK bump** — the existing low floor is preserved
   (`ApplicationExitInfo` is runtime-guarded for API 30+).
 
+### 📱 Native crash convergence (Phase 4)
+- **CHANGED**: `drainNativeCrashes()` — pulled once on init — now **routes** each
+  native payload into the immediate `app.crash` rail (was contract-only, dropped
+  the drain). Native crashes surface as `app.crash` with the OS-supplied `cause`
+  (`NativeCrash` / `ANR` / `Hang`), `is_fatal: true`, `crash.source`, and the
+  `sdk.native_capture_tier` passthrough carried verbatim — the client synthesizes
+  none of it. Identity context is folded in downstream by the Collector; the send
+  bypasses the batch (immediate rail).
+- **FIXED**: Android `mapExit` signature/call-site mismatch that prevented the
+  Kotlin plugin from compiling (`exception_type` now the named `REASON_*` string).
+- **Deviation (device-matrix e2e, #29)**: the Dart convergence + routing is
+  verified by unit tests (collector → wire, `cause`/`is_fatal`/`sdk.native_capture_tier`
+  asserted), but the on-device e2e fatal (iOS MetricKit + Android
+  `ApplicationExitInfo` producing `app.crash` on the wire) is **not yet run** —
+  no device matrix / CI harness available at this stage. Contingency (spec #15
+  Phase 4): if native slips, ship wire-first as v2.0.0 and native as v2.1.0
+  (reopens #10). Not triggered — the wiring is in; only device-matrix
+  confirmation is outstanding.
+
 ### 🧹 Internal
 - **REMOVED**: `opentelemetry` dependency, `SpanManager`, `EventTrackerImpl`,
   the `EventTracker` interface, and the `useJsonFormat` dual-backend branches.
 - **ADDED**: `NativeCrashChannel` — the pull-only `edge_telemetry/native_crash`
   MethodChannel contract (`drainNativeCrashes()` + documented per-crash payload
   schema) the Phase-4 iOS/Android native plugin builds against. Drained once on
-  init; no-op until the natives land. Internal seam, not exported.
+  init and routed to `app.crash` (see Native crash convergence). Internal seam,
+  not exported.
 
 ## [1.6.0] - 2026-07-10
 

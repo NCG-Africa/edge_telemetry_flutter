@@ -27,4 +27,11 @@ class CrashReporting {
   }) =>
       EdgeEvent.error(error,
           stackTrace: stackTrace, source: source, attributes: attributes);
+
+  /// Build the immediate `app.crash` event for one native-drained crash
+  /// [payload] (#29). The native side already shaped the unprefixed keys and set
+  /// the `NativeCrash`/`ANR`/`Hang` cause + `is_fatal:true` + capture tier — we
+  /// carry it verbatim; the Collector folds in identity context downstream.
+  EdgeEvent buildNativeCrashEvent(Map<String, String> payload) =>
+      EdgeEvent.nativeCrash(payload);
 }
