@@ -174,7 +174,7 @@ Backend profile events include versioning and structured data:
   "type": "event",
   "eventName": "user.profile_updated",
   "attributes": {
-    "user.id": "user_1704067200123_abcd1234",
+    "user.id": "user_1704067200123_a8b9c2d1e0f34567",
     "user.name": "John Doe",
     "user.email": "john@example.com",
     "user.phone": "+1234567890",

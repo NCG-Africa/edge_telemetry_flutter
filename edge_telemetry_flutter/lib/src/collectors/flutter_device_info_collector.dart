@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../core/interfaces/device_info_collector.dart';
 import '../managers/device_id_manager.dart';
+import '../managers/identity_format.dart';
 
 /// Flutter implementation of device information collector
 ///
@@ -39,8 +40,12 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
         'app.package_name': packageInfo.packageName,
       });
 
-      // Collect platform information
-      attributes['device.platform'] = Platform.operatingSystem;
+      // Collect platform information.
+      // device.platform = real OS; sdk.platform = flutter-{os} (ticket #20).
+      // platformTag() is the same lowercased token baked into device/session IDs.
+      final platform = platformTag();
+      attributes['device.platform'] = platform;
+      attributes['sdk.platform'] = 'flutter-$platform';
       attributes['device.platform_version'] = Platform.operatingSystemVersion;
 
       // Collect platform-specific device information

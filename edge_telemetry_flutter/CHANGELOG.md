@@ -20,6 +20,20 @@ v2.0.0.
 - `withSpan()` / `withNetworkSpan()` — just run your function, record nothing.
 - Each warns once per process when `debugMode` is on.
 
+### 🆔 Identity contract (Phase 3)
+- **CHANGED**: device/session/user IDs now carry 64-bit entropy via
+  `Random.secure()` in the canon family format —
+  `device_<epochMs>_<16hex>_<platform>`, `session_<epochMs>_<16hex>_<platform>`,
+  `user_<epochMs>_<16hex>`. Was 8-char (device/user) / bare-16 (session).
+- **CHANGED**: `device.id` is now stored in `flutter_secure_storage` (iOS
+  Keychain survives reinstall) instead of `SharedPreferences`. New dependency:
+  `flutter_secure_storage: ^9.2.4`.
+- **ADDED**: `sdk.platform` attribute = `flutter-<os>`; `device.platform`
+  remains the real OS.
+- The device-ID validator accepts BOTH the legacy 8-alnum and new 16-hex random
+  widths, so IDs minted before this release upgrade in place. `user.id` stays
+  stable across `setUserProfile()` / reinstall-only regeneration.
+
 ### 🧹 Internal
 - **REMOVED**: `opentelemetry` dependency, `SpanManager`, `EventTrackerImpl`,
   the `EventTracker` interface, and the `useJsonFormat` dual-backend branches.
