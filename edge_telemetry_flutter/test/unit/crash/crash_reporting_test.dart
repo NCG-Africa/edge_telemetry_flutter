@@ -108,7 +108,9 @@ void main() {
       final context = ContextManager(
           sessionManager: session, global: {'device.id': 'device_x'});
       final transport = RetryTransport(
-          endpoint: 'https://api.test', queue: _NoopQueue(), sender: sender.call);
+          endpoint: 'https://api.test',
+          queue: _NoopQueue(),
+          sender: sender.call);
       // batchSize huge → a batched event would NOT flush; only the immediate
       // rail can produce a send here.
       final pipeline = Pipeline(transport: transport, batchSize: 999);
