@@ -46,7 +46,8 @@ class _FakeQueue extends OfflineQueue {
   Future<void> initialize() async {}
 
   @override
-  Future<String?> persist(Map<String, dynamic> payload) async {
+  Future<String?> persist(Map<String, dynamic> payload,
+      {bool isCrash = false}) async {
     persisted.add(payload);
     pending.add(payload);
     return 'fake_${persisted.length}.json';

@@ -30,6 +30,10 @@ class TelemetryConfig {
   /// Idle time before a partial batch is sent, in ms (canon name; default 5s).
   final int flushIntervalMs;
 
+  /// Max batches held in the offline queue before drop-oldest kicks in.
+  /// Crashes (`crash_` prefix) are exempt and never dropped.
+  final int maxQueueSize;
+
   /// Batch timeout for sending telemetry data.
   @Deprecated('Use flushIntervalMs. Removed in v3.0.0.')
   final Duration batchTimeout;
@@ -83,6 +87,7 @@ class TelemetryConfig {
     this.globalAttributes = const {},
     this.batchSize = 30,
     this.flushIntervalMs = 5000,
+    this.maxQueueSize = 200,
     this.batchTimeout = const Duration(seconds: 5),
     this.maxBatchSize = 512,
     this.enableNetworkMonitoring = true,
@@ -108,6 +113,7 @@ class TelemetryConfig {
     Map<String, String>? globalAttributes,
     int? batchSize,
     int? flushIntervalMs,
+    int? maxQueueSize,
     Duration? batchTimeout,
     int? maxBatchSize,
     bool? enableNetworkMonitoring,
@@ -131,6 +137,7 @@ class TelemetryConfig {
       globalAttributes: globalAttributes ?? this.globalAttributes,
       batchSize: batchSize ?? this.batchSize,
       flushIntervalMs: flushIntervalMs ?? this.flushIntervalMs,
+      maxQueueSize: maxQueueSize ?? this.maxQueueSize,
       // ignore: deprecated_member_use_from_same_package
       batchTimeout: batchTimeout ?? this.batchTimeout,
       // ignore: deprecated_member_use_from_same_package

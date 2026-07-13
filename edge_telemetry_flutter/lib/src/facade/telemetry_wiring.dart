@@ -65,7 +65,8 @@ class TelemetryWiring {
     required ContextManager context,
     required BreadcrumbManager breadcrumbs,
   }) async {
-    final queue = OfflineQueue(debugMode: config.debugMode);
+    final queue = OfflineQueue(
+        debugMode: config.debugMode, maxQueueSize: config.maxQueueSize);
     await queue.initialize();
 
     final transport = RetryTransport(
