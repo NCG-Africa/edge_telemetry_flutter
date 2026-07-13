@@ -1,6 +1,7 @@
 // lib/src/core/edge_event.dart
 
-/// Send priority for an [EdgeEvent].
+/// Send priority for an [EdgeEvent] — one of two orthogonal axes (the other is
+/// [EdgeEvent.bypassSampling]).
 ///
 /// - [batched]: buffered by the Pipeline and sent in a `type:"batch"` envelope.
 /// - [immediate]: sent straight away, bypassing the batch (crash rail).
@@ -33,6 +34,14 @@ class EdgeEvent {
 
   final EventPriority priority;
 
+  /// Sampling axis, orthogonal to [priority]. When true the event bypasses the
+  /// per-session sample gate (`session.sampled`) and always reaches the wire.
+  ///
+  /// `app.crash` and the `session.*` bookends are bypass (they ride the immediate
+  /// rail too); `user.profile.update` is **batched-but-bypass** — an identity
+  /// mutation that isn't time-critical but must never be sampled away.
+  final bool bypassSampling;
+
   /// Whether this event bumps the session event/metric counters.
   ///
   /// Matches v1.5.2: only events that flowed through the public facade API
@@ -44,6 +53,7 @@ class EdgeEvent {
     this.name, {
     this.attributes = const {},
     this.countsToSession = false,
+    this.bypassSampling = false,
   })  : type = 'event',
         value = null,
         error = null,
@@ -58,6 +68,7 @@ class EdgeEvent {
   })  : type = 'metric',
         error = null,
         stackTrace = null,
+        bypassSampling = false,
         priority = EventPriority.batched;
 
   /// The single source of truth for the `app.crash` wire shape.
@@ -94,6 +105,7 @@ class EdgeEvent {
         error = null,
         stackTrace = null,
         countsToSession = false,
+        bypassSampling = true,
         priority = EventPriority.immediate;
 
   /// The session bookends (`session.started` / `session.finalized`). Immediate
@@ -107,5 +119,6 @@ class EdgeEvent {
         error = null,
         stackTrace = null,
         countsToSession = false,
+        bypassSampling = true,
         priority = EventPriority.immediate;
 }

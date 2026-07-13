@@ -37,12 +37,21 @@ class SessionManager {
   /// Idle window after which the next activity rotates the session.
   final Duration idleTimeout;
 
+  /// Per-session sampling roll (spec #15 Phase 3 / ticket #25). Called once at
+  /// [_beginSession]; true = keep this session's subject-to-sample events.
+  /// Null = keep-all (default, `sampleRate` 1.0) → no `session.sampled` emitted,
+  /// byte-identical with the pre-sampling wire.
+  final bool Function()? _sampledRoll;
+
   SharedPreferences? _prefs;
 
   String? _currentSessionId;
   DateTime? _sessionStartTime;
   DateTime? _lastActivityAt;
   bool _rotating = false;
+
+  /// This session's roll outcome as a wire string, or null when keep-all.
+  String? _sampled;
 
   // Journey counters.
   int _eventCount = 0;
@@ -57,12 +66,14 @@ class SessionManager {
     void Function(EdgeEvent event)? emit,
     String Function()? newSessionId,
     DateTime Function()? clock,
+    bool Function()? sampledRoll,
     this.idleTimeout = const Duration(minutes: 30),
     SharedPreferences? prefs,
   })  : _emit = emit,
         _newId = newSessionId ??
             (() => 'session_${DateTime.now().millisecondsSinceEpoch}'),
         _clock = clock ?? DateTime.now,
+        _sampledRoll = sampledRoll,
         _prefs = prefs;
 
   /// Late-bind the sink once the Collector exists (breaks the session↔collector
@@ -98,6 +109,8 @@ class SessionManager {
     final now = _clock();
     _sessionStartTime = now;
     _lastActivityAt = now;
+    // Roll sampling once per session; the whole session drops-or-keeps coherently.
+    _sampled = _sampledRoll == null ? null : _sampledRoll!().toString();
     _resetCounters();
 
     if (_prefs != null) {
@@ -300,6 +313,7 @@ class SessionManager {
       'session.visited_screens': _visitedScreens.join(','),
       'session.is_first_session': _isFirstSession().toString(),
       'session.total_sessions': _getTotalSessions().toString(),
+      if (_sampled != null) 'session.sampled': _sampled!,
     };
   }
 
