@@ -26,6 +26,15 @@ dependencies:
   http: ^1.1.0  # If you're making HTTP requests
 ```
 
+### iOS requirement (native crash capture)
+
+Native iOS crash/hang capture uses **MetricKit**, which requires a **minimum
+deployment target of iOS 14**. Set it in your app's `ios/Podfile`:
+
+```ruby
+platform :ios, '14.0'
+```
+
 ## ⚡ Quick Start
 
 ### One-Line Setup (Everything Automatic!)

@@ -27,3 +27,11 @@ dev_dependencies:
   plugin_platform_interface: ^2.1.0
 
 flutter:
+  plugin:
+    platforms:
+      # iOS-only for now (#27): MetricKit native crash/hang capture.
+      # Android (#28) registers under `android:` when it lands. On any platform
+      # without a registered handler, drainNativeCrashes() no-ops via
+      # MissingPluginException (see NativeCrashChannel).
+      ios:
+        pluginClass: EdgeTelemetryFlutterPlugin

@@ -113,6 +113,20 @@ section below. Final version bump + migration guide land with the rest of v2.0.0
   new `initialize(captureAccessibilityContext:)` flag (default `false`, pending
   privacy sign-off — they are accessibility-sensitive).
 
+### 📱 Native crash capture — iOS (Phase 4)
+- **ADDED**: iOS MetricKit plugin behind the `edge_telemetry/native_crash`
+  channel. `MXCrashDiagnostic` → `cause: NativeCrash`, `MXHangDiagnostic` →
+  `cause: Hang`, both `is_fatal: true`, `crash.source: metrickit`. Zero
+  hand-rolled signal handlers — Apple's supported diagnostic API only.
+  Payloads are cached on device and drained on next launch via
+  `drainNativeCrashes()`; MetricKit self-dedups and the drain reads-then-clears,
+  so an OS crash record is never re-read across launches. Raw call-stack JSON is
+  sent for server-side symbolication (no dSYM shipped in the SDK).
+- **⚠️ BUILD BREAK**: the package is now an iOS plugin with a **hard iOS 14
+  floor** (MetricKit diagnostics require it). Consumers must set
+  `platform :ios, '14.0'` (or higher) in their `Podfile`. Android native
+  capture ships separately.
+
 ### 🧹 Internal
 - **REMOVED**: `opentelemetry` dependency, `SpanManager`, `EventTrackerImpl`,
   the `EventTracker` interface, and the `useJsonFormat` dual-backend branches.
