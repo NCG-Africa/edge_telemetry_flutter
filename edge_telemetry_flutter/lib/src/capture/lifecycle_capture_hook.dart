@@ -3,6 +3,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../core/edge_event.dart';
+import '../managers/breadcrumb_manager.dart';
 import '../managers/session_manager.dart';
 import 'capture_hook.dart';
 
@@ -20,9 +21,13 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
   /// Flushes the Pipeline buffer (wired to `pipeline.flush`).
   final void Function() flush;
 
+  /// Crash-context ring: each lifecycle transition drops a breadcrumb.
+  final BreadcrumbManager? breadcrumbs;
+
   EventSink? _sink;
 
-  LifecycleCaptureHook({required this.session, required this.flush});
+  LifecycleCaptureHook(
+      {required this.session, required this.flush, this.breadcrumbs});
 
   @override
   DisposeHandle start(EventSink sink) {
@@ -45,8 +50,11 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
     }
   }
 
-  void _emit(AppLifecycleState state) =>
-      _sink?.add(EdgeEvent.event('app_lifecycle', attributes: {
-        'lifecycle.state': state.name,
-      }));
+  void _emit(AppLifecycleState state) {
+    breadcrumbs?.addSystemEvent('lifecycle: ${state.name}',
+        data: {'lifecycle.state': state.name});
+    _sink?.add(EdgeEvent.event('app_lifecycle', attributes: {
+      'lifecycle.state': state.name,
+    }));
+  }
 }

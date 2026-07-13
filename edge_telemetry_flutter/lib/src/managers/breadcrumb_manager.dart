@@ -6,7 +6,9 @@ import '../core/models/breadcrumb.dart';
 
 /// Manages breadcrumb collection for crash context
 class BreadcrumbManager {
-  static const int _maxBreadcrumbs = 50;
+  // Crash-scoped ring cap (spec #15 §5.5). Small on purpose: the last handful of
+  // steps before a crash is the signal; older ones are noise.
+  static const int _maxBreadcrumbs = 20;
   final Queue<Breadcrumb> _breadcrumbs = Queue<Breadcrumb>();
   final bool _debugMode;
 
@@ -15,7 +17,7 @@ class BreadcrumbManager {
   /// Add a breadcrumb
   void addBreadcrumb(
     String message, {
-    required String category,
+    String category = BreadcrumbCategory.custom,
     BreadcrumbLevel level = BreadcrumbLevel.info,
     Map<String, String>? data,
   }) {

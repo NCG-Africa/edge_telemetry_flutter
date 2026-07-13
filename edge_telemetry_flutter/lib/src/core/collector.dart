@@ -1,6 +1,9 @@
 // lib/src/core/collector.dart
 
+import 'dart:convert';
+
 import '../capture/capture_hook.dart';
+import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
 import '../managers/session_manager.dart';
 import 'edge_event.dart';
@@ -18,10 +21,16 @@ class Collector implements EventSink {
   final SessionManager session;
   final Pipeline pipeline;
 
+  /// Crash-scoped breadcrumb ring. When present, its entries are attached to
+  /// every `app.crash` as `crash.breadcrumbs` (spec #15 §5.5) — never in the
+  /// global snapshot. Optional so faked collectors can skip it.
+  final BreadcrumbManager? breadcrumbs;
+
   Collector({
     required this.context,
     required this.session,
     required this.pipeline,
+    this.breadcrumbs,
   });
 
   /// Sample gate on the sampling axis (orthogonal to send-priority). Bypass
@@ -77,6 +86,14 @@ class Collector implements EventSink {
       ...context.snapshot(),
       ...event.attributes,
     }..removeWhere((k, _) => kForbiddenAttributes.contains(k));
+
+    // Crash-scoped breadcrumb attach (spec #15 §5.5): the ring rides only on
+    // `app.crash`, JSON-encoded (attributes are String-valued on the wire).
+    if (event.name == 'app.crash' && breadcrumbs != null) {
+      final crumbs = breadcrumbs!.getBreadcrumbsAsJson();
+      if (crumbs.isNotEmpty) enriched['crash.breadcrumbs'] = jsonEncode(crumbs);
+    }
+
     final timestamp = DateTime.now().toIso8601String();
 
     final wireItem = event.type == 'metric'

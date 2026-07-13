@@ -104,6 +104,7 @@ class EdgeTelemetry {
     bool enableHttpMonitoring = true,
     bool enableCrashReporting = true,
     bool enableLocalReporting = false,
+    bool captureAccessibilityContext = false,
     String? reportStoragePath,
     Duration? dataRetentionPeriod,
     @Deprecated(
@@ -137,6 +138,7 @@ class EdgeTelemetry {
       eventBatchSize: resolvedBatchSize,
       enableHttpMonitoring: enableHttpMonitoring,
       enableCrashReporting: enableCrashReporting,
+      captureAccessibilityContext: captureAccessibilityContext,
     );
 
     await instance._setup(config);
@@ -188,6 +190,7 @@ class EdgeTelemetry {
       final context = ContextManager(
         sessionManager: _sessionManager!,
         global: _globalAttributes,
+        captureAccessibilityContext: config.captureAccessibilityContext,
       );
 
       // Build + start the graph (binds the session bookend sink to the
@@ -518,7 +521,7 @@ class EdgeTelemetry {
 
   void addBreadcrumb(
     String message, {
-    required String category,
+    String category = BreadcrumbCategory.custom,
     BreadcrumbLevel level = BreadcrumbLevel.info,
     Map<String, String>? data,
   }) {

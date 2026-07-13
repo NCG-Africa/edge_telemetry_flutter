@@ -90,6 +90,7 @@ class TelemetryWiring {
       context: context,
       session: session,
       pipeline: pipeline,
+      breadcrumbs: breadcrumbs,
     );
 
     // Late-bind the session bookend sink now the Collector exists (breaks the
@@ -111,8 +112,9 @@ class TelemetryWiring {
       disposers.add(PerfCaptureHook().start(collector));
     }
     if (config.enableHttpMonitoring) {
-      disposers
-          .add(HttpCaptureHook(debugMode: config.debugMode).start(collector));
+      disposers.add(
+          HttpCaptureHook(debugMode: config.debugMode, breadcrumbs: breadcrumbs)
+              .start(collector));
     }
     if (config.enableNavigationTracking) {
       navHook = NavCaptureHook(session: session, breadcrumbs: breadcrumbs);
@@ -123,7 +125,8 @@ class TelemetryWiring {
     // plus the canon app_lifecycle event. Always on — it drives the session
     // model, not an optional monitor.
     disposers.add(
-      LifecycleCaptureHook(session: session, flush: pipeline.flush)
+      LifecycleCaptureHook(
+              session: session, flush: pipeline.flush, breadcrumbs: breadcrumbs)
           .start(collector),
     );
 
