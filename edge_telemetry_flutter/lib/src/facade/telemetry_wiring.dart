@@ -90,7 +90,7 @@ class TelemetryWiring {
       pipeline: pipeline,
     );
 
-    final crashReporting = CrashReporting(breadcrumbs);
+    const crashReporting = CrashReporting();
 
     final disposers = <DisposeHandle>[];
     NavCaptureHook? navHook;

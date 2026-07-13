@@ -60,13 +60,39 @@ class EdgeEvent {
         stackTrace = null,
         priority = EventPriority.batched;
 
-  const EdgeEvent.error(
-    this.error, {
-    this.stackTrace,
-    this.attributes = const {},
-  })  : type = 'error',
-        name = '',
+  /// The single source of truth for the `app.crash` wire shape.
+  ///
+  /// Every Dart error path (facade `trackError`, the auto-installed
+  /// `FlutterError.onError` / `PlatformDispatcher.onError` / isolate handlers,
+  /// and the SDK's own capture-hook self-diagnostics) funnels through here, so
+  /// they all produce one immediate `app.crash` event with **unprefixed** keys
+  /// (`message`, `stacktrace`, `exception_type`, `cause`, `is_fatal`) — the
+  /// backend `rum_crash_events` extractors read these verbatim. `cause` is a
+  /// clean fatal/non-fatal taxonomy (all Dart errors are `Error`/non-fatal); the
+  /// specific handler goes in the secondary `crash.source`. The client never
+  /// sends `crash_hash`/`severity`/`breadcrumbs` — the server derives those.
+  factory EdgeEvent.error(
+    Object error, {
+    StackTrace? stackTrace,
+    String? source,
+    Map<String, String>? attributes,
+  }) =>
+      EdgeEvent._crash({
+        'message': error.toString(),
+        if (stackTrace != null) 'stacktrace': stackTrace.toString(),
+        'exception_type': error.runtimeType.toString(),
+        'cause': 'Error',
+        'is_fatal': 'false',
+        if (source != null) 'crash.source': source,
+        ...?attributes,
+      });
+
+  const EdgeEvent._crash(this.attributes)
+      : type = 'event',
+        name = 'app.crash',
         value = null,
+        error = null,
+        stackTrace = null,
         countsToSession = false,
         priority = EventPriority.immediate;
 }

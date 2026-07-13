@@ -61,35 +61,29 @@ class Collector implements EventSink {
     }..removeWhere((k, _) => kForbiddenAttributes.contains(k));
     final timestamp = DateTime.now().toIso8601String();
 
-    switch (event.type) {
-      case 'metric':
-        pipeline.enqueue({
-          'type': 'metric',
-          'metricName': event.name,
-          'value': event.value,
-          'timestamp': timestamp,
-          'attributes': enriched,
-        });
-        break;
-      case 'error':
-        pipeline.sendNow({
-          'type': 'error',
-          'error': event.error.toString(),
-          'timestamp': timestamp,
-          'attributes': enriched,
-          if (event.stackTrace != null)
-            'stackTrace': event.stackTrace.toString(),
-          if (enriched['crash.fingerprint'] != null)
-            'fingerprint': enriched['crash.fingerprint'],
-        });
-        break;
-      default: // 'event'
-        pipeline.enqueue({
-          'type': 'event',
-          'eventName': event.name,
-          'timestamp': timestamp,
-          'attributes': enriched,
-        });
+    final wireItem = event.type == 'metric'
+        ? {
+            'type': 'metric',
+            'metricName': event.name,
+            'value': event.value,
+            'timestamp': timestamp,
+            'attributes': enriched,
+          }
+        : {
+            // 'event' — incl. the immediate `app.crash` (unprefixed keys ride in
+            // `enriched`; there is no bare `type:"error"` item on the wire in v2).
+            'type': 'event',
+            'eventName': event.name,
+            'timestamp': timestamp,
+            'attributes': enriched,
+          };
+
+    // Two send rails: crashes (and any immediate event) bypass the batch; every
+    // batched event/metric buffers in the Pipeline.
+    if (event.priority == EventPriority.immediate) {
+      pipeline.sendNow(wireItem);
+    } else {
+      pipeline.enqueue(wireItem);
     }
   }
 }

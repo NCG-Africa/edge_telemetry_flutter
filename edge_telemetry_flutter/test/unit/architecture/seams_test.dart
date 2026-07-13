@@ -102,7 +102,7 @@ void main() {
         session: session,
         context: context,
         breadcrumbs: BreadcrumbManager(),
-        crashReporting: CrashReporting(BreadcrumbManager()),
+        crashReporting: const CrashReporting(),
         queue: queue,
         transport: transport,
         pipeline: pipeline,
@@ -224,7 +224,8 @@ void main() {
       collector.add(EdgeEvent.error(StateError('boom')));
       await Future<void>(() {});
       expect(sender.sent, hasLength(1)); // crash still sent
-      expect(sender.sent.single['type'], 'error');
+      expect(sender.sent.single['type'], 'event'); // immediate app.crash
+      expect(sender.sent.single['eventName'], 'app.crash');
     });
   });
 

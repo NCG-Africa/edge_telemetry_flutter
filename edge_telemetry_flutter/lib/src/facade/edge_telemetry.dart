@@ -5,6 +5,7 @@
 // through the exports-only barrel (package:edge_telemetry_flutter/edge_telemetry_flutter.dart).
 
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -78,6 +79,9 @@ class EdgeTelemetry {
 
   bool _initialized = false;
   TelemetryConfig? _config;
+
+  // Kept so the isolate error-listener can be detached on dispose/hot-restart.
+  RawReceivePort? _isolateErrorPort;
 
   // ==================== INITIALIZATION ====================
 
@@ -244,15 +248,47 @@ class EdgeTelemetry {
     }
   }
 
+  /// Funnel every auto-catchable Dart error path into the one immediate
+  /// `app.crash` rail, each tagged with its `crash.source`. `runZonedGuarded`
+  /// (source `zone`) can't be retrofitted onto the already-running zone from
+  /// here — a consumer routes it via `trackError`; the source token is part of
+  /// the taxonomy for that path.
   void _installGlobalCrashHandler() {
     FlutterError.onError = (FlutterErrorDetails details) {
       FlutterError.presentError(details);
-      trackError(details.exception, stackTrace: details.stack);
+      _emitCrash(details.exception,
+          stackTrace: details.stack, source: 'flutter_error');
     };
     PlatformDispatcher.instance.onError = (error, stack) {
-      trackError(error, stackTrace: stack);
+      _emitCrash(error, stackTrace: stack, source: 'platform_dispatcher');
       return true;
     };
+
+    // Uncaught errors from the root isolate arrive as a 2-element list of
+    // strings [errorString, stackTraceString].
+    final port = RawReceivePort((dynamic message) {
+      final pair = (message as List).cast<String?>();
+      _emitCrash(
+        pair.isNotEmpty ? (pair[0] ?? 'Isolate error') : 'Isolate error',
+        stackTrace: (pair.length > 1 && pair[1] != null)
+            ? StackTrace.fromString(pair[1]!)
+            : null,
+        source: 'isolate',
+      );
+    });
+    Isolate.current.addErrorListener(port.sendPort);
+    _isolateErrorPort = port;
+  }
+
+  /// The one internal crash entry point — builds the `app.crash` event via
+  /// [CrashReporting] and hands it to the Collector's immediate rail.
+  void _emitCrash(Object error,
+      {StackTrace? stackTrace,
+      String? source,
+      Map<String, String>? attributes}) {
+    if (_wiring == null) return;
+    _wiring!.collector.add(_wiring!.crashReporting.buildCrashEvent(error,
+        stackTrace: stackTrace, source: source, attributes: attributes));
   }
 
   // ==================== CORE TRACKING API ====================
@@ -311,10 +347,7 @@ class EdgeTelemetry {
   void trackError(Object error,
       {StackTrace? stackTrace, Map<String, String>? attributes}) {
     _ensureInitialized();
-    _wiring!.collector.add(
-      _wiring!.crashReporting.buildCrashEvent(error,
-          stackTrace: stackTrace, attributes: attributes),
-    );
+    _emitCrash(error, stackTrace: stackTrace, attributes: attributes);
   }
 
   // ==================== DEPRECATED SPAN NO-OPS ====================
@@ -610,6 +643,12 @@ class EdgeTelemetry {
   /// Dispose all resources (call when the app is shutting down).
   void dispose() {
     _sessionManager?.endSession();
+
+    if (_isolateErrorPort != null) {
+      Isolate.current.removeErrorListener(_isolateErrorPort!.sendPort);
+      _isolateErrorPort!.close();
+      _isolateErrorPort = null;
+    }
 
     if (isLocalReportingEnabled && _currentSessionId != null) {
       _currentSession = _currentSession?.copyWith(endTime: DateTime.now());

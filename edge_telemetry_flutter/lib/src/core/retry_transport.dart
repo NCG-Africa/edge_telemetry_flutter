@@ -68,13 +68,13 @@ class RetryTransport {
     final ok = await _sendRaw(crashData);
     if (ok) {
       // Error-report send logs are intentionally always printed (see CLAUDE.md).
-      print('✅ Error report sent successfully');
-      print('   📊 Error: ${crashData['error']}');
-      if (crashData['fingerprint'] != null) {
-        print('   🔍 Fingerprint: ${crashData['fingerprint']}');
-      }
       final attrs = crashData['attributes'];
+      print('✅ Error report sent successfully');
       if (attrs is Map) {
+        print('   📊 Error: ${attrs['message']}');
+        if (attrs['crash.source'] != null) {
+          print('   🎯 Source: ${attrs['crash.source']}');
+        }
         if (attrs['user.id'] != null) print('   👤 User: ${attrs['user.id']}');
         if (attrs['session.id'] != null) {
           print('   🔄 Session: ${attrs['session.id']}');
