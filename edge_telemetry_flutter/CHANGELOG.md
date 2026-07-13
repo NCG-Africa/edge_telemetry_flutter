@@ -83,6 +83,16 @@ section below. Final version bump + migration guide land with the rest of v2.0.0
 - **ADDED**: `maxQueueSize` config knob (default 200) — batches drop-oldest
   past the cap; crashes (`crash_` filename prefix) are exempt and never dropped.
 
+### 🎚️ Two-axis sampling (Phase 3)
+- **ADDED**: `sampleRate` (config, default 1.0) is now live — rolled **once per
+  session** and stored as `session.sampled`. A sampled-out session drops its
+  subject-to-sample events coherently (whole session or none). At 1.0 there is
+  no roll and `session.sampled` is omitted (wire unchanged).
+- **ADDED**: send-priority (immediate vs batched) and sampling (bypass vs
+  subject-to-sample) are now orthogonal axes. `app.crash` and the `session.*`
+  bookends are immediate+bypass; `user.profile.update` is **batched-but-bypass**
+  — an identity mutation always lands even in a sampled-out session.
+
 ### 🧹 Internal
 - **REMOVED**: `opentelemetry` dependency, `SpanManager`, `EventTrackerImpl`,
   the `EventTracker` interface, and the `useJsonFormat` dual-backend branches.

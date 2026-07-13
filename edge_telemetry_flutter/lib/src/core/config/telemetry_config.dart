@@ -14,8 +14,10 @@ class TelemetryConfig {
   /// Collector 401s without it in api_key mode — dev/self-hosted only).
   final String? apiKey;
 
-  /// Fraction of sessions kept (0.0–1.0). Config key landed for family
-  /// alignment; the per-session sampling roll is wired in #9.
+  /// Fraction of sessions kept (0.0–1.0). Rolled once per session (#25): a
+  /// sampled-out session drops its subject-to-sample events coherently, while
+  /// crashes, `session.*` bookends, and `user.profile.update` still land. 1.0
+  /// (default) = no roll, keep everything.
   final double sampleRate;
 
   /// Enable debug logging and console output

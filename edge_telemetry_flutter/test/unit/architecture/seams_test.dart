@@ -220,13 +220,37 @@ void main() {
       // A canon event (passes the allowlist) so the drop is purely sampling.
       collector.add(const EdgeEvent.event('navigation'));
       await Future<void>(() {});
-      expect(sender.sent, isEmpty); // batched event dropped
+      expect(sender.sent, isEmpty); // subject-to-sample event dropped
+
+      // Batched-but-bypass: identity mutation lands (in a batch) when sampled out.
+      collector.add(
+          const EdgeEvent.event('user.profile.update', bypassSampling: true));
+      await Future<void>(() {});
+      expect(sender.sent, hasLength(1));
+      expect(sender.sent.single['type'], 'telemetry_batch');
+      expect((sender.sent.single['events'] as List).single['eventName'],
+          'user.profile.update');
 
       collector.add(EdgeEvent.error(StateError('boom')));
       await Future<void>(() {});
-      expect(sender.sent, hasLength(1)); // crash still sent
-      expect(sender.sent.single['type'], 'event'); // immediate app.crash
-      expect(sender.sent.single['eventName'], 'app.crash');
+      expect(sender.sent, hasLength(2)); // crash still sent (immediate+bypass)
+      expect(sender.sent[1]['type'], 'event'); // immediate app.crash
+      expect(sender.sent[1]['eventName'], 'app.crash');
+    });
+
+    test('sampleRate rolled once/session → stored as session.sampled',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      // Deterministic roll: sampled-out.
+      final session = SessionManager(sampledRoll: () => false);
+      await session.startSession('session_r');
+      expect(session.getSessionAttributes()['session.sampled'], 'false');
+
+      // Default (no roll, sampleRate 1.0) omits the flag entirely → keep-all.
+      final keepAll = SessionManager();
+      await keepAll.startSession('session_k');
+      expect(keepAll.getSessionAttributes().containsKey('session.sampled'),
+          isFalse);
     });
   });
 

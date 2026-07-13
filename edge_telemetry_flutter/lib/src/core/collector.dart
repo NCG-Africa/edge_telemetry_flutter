@@ -24,12 +24,15 @@ class Collector implements EventSink {
     required this.pipeline,
   });
 
-  /// Sample gate. Immediate events (crash) always pass; batched events are
-  /// dropped only when the session rolled sampled-out (`session.sampled=false`).
-  // ponytail: default is keep-all (no `session.sampled` set) → byte-identical
-  // with v1.5.2. The per-session roll that sets the flag is session work (#9).
+  /// Sample gate on the sampling axis (orthogonal to send-priority). Bypass
+  /// events — crash, `session.*` bookends, `user.profile.update` — always pass;
+  /// subject-to-sample events are dropped only when the session rolled
+  /// sampled-out (`session.sampled=false`), so a sampled-out session drops its
+  /// whole event stream coherently while still bracketing + reporting crashes.
+  // ponytail: default is keep-all (no `session.sampled` set, sampleRate 1.0) →
+  // byte-identical with v1.5.2. The per-session roll lives in SessionManager.
   bool _shouldSample(EdgeEvent event) {
-    if (event.priority == EventPriority.immediate) return true;
+    if (event.bypassSampling) return true;
     return context.snapshot()['session.sampled'] != 'false';
   }
 

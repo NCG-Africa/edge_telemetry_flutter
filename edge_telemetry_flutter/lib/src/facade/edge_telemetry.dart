@@ -167,7 +167,14 @@ class EdgeTelemetry {
       // Timer-free lazy session model. The session is started *after* the
       // wiring is built (below) so `recoverAndStart` can emit session.started
       // (and any backdated kill-recovery finalize) through the Collector.
-      _sessionManager = SessionManager(newSessionId: _generateSessionId);
+      // Per-session sampling roll only when sampling is on (rate < 1.0). At 1.0
+      // there's no roll → no `session.sampled` on the wire (byte-identical).
+      _sessionManager = SessionManager(
+        newSessionId: _generateSessionId,
+        sampledRoll: config.sampleRate >= 1.0
+            ? null
+            : () => Random().nextDouble() < config.sampleRate,
+      );
 
       await _loadProfileVersion();
 
@@ -427,9 +434,11 @@ class EdgeTelemetry {
 
   /// Emit a profile event direct — no session-counter bump, no local store —
   /// matching v1.5.2, which sent these via the tracker (not the public API).
+  /// Batched-but-bypass: an identity mutation isn't time-critical, but must land
+  /// even in a sampled-out session (#25).
   void _emitProfileEvent(String eventName, Map<String, String> attributes) {
     _wiring!.collector.add(EdgeEvent.event(eventName,
-        attributes: attributes, countsToSession: false));
+        attributes: attributes, countsToSession: false, bypassSampling: true));
   }
 
   /// Clear user profile (but keep auto-generated user ID).

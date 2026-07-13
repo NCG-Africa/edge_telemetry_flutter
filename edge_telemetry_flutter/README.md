@@ -121,6 +121,10 @@ await EdgeTelemetry.initialize(
   // 🔧 Advanced Options
   debugMode: true,                   // Enable console logging
   eventBatchSize: 30,               // Events per batch
+  sampleRate: 1.0,                  // Fraction of sessions kept (0.0–1.0). Rolled
+                                     // once/session: a sampled-out session drops its
+                                     // events, but crashes, session bookends, and
+                                     // user.profile.update always land. 1.0 = keep all.
   enableLocalReporting: true,       // Store data locally for reports
 
   // 🏷️ Global attributes added to all telemetry
