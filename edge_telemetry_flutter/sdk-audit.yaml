@@ -1,0 +1,407 @@
+repo: NCG-Africa/edge_telemetry_flutter
+component_type: sdk
+platform: flutter
+language: dart
+current_version: 2.0.0   # pubspec.yaml:3
+build_variants: none
+registry: pub.dev
+
+# NOTE: The Collector enforces a canon allowlist (lib/src/core/wire_canon.dart)
+# in Collector.add (collector.dart:60-63): any BATCHED event/metric whose name
+# is not on kCanonEvents/kCanonMetrics is silently dropped BEFORE it reaches the
+# wire. Many hooks construct non-canon events that never leave the device.
+# Section 1 lists only names that actually reach the wire. Dropped-but-constructed
+# names are catalogued in inconsistencies_and_surprises.
+
+# ==========================================================================
+# 1. Events emitted (names that pass the allowlist and reach the wire)
+# ==========================================================================
+# Wire envelope (lib/src/core/pipeline.dart:55-66) for BATCHED items:
+#   { "type":"telemetry_batch", "timestamp":<iso8601>, "batch_size":<int>,
+#     "events":[ <wireItem>, ... ] }
+# Each wireItem is either (collector.dart:99-114):
+#   event:  { "type":"event",  "eventName":<name>, "timestamp":<iso8601>, "attributes":{...} }
+#   metric: { "type":"metric", "metricName":<name>, "value":<double>, "timestamp":<iso8601>, "attributes":{...} }
+# IMMEDIATE items (app.crash) are POSTed as the bare wireItem, NOT wrapped in a
+# telemetry_batch envelope (collector.dart:118-119, pipeline.dart:46-48).
+# All event/metric-specific fields below live inside the "attributes" object and
+# are String-valued on the wire.
+events:
+  - name: session.started
+    trigger: SDK init (recoverAndStart) and every session rotation
+    evidence: managers/session_manager.dart:123 _beginSession; EdgeEvent.session (edge_event.dart:126)
+    payload_fields:
+      - {field: session.id, type: string, unit: none, always_present: true}
+      - {field: session.start_time, type: string, unit: none, always_present: true}   # iso8601
+      # plus all common_attributes merged in by ContextManager.snapshot()
+
+  - name: session.finalized
+    trigger: session rotation (30-min idle) or kill-recovery on next launch
+    evidence: managers/session_manager.dart:200 _emitFinalizeCurrent / :217 _emitFinalizeFromRecord; _journeyAttributes :244
+    payload_fields:
+      - {field: session.id, type: string, unit: none, always_present: true}
+      - {field: session.start_time, type: string, unit: none, always_present: true}
+      - {field: session.end_time, type: string, unit: none, always_present: true}
+      - {field: session.duration_ms, type: string, unit: ms, always_present: true}
+      - {field: session.event_count, type: string, unit: none, always_present: true}
+      - {field: session.error_count, type: string, unit: none, always_present: true}
+      - {field: session.crash_count, type: string, unit: none, always_present: true}
+      - {field: session.screen_count, type: string, unit: none, always_present: true}
+      - {field: session.http_request_count, type: string, unit: none, always_present: true}
+      - {field: session.screen_journey, type: string, unit: none, always_present: true}   # '>'-joined, last 20 hops (session_manager.dart:257)
+      - {field: session.recovered, type: string, unit: none, always_present: false}        # 'true' only on kill-recovery
+
+  - name: app_lifecycle
+    trigger: every AppLifecycleState change (resumed/inactive/paused/detached/hidden)
+    evidence: capture/lifecycle_capture_hook.dart:56
+    payload_fields:
+      - {field: lifecycle.state, type: string, unit: none, always_present: true}
+
+  - name: page_load
+    trigger: first post-frame callback after SDK init (app startup)
+    evidence: capture/perf_capture_hook.dart:62 _trackAppStartup
+    payload_fields:
+      - {field: startup.type, type: string, unit: none, always_present: true}                    # 'warm'|'cold', <2000ms heuristic
+      - {field: startup.time_to_first_frame_ms, type: string, unit: ms, always_present: true}
+      - {field: startup.duration_ms, type: string, unit: ms, always_present: true}               # == time_to_first_frame_ms
+      - {field: startup.timestamp, type: string, unit: none, always_present: true}
+      - {field: startup.first_frame, type: string, unit: none, always_present: true}             # 'true'
+
+  - name: navigation
+    trigger: NavigatorObserver push/replace/pop
+    evidence: widgets/edge_navigation_observer.dart:115 _trackNavigationEvent; emitted via nav_capture_hook.dart:41
+    payload_fields:
+      - {field: navigation.to, type: string, unit: none, always_present: true}
+      - {field: navigation.method, type: string, unit: none, always_present: true}   # push|replace|pop
+      - {field: navigation.type, type: string, unit: none, always_present: true}     # 'route_change'
+      - {field: navigation.timestamp, type: string, unit: none, always_present: true}
+      - {field: navigation.from, type: string, unit: none, always_present: false}    # omitted for first route
+      - {field: route.type, type: string, unit: none, always_present: true}          # Route runtimeType
+      - {field: route.has_arguments, type: string, unit: none, always_present: true} # bool
+
+  - name: screen.duration
+    trigger: leaving a screen (previous route closed on navigation) or route removal
+    evidence: widgets/edge_navigation_observer.dart:100 _endScreen
+    payload_fields:
+      - {field: screen.name, type: string, unit: none, always_present: true}
+      - {field: screen.duration_ms, type: string, unit: ms, always_present: true}
+      - {field: screen.exit_method, type: string, unit: none, always_present: true}  # push|replace|pop|removed
+      - {field: route.type, type: string, unit: none, always_present: true}
+      - {field: route.has_arguments, type: string, unit: none, always_present: true}
+
+  - name: http.request
+    trigger: every completed HTTP request/response (success or error) via HttpOverrides
+    evidence: capture/http_capture_hook.dart:47 _emit; HttpRequestTelemetry.toAttributes (http_overrides.dart:659)
+    payload_fields:
+      - {field: http.url, type: string, unit: none, always_present: true}            # FULL url incl. query string (see privacy)
+      - {field: http.method, type: string, unit: none, always_present: true}
+      - {field: http.status_code, type: string, unit: none, always_present: true}    # '0' on network error
+      - {field: http.duration_ms, type: string, unit: ms, always_present: true}
+      - {field: http.timestamp, type: string, unit: none, always_present: true}
+      - {field: http.error, type: string, unit: none, always_present: false}         # only when request threw
+      - {field: http.response_size, type: string, unit: bytes, always_present: false} # only when contentLength >= 0
+      - {field: http.success, type: string, unit: none, always_present: true}        # bool, 200-399
+
+  - name: network_change
+    trigger: connectivity type changes (connectivity_plus stream)
+    evidence: capture/network_capture_hook.dart:62 _handleConnectivityChange
+    payload_fields:
+      - {field: network.previous_type, type: string, unit: none, always_present: true}
+      - {field: network.current_type, type: string, unit: none, always_present: true}
+      - {field: network.change_timestamp, type: string, unit: none, always_present: true}
+      - {field: network.available, type: string, unit: none, always_present: true}   # bool
+      - {field: network.change_direction, type: string, unit: none, always_present: true} # connected|disconnected|switched|unchanged
+
+  - name: user.profile.update
+    trigger: setUserProfile() / clearUserProfile()
+    evidence: facade/edge_telemetry.dart:440,458 _emitProfileEvent (batched-but-bypass, edge_event.dart bypassSampling)
+    payload_fields:
+      - {field: user.id, type: string, unit: none, always_present: true}
+      - {field: user.profile_version, type: string, unit: none, always_present: true}
+      - {field: user.profile_updated_at, type: string, unit: none, always_present: true}
+      - {field: user.name, type: string, unit: none, always_present: false}
+      - {field: user.email, type: string, unit: none, always_present: false}
+      - {field: user.phone, type: string, unit: none, always_present: false}
+      - {field: "user.<custom>", type: string, unit: none, always_present: false}   # custom attrs auto-prefixed user. (edge_telemetry.dart:434)
+
+  - name: custom_event
+    trigger: host calls trackEvent(name, attributes)
+    evidence: facade/edge_telemetry.dart:323 trackEvent (bumps session counters)
+    payload_fields:
+      - {field: event.name, type: string, unit: none, always_present: true}  # host-supplied name carried here; wire eventName is always "custom_event"
+      - {field: "<host attributes>", type: string, unit: none, always_present: false}
+
+  - name: app.crash
+    trigger: FlutterError.onError / PlatformDispatcher.onError / isolate error / host trackError() / drained native crash
+    evidence: edge_event.dart:85 EdgeEvent.error, :108 EdgeEvent.nativeCrash; immediate rail, bypass sampling + allowlist
+    payload_fields:
+      - {field: message, type: string, unit: none, always_present: true}          # UNPREFIXED (error.toString())
+      - {field: stacktrace, type: string, unit: none, always_present: false}       # UNPREFIXED
+      - {field: exception_type, type: string, unit: none, always_present: true}    # UNPREFIXED (runtimeType)
+      - {field: cause, type: string, unit: none, always_present: true}             # 'Error' (Dart) | NativeCrash|ANR|Hang (native)
+      - {field: is_fatal, type: string, unit: none, always_present: true}          # 'false' Dart, 'true' native
+      - {field: crash.source, type: string, unit: none, always_present: false}     # flutter_error|platform_dispatcher|isolate|metrickit|uncaught_handler|app_exit_info
+      - {field: crash.breadcrumbs, type: string, unit: none, always_present: false} # JSON-encoded array, only if ring non-empty (collector.dart:92-95)
+      - {field: sdk.native_capture_tier, type: string, unit: none, always_present: false} # native passthrough only
+      # client NEVER sends crash_hash / severity / breadcrumbs-as-derived — server computes (edge_event.dart:84)
+
+  # --- Canon metrics that reach the wire ---
+  - name: frame_render_time
+    trigger: every Flutter frame (addTimingsCallback)
+    evidence: capture/perf_capture_hook.dart:87 (metric)
+    payload_fields:
+      - {field: value, type: float, unit: ms, always_present: true}   # top-level metric value = build+raster ms
+      - {field: build_time_ms, type: string, unit: ms, always_present: true}
+      - {field: raster_time_ms, type: string, unit: ms, always_present: true}
+      - {field: frame.type, type: string, unit: none, always_present: true}    # smooth|janky|severely_dropped
+      - {field: frame.dropped, type: string, unit: none, always_present: true} # bool >16.67ms
+      - {field: metric.unit, type: string, unit: none, always_present: true}   # 'milliseconds'
+
+  - name: long_task
+    trigger: a frame whose total build+raster > 16.67ms (dropped frame)
+    evidence: capture/perf_capture_hook.dart:100 (metric)
+    payload_fields:
+      - {field: value, type: float, unit: ms, always_present: true}
+      - {field: frame.build_duration_ms, type: string, unit: ms, always_present: true}
+      - {field: frame.raster_duration_ms, type: string, unit: ms, always_present: true}
+      - {field: frame.total_duration_ms, type: string, unit: ms, always_present: true}
+      - {field: frame.severity, type: string, unit: none, always_present: true} # minor|severe
+      - {field: frame.target_fps, type: string, unit: none, always_present: true} # '60'
+
+  - name: memory_usage
+    trigger: every 10s Timer.periodic
+    evidence: capture/perf_capture_hook.dart:114 (metric); ProcessInfo.currentRss
+    payload_fields:
+      - {field: value, type: float, unit: bytes, always_present: true}
+      - {field: memory.type, type: string, unit: none, always_present: true}   # 'rss'
+      - {field: memory.unit, type: string, unit: none, always_present: true}   # 'bytes'
+      - {field: memory.source, type: string, unit: none, always_present: true} # 'process_info'
+
+# ==========================================================================
+# 2. Common attributes (merged into EVERY event/metric "attributes" object)
+# ==========================================================================
+# Source: ContextManager.snapshot() (managers/context_manager.dart:41) =
+#   globals (device+app+user.id) + live session attrs + network.type + device context.
+# Merged in Collector.add (collector.dart:85-88), then forbidden keys stripped.
+common_attributes:
+  # -- device/app globals, from FlutterDeviceInfoCollector (collectors/flutter_device_info_collector.dart) --
+  - {field: device.id, type: string, unit: none, evidence: "flutter_device_info_collector.dart:26 / DeviceIdManager", always_present: true}
+  - {field: app.name, type: string, unit: none, evidence: "flutter_device_info_collector.dart:37", always_present: true}
+  - {field: app.version, type: string, unit: none, evidence: "flutter_device_info_collector.dart:38", always_present: true}
+  - {field: app.build_number, type: string, unit: none, evidence: "flutter_device_info_collector.dart:39", always_present: true}
+  - {field: app.package_name, type: string, unit: none, evidence: "flutter_device_info_collector.dart:40", always_present: true}
+  - {field: device.platform, type: string, unit: none, evidence: "flutter_device_info_collector.dart:47", always_present: true}   # ios|android|<os>
+  - {field: sdk.platform, type: string, unit: none, evidence: "flutter_device_info_collector.dart:48", always_present: true}      # flutter-<os>
+  - {field: device.platform_version, type: string, unit: none, evidence: "flutter_device_info_collector.dart:49", always_present: true}
+  # Android-only: device.model, device.manufacturer, device.brand, device.android_sdk,
+  #   device.android_release, device.fingerprint, device.hardware, device.product (:80-89)
+  # iOS-only: device.model, device.name, device.system_name, device.system_version,
+  #   device.localized_model, device.identifier_for_vendor (:100-108)
+  # Web-only: device.browser, device.platform, device.user_agent, device.vendor, device.language (:119-125)
+  - {field: user.id, type: string, unit: none, evidence: "facade/edge_telemetry.dart:187", always_present: true}
+  - {field: "<config.globalAttributes>", type: string, unit: none, evidence: "facade/edge_telemetry.dart:186", always_present: false}
+  # -- live session attrs, SessionManager.getSessionAttributes (managers/session_manager.dart:300) --
+  - {field: session.id, type: string, unit: none, evidence: "session_manager.dart:305", always_present: true}
+  - {field: session.start_time, type: string, unit: none, evidence: "session_manager.dart:306", always_present: true}
+  - {field: session.duration_ms, type: string, unit: ms, evidence: "session_manager.dart:307", always_present: true}
+  - {field: session.event_count, type: string, unit: none, evidence: "session_manager.dart:308", always_present: true}
+  - {field: session.metric_count, type: string, unit: none, evidence: "session_manager.dart:309", always_present: true}
+  - {field: session.error_count, type: string, unit: none, evidence: "session_manager.dart:310", always_present: true}
+  - {field: session.crash_count, type: string, unit: none, evidence: "session_manager.dart:311", always_present: true}
+  - {field: session.http_request_count, type: string, unit: none, evidence: "session_manager.dart:312", always_present: true}
+  - {field: session.screen_count, type: string, unit: none, evidence: "session_manager.dart:313", always_present: true}
+  - {field: session.visited_screens, type: string, unit: none, evidence: "session_manager.dart:313", always_present: true}   # comma-joined set
+  - {field: session.is_first_session, type: string, unit: none, evidence: "session_manager.dart:314", always_present: true}
+  - {field: session.total_sessions, type: string, unit: none, evidence: "session_manager.dart:315", always_present: true}
+  - {field: session.sampled, type: string, unit: none, evidence: "session_manager.dart:316", always_present: false}   # only when sampleRate < 1.0
+  - {field: network.type, type: string, unit: none, evidence: "context_manager.dart:44", always_present: true}
+  - {field: device.platform_brightness, type: string, unit: none, evidence: "context_manager.dart:55", always_present: true}  # dark|light
+  - {field: device.text_scale_factor, type: string, unit: none, evidence: "context_manager.dart:59", always_present: false}  # only if captureAccessibilityContext
+  - {field: device.reduce_motion, type: string, unit: none, evidence: "context_manager.dart:60", always_present: false}      # only if captureAccessibilityContext
+
+# ==========================================================================
+# 3. Session logic
+# ==========================================================================
+session:
+  start_rule: >
+    Started on init via SessionManager.recoverAndStart (facade edge_telemetry.dart:205):
+    finalize any persisted killed session (backdated to last activity) then begin a
+    fresh one. Timer-free lazy model. Evidence: managers/session_manager.dart:88.
+  idle_timeout: "30 minutes (Duration(minutes:30), session_manager.dart:70). Evaluated lazily on next event (beforeEvent :132) or on resume (:155) — never on a timer. Exceeding it rotates: finalize old + start new, both backdated to last activity."
+  max_duration: none
+  background_behavior: >
+    AppLifecycleState.paused: emit app_lifecycle, flush the Pipeline, then
+    SessionManager.handlePause (mark lastActivity + persist, NEVER finalize —
+    an app-switch must not rotate). resumed: handleResume rotates only if idle >
+    30min. Evidence: capture/lifecycle_capture_hook.dart:40; session_manager.dart:147,155.
+  id_format: >
+    session_<epochMs>_<16hex>_<platform>, e.g. session_1704067200000_a8b9c2d1e0f34567_android.
+    16 hex = 64 bits from Random.secure. NOT uuid v4. Evidence: facade/edge_telemetry.dart:759;
+    managers/identity_format.dart:14. (Legacy fallback minter session_<epochMs> exists at
+    session_manager.dart:74 when no generator injected.)
+
+# ==========================================================================
+# 4. Transport
+# ==========================================================================
+transport:
+  endpoint_path: "<endpoint>/collector/telemetry (RetryTransport._resolveUrl, core/retry_transport.dart:60-66). Appends the path unless endpoint already ends with it."
+  serialization: json (json.encode, retry_transport.dart:135)
+  compression: none   # no gzip; Content-Type: application/json only (retry_transport.dart:133)
+  batching:
+    flush_interval: "5000ms default (config flushIntervalMs; Pipeline.flushInterval, pipeline.dart:25). Idle timer resets on each enqueue below threshold (pipeline.dart:69)."
+    max_batch_size: "30 events default (config.batchSize; Pipeline clamps to 1..1000, pipeline.dart:29)."
+    flush_on_background: true   # LifecycleCaptureHook calls pipeline.flush on paused (lifecycle_capture_hook.dart:43)
+  retry:
+    strategy: "Batch: backoff schedule [0, 2s, 8s, 30s] (kDefaultBackoff, retry_transport.dart:18) = 4 attempts. status==0 (offline) breaks early to queue immediately. Immediate/crash: single attempt, NO backoff (sendImmediate, retry_transport.dart:88)."
+    max_attempts: "4 for batch; 1 for crash/immediate"
+    drop_policy: "After exhausting backoff, batch persisted to OfflineQueue (batch_ prefix, subject to 200 drop-oldest cap). Crash persisted (crash_ prefix, never dropped). Pipeline.dispose drops unflushed in-memory buffer (pipeline.dart:76)."
+  offline:
+    persistence: "file — one JSON file per payload under <app documents>/edge_telemetry_queue/ (core/offline_queue.dart:21). Drained FIFO by lexical filename on any successful send or on startup (telemetry_wiring.dart:80)."
+    caps: "maxQueueSize=200 batch files, drop-oldest by lexical order (offline_queue.dart:34,117). crash_ files EXEMPT — never counted, never dropped."
+  sampling_or_throttling: >
+    THREE distinct drop mechanisms found:
+    (1) Per-session sampling roll (config.sampleRate, DEFAULT 1.0 = keep-all/no roll).
+        Rolled once per session at _beginSession; when session.sampled=false, all
+        subject-to-sample events are dropped coherently, but app.crash / session.*
+        bookends / user.profile.update bypass and still send. Evidence:
+        core/collector.dart:43 _shouldSample; managers/session_manager.dart:113;
+        facade/edge_telemetry.dart:176.
+    (2) Canon allowlist drop: Collector drops any BATCHED event/metric whose name
+        is not in kCanonEvents (12) / kCanonMetrics (4). Many hook-constructed
+        events are silently discarded on-device. Evidence: core/wire_canon.dart;
+        core/collector.dart:60-63.
+    (3) Attribute-value caps: session.screen_journey truncated to last 20 hops
+        (session_manager.dart:257); breadcrumb ring is capped (BreadcrumbManager).
+    No client-side rate limiting or dedup of like events found.
+
+# ==========================================================================
+# 5. Privacy & data handling
+# ==========================================================================
+privacy:
+  ip_handling: "No IP collected or sent client-side. Comment states Collector derives geo/tenant from client IP + API key server-side (wire_canon.dart:34)."
+  url_sanitization: >
+    NOT sanitized on the wire: http.request sends the FULL url including query
+    string + fragment as http.url (http_overrides.dart:661, :442). ONLY the
+    crash/network breadcrumb ring strips to path-only (http_capture_hook.dart:52).
+    So query-string PII CAN leave the device on the http.request event.
+  user_identifiers: >
+    Auto-generated, anonymous, persisted (shared_preferences): user.id
+    (user_<epochMs>_<16hex>, user_id_manager.dart:41), device.id
+    (device_<epochMs>_<16hex>_<platform>, device_id_manager.dart:51). No opt-in.
+    Optional opt-in profile PII via setUserProfile (user.name/email/phone).
+    iOS device.identifier_for_vendor also collected.
+  pii_risks: >
+    - http.url carries full query strings (see url_sanitization).
+    - app.crash message/stacktrace are raw error strings (may embed values).
+    - crash.breadcrumbs JSON can carry arbitrary host-supplied breadcrumb data.
+    - setUserProfile name/email/phone + arbitrary user.<custom> attrs.
+    - Forbidden keys location/tenant_id/geo are actively stripped (collector.dart:88).
+
+# ==========================================================================
+# 6. Public API surface (facade/edge_telemetry.dart)
+# ==========================================================================
+api:
+  init_config_options:
+    - endpoint (required)
+    - serviceName (required)
+    - apiKey
+    - sampleRate (default 1.0)
+    - debugMode (default false)
+    - globalAttributes
+    - batchSize
+    - flushIntervalMs
+    - batchTimeout (DEPRECATED -> flushIntervalMs)
+    - maxBatchSize (DEPRECATED, ignored)
+    - enableNetworkMonitoring (default true)
+    - enablePerformanceMonitoring (default true)
+    - enableNavigationTracking (default true)
+    - enableHttpMonitoring (default true)
+    - enableCrashReporting (default true)
+    - enableLocalReporting (default false)
+    - captureAccessibilityContext (default false)
+    - reportStoragePath
+    - dataRetentionPeriod (default 30 days)
+    - useJsonFormat (DEPRECATED, ignored — SDK is custom-JSON only)
+    - eventBatchSize (DEPRECATED -> batchSize)
+    # NOTE: enableErrorReporting exists on TelemetryConfig but is hardcoded true in initialize() (edge_telemetry.dart:132) — not a caller option.
+  custom_event_api: "void trackEvent(String eventName, {dynamic attributes}) — wrapped as custom_event (edge_telemetry.dart:317). Also void trackMetric(String metricName, double value, {dynamic attributes}) (:343)."
+  user_id_api: "No setter for user.id (auto-generated only). currentUserId getter. Identity mutation via setUserProfile({name,email,phone,customAttributes}) (:408) and clearUserProfile() (:453)."
+  other_public_methods:
+    - "void trackError(Object error, {StackTrace?, Map attributes}) -> app.crash immediate (:367)"
+    - "EdgeNavigationObserver get navigationObserver (:500)"
+    - "add*Breadcrumb / getBreadcrumbs / clearBreadcrumbs (:527-582)"
+    - "Future withSpan / withNetworkSpan — DEPRECATED no-ops, just run the fn (:378,:392)"
+    - "generateSummaryReport / generatePerformanceReport / generateUserBehaviorReport / exportReportToFile (local reporting, in-memory only) (:612-650)"
+    - "getConnectivityInfo, currentNetworkType, currentSessionInfo, globalAttributes, isInitialized, config getters"
+    - "void shutdown() (flush+dispose), void dispose() (:660,:666)"
+
+# ==========================================================================
+# 7. Feature checklist
+# ==========================================================================
+features:
+  session-tracking: {status: done, evidence: "managers/session_manager.dart (lazy idle model, kill-recovery, journey summary)", notes: "30-min idle rotation, no timers."}
+  view-tracking: {status: done, evidence: "widgets/edge_navigation_observer.dart + capture/nav_capture_hook.dart -> navigation + screen.duration", notes: "NavigatorObserver, consumer must wire navigationObserver."}
+  error-capture: {status: done, evidence: "facade trackError + FlutterError.onError/PlatformDispatcher.onError/isolate -> app.crash (edge_telemetry.dart:276)", notes: "Dart errors is_fatal=false; folded into app.crash rail."}
+  crash-capture: {status: partial, evidence: "Dart-side done (immediate rail, offline persist). Native leg is a published contract only (crash/native_crash_channel.dart) — drainNativeCrashes returns [] until the Phase-4 Swift/Kotlin plugin ships", notes: "No native plugin present in this repo."}
+  network-capture: {status: done, evidence: "capture/http_capture_hook.dart + http_overrides.dart -> http.request; capture/network_capture_hook.dart -> network_change", notes: "Global HttpOverrides; consumer must not override after init."}
+  custom-events: {status: done, evidence: "facade trackEvent -> custom_event, trackMetric (edge_telemetry.dart:317,343)", notes: ""}
+  web-vitals: {status: na, evidence: "no LCP/FID/CLS/web-vitals code found", notes: "Flutter SDK; web device info collected but no web-vitals."}
+  app-start: {status: partial, evidence: "capture/perf_capture_hook.dart:57 _trackAppStartup -> page_load", notes: "SDK-init-relative only; cold/warm is a <2000ms heuristic, not true engine-init timeline (:145 ponytail comment)."}
+  anr-detection: {status: partial, evidence: "app.crash cause taxonomy includes ANR/Hang (native_crash_channel.dart schema), but only via the not-yet-shipped native plugin", notes: "No Dart-side ANR detection."}
+  hang-detection: {status: partial, evidence: "same as ANR — Hang cause defined in native contract only", notes: "Not implemented Dart-side."}
+  frame-stats: {status: done, evidence: "capture/perf_capture_hook.dart:80 -> frame_render_time + long_task metrics", notes: "addTimingsCallback, build/raster split, 16.67ms drop threshold."}
+  batching: {status: done, evidence: "core/pipeline.dart", notes: "30 events / 5s, telemetry_batch envelope."}
+  offline-persistence: {status: done, evidence: "core/offline_queue.dart (file-per-payload, FIFO, drain-on-startup)", notes: "batch cap 200 drop-oldest; crash exempt."}
+  retry-backoff: {status: done, evidence: "core/retry_transport.dart:18 kDefaultBackoff [0,2s,8s,30s]", notes: "Batch only; crash is single-attempt then persist."}
+  no-sampling-guarantee: {status: partial, evidence: "sampleRate default 1.0 = keep-all (config:92), but sampling IS implemented and can drop events (collector.dart:43); allowlist also drops non-canon events", notes: "Not a hard guarantee — opt-in sampling + allowlist drops exist."}
+
+# ==========================================================================
+# 9. All repos
+# ==========================================================================
+inconsistencies_and_surprises: >
+  - MIXED WIRE-KEY CONVENTIONS: envelope + wireItem keys are camelCase/snake_case
+    (eventName, metricName, batch_size, telemetry_batch) while attribute keys are
+    dotted (session.id, http.url). app.crash attribute keys are UNPREFIXED
+    (message, stacktrace, exception_type, cause, is_fatal) — deliberately, to match
+    backend rum_crash_events extractors (edge_event.dart:84). This is drift a
+    sibling SDK targeting session.id/http.* convention would not have.
+  - ORPHAN ALLOWLIST ENTRIES: user.interaction (event) and resource_timing (metric)
+    are in kCanonEvents/kCanonMetrics (wire_canon.dart:19,30) but NO code emits
+    them — allowlisted names with no producer.
+  - CONSTRUCTED-BUT-DROPPED EVENTS: several hooks build events that the Collector
+    allowlist silently discards on-device (never reach the wire):
+      telemetry.initialized (edge_telemetry.dart:221),
+      performance.monitor_initialized / performance.system_check /
+      performance.memory_pressure / performance.startup_time metric (perf_capture_hook.dart:39,73,132,176),
+      network.monitor_initialized (network_capture_hook.dart:39),
+      network.quality_score metric (network_capture_hook.dart:71).
+    Dead work: computed, enriched, then dropped at collector.dart:60.
+  - session.finalized emits session.screen_journey (>-joined, capped 20) while the
+    live snapshot emits session.visited_screens (comma-joined set) — two different
+    screen fields with different formats/keys/delimiters.
+  - http.status_code = "0" is overloaded to mean "network error / never completed"
+    (http_overrides.dart:339), same sentinel the transport uses for offline.
+  - Batch envelope type is "telemetry_batch" but the EventPriority doc comment
+    (edge_event.dart:7) calls it type:"batch" — comment/wire mismatch.
+  - useJsonFormat / maxBatchSize / batchTimeout / eventBatchSize are all shipped
+    deprecated no-ops (OTel-era vestiges); CLAUDE.md still describes the v1.5.2
+    JsonEventTracker/SpanManager two-backend architecture that no longer exists.
+  - Error-report send/fail logs are unconditional print() by design (retry_transport.dart:91).
+  - lib/src/telemetry/edge_telemetry.dart referenced as dead in CLAUDE.md does not
+    exist in this tree (facade moved to lib/src/facade/edge_telemetry.dart).
+
+ci_cd:
+  what_exists: >
+    .github/workflows/ci.yml (at git repo root, one dir above the package):
+    on pull_request + push to master, runs in edge_telemetry_flutter/ — flutter pub get,
+    dart format --set-exit-if-changed, flutter analyze, flutter test. Checks only.
+    .github/workflows/publish.yml: triggered ONLY on version tags v[0-9]+.[0-9]+.[0-9]+*.
+  publishes_to: >
+    pub.dev via dart-lang/setup-dart publish.yml@v1 reusable workflow, OIDC auth
+    (id-token: write, no secret token). Tag-gated only.
+
+open_questions:
+  - "Are user.interaction / resource_timing intended to be emitted by a future hook, or stale allowlist entries?"
+  - "Does the Collector/backend expect http.url to arrive with query strings, or is client-side URL sanitization intended before v2 GA?"
+  - "Is the native crash plugin (edge_telemetry/native_crash channel) shipped in a sibling repo (edge_telemetry_android)? Not present here."
+  - "Intended behavior on Pipeline.dispose dropping the unflushed buffer (pipeline.dart:76) vs flush-on-shutdown?"
