@@ -32,7 +32,7 @@ import 'package:flutter/services.dart';
 /// | `is_fatal`       | always `"true"` for native crashes         | `"true"`                         |
 /// | `crash.source`   | `metrickit` \| `uncaught_handler` \| `app_exit_info` | `"metrickit"`          |
 ///
-/// All values arrive as strings. See `docs/wayfinder/native-crash-capture.md` §4.
+/// All values arrive as strings.
 class NativeCrashChannel {
   /// The single channel name shared with the native plugin. Must stay in lock
   /// step with the Swift/Kotlin side — it is the contract.
