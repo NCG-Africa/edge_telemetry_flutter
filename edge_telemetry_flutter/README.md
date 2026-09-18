@@ -5,14 +5,14 @@
 ## ✨ Features
 
 - 🌐 **Automatic HTTP Request Monitoring** - ALL network calls tracked automatically (URL, method, status, duration)
-- 🚨 **Enhanced Crash & Error Reporting** - Global error handling with crash fingerprinting and breadcrumbs
+- 🚨 **Crash & Error Reporting** - Dart errors, native crashes, ANRs and iOS hangs, all as `app.crash`
 - 📱 **Automatic Navigation Tracking** - Screen transitions and user journeys with breadcrumb context
 - ⚡ **Automatic Performance Monitoring** - Frame drops, memory usage, app startup times
 - 🔄 **Automatic Session Management** - User sessions with auto-generated IDs
 - 👤 **User Context Management** - Associate telemetry with user profiles
 - 🍞 **Crash Context Breadcrumbs** - Rich crash context with automatic navigation breadcrumbs
-- 💾 **Offline Crash Storage** - Store crashes offline when network is unavailable
-- 🔄 **Smart Crash Retry** - Intelligent retry mechanism with exponential backoff
+- 💾 **Offline Queue** - Undeliverable data is persisted to disk and drained on the next successful send
+- 🔄 **Retry With Backoff** - Batches retry on `[0, 2s, 8s, 30s]` before they queue
 - 📊 **Local Reporting** - Generate comprehensive reports without external dependencies
 - 🎯 **Zero Configuration** - Works out of the box with sensible defaults
 
@@ -126,11 +126,11 @@ final response = await http.get(Uri.parse('https://api.example.com/users'));
 throw Exception('Something went wrong');
 
 // Gets automatically tracked with:
-// - Full stack trace with crash fingerprinting
-// - Rich context via breadcrumbs (navigation, user actions)
+// - Full stack trace (grouping hash computed server-side)
+// - Rich context via breadcrumbs (navigation, requests, lifecycle)
 // - User and session context
 // - Device information
-// - Offline storage with smart retry mechanism
+// - Sent immediately; persisted to disk if the network is down
 ```
 
 ### 📱 Navigation (One Line Setup)
@@ -148,8 +148,9 @@ Navigator.pop(context);                    // ✅ Automatically tracked
 
 ```dart
 await EdgeTelemetry.initialize(
-  endpoint: 'https://your-backend.com/api/telemetry',
+  endpoint: 'https://your-backend.com',  // base URL — SDK posts to /collector/telemetry
   serviceName: 'my-app',
+  apiKey: 'edgekey_xxx_yyy',             // sent as X-API-Key
 
   // 🎯 Monitoring Controls (all default to true)
   enableHttpMonitoring: true,        // Automatic HTTP request tracking
@@ -160,7 +161,9 @@ await EdgeTelemetry.initialize(
 
   // 🔧 Advanced Options
   debugMode: true,                   // Enable console logging
-  eventBatchSize: 30,               // Events per batch
+  batchSize: 30,                    // Events per batch
+  flushIntervalMs: 5000,            // Send a partial batch after this long
+  maxQueueSize: 200,                // Offline batch files kept before drop-oldest
   sampleRate: 1.0,                  // Fraction of sessions kept (0.0–1.0). Rolled
                                      // once/session: a sampled-out session drops its
                                      // events, but crashes, session bookends, and
@@ -184,11 +187,10 @@ runApp(MyApp());
 
 ## 👤 User Management
 
-### 🔄 Profile Events (v1.4.10+)
+### 🔄 Profile Events
 
-Profile updates now emit **dual events** for enhanced backend integration:
-- `user.profile_updated` - Dedicated event for backend profile persistence
-- `user.profile_set` - Analytics event for tracking profile changes
+Setting or clearing a profile emits one `user.profile.update` event. It is batched like
+everything else, but exempt from sampling — identity changes always reach the backend.
 
 ```dart
 // Set user profile information (optional)
@@ -202,11 +204,11 @@ EdgeTelemetry.instance.setUserProfile(
     'subscription': 'premium',   // Automatically becomes user.subscription
   },
 );
-// ✅ Emits: user.profile_updated (backend) + user.profile_set (analytics)
+// ✅ Emits: user.profile.update
 
 // Clear user profile
 EdgeTelemetry.instance.clearUserProfile();
-// ✅ Emits: user.profile_updated (backend) + user.profile_cleared (analytics)
+// ✅ Emits: user.profile.update
 
 // Get current user info
 String? userId = EdgeTelemetry.instance.currentUserId;
@@ -221,7 +223,7 @@ Backend profile events include versioning and structured data:
 ```json
 {
   "type": "event",
-  "eventName": "user.profile_updated",
+  "eventName": "user.profile.update",
   "attributes": {
     "user.id": "user_1704067200123_a8b9c2d1e0f34567",
     "user.name": "John Doe",
@@ -238,11 +240,10 @@ Backend profile events include versioning and structured data:
 
 ### 🎯 Key Features
 
+- **Stable User ID**: `identify`ing a user never changes `user.id`, so anonymous and identified activity stay on one timeline
 - **Profile Versioning**: Automatic conflict resolution with incremental version numbers
 - **Custom Attribute Prefixing**: All custom attributes automatically prefixed with `user.`
-- **Backend Integration**: Dedicated events enable proper profile persistence in databases
-- **Backward Compatibility**: No breaking changes to existing profile API
-- **Debug Visibility**: Enhanced logging shows profile operations and event emissions
+- **Never Sampled Out**: Profile updates bypass the session sampling roll
 
 ## 📊 Manual Event Tracking (Optional)
 
@@ -290,7 +291,7 @@ EdgeTelemetry.instance.trackEvent('purchase.completed', attributes: purchase);
 
 ### Mixed Types (Auto-Converted)
 ```dart
-EdgeTelemetry.instance.trackEvent('user.profile_updated', attributes: {
+EdgeTelemetry.instance.trackEvent('profile_form_submitted', attributes: {
   'age': 25,                    // int -> "25"
   'is_premium': true,           // bool -> "true"
   'interests': ['tech', 'music'], // List -> "tech,music"
@@ -323,7 +324,7 @@ Generate comprehensive reports from collected data:
 ```dart
 // Enable local reporting
 await EdgeTelemetry.initialize(
-  endpoint: 'https://your-backend.com/api/telemetry',
+  endpoint: 'https://your-backend.com',
   serviceName: 'my-app',
   enableLocalReporting: true,
 );
@@ -368,34 +369,36 @@ List<Breadcrumb> breadcrumbs = EdgeTelemetry.instance.getBreadcrumbs();
 EdgeTelemetry.instance.clearBreadcrumbs();
 ```
 
-### 🔄 Crash Fingerprinting & Grouping
+### 🚨 Crash Reports
 ```dart
-// Crashes are automatically fingerprinted for grouping similar issues
-// Fingerprint format: ErrorType_MessageHash_StackFrameHash
-// Example: "Exception_-1234567890_987654321"
-
-// JSON crash report includes:
+// Every captured failure — Dart error, native crash, ANR, iOS hang — is sent
+// immediately as one `app.crash` event, bypassing the batch:
 {
-  "type": "error",
-  "fingerprint": "Exception_-1234567890_987654321",
-  "breadcrumbs": "[{\"message\":\"Navigated to /checkout\",\"category\":\"navigation\"}]",
+  "type": "event",
+  "eventName": "app.crash",
+  "timestamp": "2026-07-13T12:00:00.000Z",
   "attributes": {
-    "crash.fingerprint": "Exception_-1234567890_987654321",
-    "crash.breadcrumb_count": "5"
+    "message": "Exception: payment failed",
+    "stacktrace": "#0  ...",
+    "exception_type": "_Exception",
+    "cause": "Error",              // Error | NativeCrash | ANR | Hang
+    "is_fatal": "false",           // Dart errors are non-fatal — the app survived
+    "crash.source": "flutter_error",
+    "crash.breadcrumbs": "[{\"message\":\"Navigated to /checkout\",\"category\":\"navigation\"}]"
+    // + session, user and device context
   }
 }
+
+// Grouping hash and severity are computed server-side — the SDK does not send them.
 ```
 
-### 💾 Offline Crash Storage & Retry
+### 💾 Offline Queue
 ```dart
-// Crashes are automatically stored offline when network is unavailable
-// Smart retry mechanism with exponential backoff (1min → 2min → 4min → 1hr)
-// Max 3 retry attempts before cleanup
-// Automatic retry on network restoration
-
-// Manual retry control (usually not needed)
-final retryResults = await EdgeTelemetry.instance.forceRetryStoredCrashes();
-print('Retry results: ${retryResults['success']} successful, ${retryResults['failure']} failed');
+// Nothing is dropped on a bad network. A batch retries on [0, 2s, 8s, 30s]; if it
+// still fails it is written to disk and drained FIFO on the next successful send or
+// on the next app launch. Crashes are written immediately on failure and are never
+// evicted — the 200-file cap (maxQueueSize) drops the oldest ordinary batches only.
+// No manual control needed.
 ```
 
 ### Network-Aware Operations
@@ -418,7 +421,7 @@ Map<String, String> connectivity = EdgeTelemetry.instance.getConnectivityInfo();
 ```dart
 // Enable detailed logging
 await EdgeTelemetry.initialize(
-  endpoint: 'https://your-backend.com/api/telemetry',
+  endpoint: 'https://your-backend.com',
   serviceName: 'my-app',
   debugMode: true,  // Shows all telemetry in console
 );
