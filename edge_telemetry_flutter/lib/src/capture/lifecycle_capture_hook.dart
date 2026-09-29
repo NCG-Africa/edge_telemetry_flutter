@@ -2,6 +2,8 @@
 
 import 'package:flutter/widgets.dart';
 
+import '../core/capture_gate.dart';
+import '../core/config/collection_tier.dart';
 import '../core/edge_event.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/session_manager.dart';
@@ -24,10 +26,17 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
   /// Crash-context ring: each lifecycle transition drops a breadcrumb.
   final BreadcrumbManager? breadcrumbs;
 
+  /// Tier gate for the `app_lifecycle` **event** only — the session bridge
+  /// below is unconditional. Null = emit everything (state-only tests).
+  final CaptureGate? gate;
+
   EventSink? _sink;
 
   LifecycleCaptureHook(
-      {required this.session, required this.flush, this.breadcrumbs});
+      {required this.session,
+      required this.flush,
+      this.breadcrumbs,
+      this.gate});
 
   @override
   DisposeHandle start(EventSink sink) {
@@ -50,7 +59,20 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
     }
   }
 
+  /// `paused` / `resumed` are `Capture.lifecycle`; the three states nothing
+  /// reads — `inactive`, `hidden`, `detached`, all of them synthesized by the
+  /// framework on every backgrounding round-trip — are
+  /// `Capture.lifecycleTransitions` and opt-in.
+  ///
+  /// The gate check goes **before** the attribute map, never after: a gated-off
+  /// state costs one branch, not a built-and-discarded item.
   void _emit(AppLifecycleState state) {
+    final capture =
+        state == AppLifecycleState.paused || state == AppLifecycleState.resumed
+            ? Capture.lifecycle
+            : Capture.lifecycleTransitions;
+    if (gate != null && !gate!.allows(capture)) return;
+
     breadcrumbs?.addSystemEvent('lifecycle: ${state.name}',
         data: {'lifecycle.state': state.name});
     _sink?.add(EdgeEvent.event('app_lifecycle', attributes: {

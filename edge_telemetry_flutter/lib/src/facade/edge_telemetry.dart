@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../collectors/flutter_device_info_collector.dart';
+import '../core/config/collection_tier.dart';
 import '../core/config/telemetry_config.dart';
 import '../core/edge_event.dart';
 import '../core/interfaces/device_info_collector.dart';
@@ -54,9 +55,6 @@ class EdgeTelemetry {
   // The DI'd graph.
   TelemetryWiring? _wiring;
 
-  // Deprecated-symbol warnings, emitted once per process (debug-gated).
-  static final Set<String> _deprecationWarned = {};
-
   // Identity + session.
   UserIdManager? _userIdManager;
   SessionManager? _sessionManager;
@@ -86,6 +84,11 @@ class EdgeTelemetry {
   // ==================== INITIALIZATION ====================
 
   /// Initialize EdgeTelemetry with automatic monitoring capabilities.
+  ///
+  /// The collection surface is [tier] + [captureOverrides]. The v2 capture
+  /// booleans still work as a fallback (the new key wins) and are deprecated;
+  /// `enableCrashReporting` and `enableErrorReporting` are **gone** — crash and
+  /// error capture are unconditional in v3, and the compile error is deliberate.
   static Future<void> initialize({
     required String endpoint,
     required String serviceName,
@@ -95,28 +98,25 @@ class EdgeTelemetry {
     Map<String, String>? globalAttributes,
     int? batchSize,
     int? flushIntervalMs,
-    @Deprecated('Use flushIntervalMs. Removed in v3.0.0.')
-    Duration? batchTimeout,
-    @Deprecated('Ignored (OTel-era). Removed in v3.0.0.') int? maxBatchSize,
+    CollectionTier tier = CollectionTier.standard,
+    Map<Capture, bool> captureOverrides = const {},
+    @Deprecated(
+        'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
     bool enableNetworkMonitoring = true,
+    @Deprecated(
+        'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.')
     bool enablePerformanceMonitoring = true,
+    @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
     bool enableNavigationTracking = true,
+    @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
     bool enableHttpMonitoring = true,
-    bool enableCrashReporting = true,
-    bool enableLocalReporting = false,
+    @Deprecated(
+        'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.')
     bool captureAccessibilityContext = false,
+    bool enableLocalReporting = false,
     String? reportStoragePath,
     Duration? dataRetentionPeriod,
-    @Deprecated(
-        'useJsonFormat is ignored; the SDK is custom-JSON only. Remove the argument. Removed in v3.0.0.')
-    bool useJsonFormat = true,
-    @Deprecated('Use batchSize. Removed in v3.0.0.') int? eventBatchSize,
   }) async {
-    // New canon keys win; deprecated keys are the fallback (backward-compat).
-    final resolvedBatchSize = batchSize ?? eventBatchSize ?? 30;
-    final resolvedFlushMs =
-        flushIntervalMs ?? batchTimeout?.inMilliseconds ?? 5000;
-
     final config = TelemetryConfig(
       endpoint: endpoint,
       serviceName: serviceName,
@@ -124,37 +124,26 @@ class EdgeTelemetry {
       sampleRate: sampleRate,
       debugMode: debugMode,
       globalAttributes: globalAttributes ?? {},
-      batchSize: resolvedBatchSize,
-      flushIntervalMs: resolvedFlushMs,
+      batchSize: batchSize ?? 30,
+      flushIntervalMs: flushIntervalMs ?? 5000,
+      tier: tier,
+      captureOverrides: captureOverrides,
+      // ignore: deprecated_member_use_from_same_package
       enableNetworkMonitoring: enableNetworkMonitoring,
+      // ignore: deprecated_member_use_from_same_package
       enablePerformanceMonitoring: enablePerformanceMonitoring,
+      // ignore: deprecated_member_use_from_same_package
       enableNavigationTracking: enableNavigationTracking,
-      enableErrorReporting: true,
+      // ignore: deprecated_member_use_from_same_package
+      enableHttpMonitoring: enableHttpMonitoring,
+      // ignore: deprecated_member_use_from_same_package
+      captureAccessibilityContext: captureAccessibilityContext,
       enableLocalReporting: enableLocalReporting,
       reportStoragePath: reportStoragePath,
       dataRetentionPeriod: dataRetentionPeriod ?? const Duration(days: 30),
-      useJsonFormat: true, // custom-JSON is the only backend now
-      // ignore: deprecated_member_use_from_same_package
-      eventBatchSize: resolvedBatchSize,
-      enableHttpMonitoring: enableHttpMonitoring,
-      enableCrashReporting: enableCrashReporting,
-      captureAccessibilityContext: captureAccessibilityContext,
     );
 
     await instance._setup(config);
-
-    // ignore: deprecated_member_use_from_same_package
-    if (!useJsonFormat) {
-      instance._warnDeprecatedOnce('useJsonFormat',
-          'useJsonFormat is ignored; the SDK is custom-JSON only. Remove the argument. Removed in v3.0.0.');
-    }
-  }
-
-  void _warnDeprecatedOnce(String key, String message) {
-    if (_config?.debugMode != true) return;
-    if (_deprecationWarned.add(key)) {
-      print('⚠️ DEPRECATED: $message');
-    }
   }
 
   Future<void> _setup(TelemetryConfig config) async {
@@ -190,7 +179,8 @@ class EdgeTelemetry {
       final context = ContextManager(
         sessionManager: _sessionManager!,
         global: _globalAttributes,
-        captureAccessibilityContext: config.captureAccessibilityContext,
+        captureAccessibilityContext:
+            config.capturesEnabled(Capture.accessibilityContext),
       );
 
       // Build + start the graph (binds the session bookend sink to the
@@ -205,10 +195,10 @@ class EdgeTelemetry {
       await _sessionManager!.recoverAndStart();
       _currentSessionId = _sessionManager!.currentSessionId;
 
-      if (config.enableCrashReporting) {
-        _installGlobalCrashHandler();
-        await _drainNativeCrashes();
-      }
+      // Unconditional in v3: there is no off-switch for crash capture, so an
+      // SDK reporting no crashes can never be a configuration.
+      _installGlobalCrashHandler();
+      await _drainNativeCrashes();
 
       if (config.enableLocalReporting) {
         await _setupLocalReporting();
@@ -221,12 +211,11 @@ class EdgeTelemetry {
           .add(EdgeEvent.event('telemetry.initialized', attributes: {
         'service_name': config.serviceName,
         'debug_mode': config.debugMode.toString(),
-        'network_monitoring': config.enableNetworkMonitoring.toString(),
-        'performance_monitoring': config.enablePerformanceMonitoring.toString(),
-        'navigation_tracking': config.enableNavigationTracking.toString(),
-        'http_monitoring': config.enableHttpMonitoring.toString(),
-        'local_reporting': config.enableLocalReporting.toString(),
-        'json_format': config.useJsonFormat.toString(),
+        'tier': config.tier.name,
+        'captures': config.enabledFeatures.entries
+            .where((e) => e.value)
+            .map((e) => e.key)
+            .join(','),
         'user_id_auto_generated': 'true',
         'initialization_timestamp': DateTime.now().toIso8601String(),
       }));
@@ -314,9 +303,9 @@ class EdgeTelemetry {
   // ==================== CORE TRACKING API ====================
 
   /// Track a custom event with flexible attribute support.
-  void trackEvent(String eventName, {dynamic attributes}) {
+  void trackEvent(String eventName, {Map<String, Object?>? attributes}) {
     _ensureInitialized();
-    final stringAttributes = _convertToStringMap(attributes);
+    final stringAttributes = _stringify(attributes);
 
     // Host names are arbitrary → wrap into the canon `custom_event` with the
     // host-supplied name carried in `event.name` (mapping §2).
@@ -340,9 +329,10 @@ class EdgeTelemetry {
   }
 
   /// Track a custom metric with flexible attribute support.
-  void trackMetric(String metricName, double value, {dynamic attributes}) {
+  void trackMetric(String metricName, double value,
+      {Map<String, Object?>? attributes}) {
     _ensureInitialized();
-    final stringAttributes = _convertToStringMap(attributes);
+    final stringAttributes = _stringify(attributes);
 
     _wiring!.collector.add(EdgeEvent.metric(metricName, value,
         attributes: stringAttributes, countsToSession: true));
@@ -368,38 +358,6 @@ class EdgeTelemetry {
       {StackTrace? stackTrace, Map<String, String>? attributes}) {
     _ensureInitialized();
     _emitCrash(error, stackTrace: stackTrace, attributes: attributes);
-  }
-
-  // ==================== DEPRECATED SPAN NO-OPS ====================
-
-  /// Execute a function — no longer records a span.
-  @Deprecated(
-      'withSpan no longer records a span; it just runs your function. Remove it or use trackEvent. Removed in v3.0.0.')
-  Future<T> withSpan<T>(
-    String spanName,
-    Future<T> Function() operation, {
-    Map<String, String>? attributes,
-  }) async {
-    _ensureInitialized();
-    _warnDeprecatedOnce('withSpan',
-        'withSpan no longer records a span; it just runs your function. Remove it or use trackEvent. Removed in v3.0.0.');
-    return await operation();
-  }
-
-  /// Execute a network operation — no longer records a span.
-  @Deprecated(
-      'withNetworkSpan no longer records a span; it just runs your function. Remove it or use trackEvent. Removed in v3.0.0.')
-  Future<T> withNetworkSpan<T>(
-    String operationName,
-    String url,
-    String method,
-    Future<T> Function() operation, {
-    Map<String, String>? attributes,
-  }) async {
-    _ensureInitialized();
-    _warnDeprecatedOnce('withNetworkSpan',
-        'withNetworkSpan no longer records a span; it just runs your function. Remove it or use trackEvent. Removed in v3.0.0.');
-    return await operation();
   }
 
   // ==================== USER PROFILE API ====================
@@ -688,31 +646,13 @@ class EdgeTelemetry {
 
   // ==================== INTERNAL HELPERS ====================
 
-  Map<String, String> _convertToStringMap(dynamic attributes) {
-    if (attributes == null) return {};
-    if (attributes is Map<String, String>) return attributes;
-    if (attributes is Map<String, dynamic>) {
-      return attributes.map((k, v) => MapEntry(k, _valueToString(v)));
-    }
-    if (attributes is Map) {
-      return attributes
-          .map((k, v) => MapEntry(k.toString(), _valueToString(v)));
-    }
-    if (_hasToJsonMethod(attributes)) {
-      try {
-        final jsonMap = (attributes as dynamic).toJson();
-        if (jsonMap is Map) {
-          return jsonMap
-              .map((k, v) => MapEntry(k.toString(), _valueToString(v)));
-        }
-      } catch (e) {
-        if (_config?.debugMode == true) {
-          print('⚠️ Failed to convert toJson(): $e');
-        }
-      }
-    }
-    return _objectToMap(attributes);
-  }
+  /// Values are stringified on the way to the wire either way, so `Object?`
+  /// keeps `{'count': 3, 'ok': true}` compiling and the bytes byte-identical.
+  /// v2's `toJson()`/reflection fallback is gone: an arbitrary object is no
+  /// longer a supported attribute shape, and discovering that at runtime was
+  /// the problem with `dynamic`.
+  Map<String, String> _stringify(Map<String, Object?>? attributes) =>
+      attributes?.map((k, v) => MapEntry(k, _valueToString(v))) ?? const {};
 
   String _valueToString(dynamic value) {
     if (value == null) return 'null';
@@ -724,34 +664,6 @@ class EdgeTelemetry {
     if (value is List) return value.join(',');
     if (value is Map) return value.toString();
     return value.toString();
-  }
-
-  bool _hasToJsonMethod(Object obj) {
-    try {
-      return obj.runtimeType.toString().contains('toJson') ||
-          (obj as dynamic).toJson != null;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  Map<String, String> _objectToMap(Object obj) {
-    final result = <String, String>{};
-    try {
-      final objString = obj.toString();
-      if (!objString.startsWith('Instance of ')) {
-        result['object'] = objString;
-      } else {
-        result['type'] = obj.runtimeType.toString();
-        result['value'] = objString;
-      }
-      if (obj is Enum) {
-        result['enum_name'] = obj.toString().split('.').last;
-      }
-    } catch (e) {
-      result['error'] = 'Failed to convert object: $e';
-    }
-    return result;
   }
 
   /// Format: `session_<epochMs>_<16hex>_<platform>` — the family session leg of

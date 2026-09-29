@@ -6,6 +6,7 @@ import '../capture/capture_hook.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
 import '../managers/session_manager.dart';
+import 'capture_gate.dart';
 import 'edge_event.dart';
 import 'pipeline.dart';
 import 'wire_canon.dart';
@@ -30,12 +31,18 @@ class Collector implements EventSink {
   /// a debug-only log would not have caught v2's seven silent drops.
   final bool debugMode;
 
+  /// The budget governor's item counter. Optional so a faked collector can skip
+  /// it; when present every admitted item is counted, and crossing a ceiling
+  /// sheds a whole tier at the capture hooks.
+  final CaptureGate? gate;
+
   Collector({
     required this.context,
     required this.session,
     required this.pipeline,
     this.breadcrumbs,
     this.debugMode = false,
+    this.gate,
   });
 
   /// Sample gate on the sampling axis (orthogonal to send-priority). Bypass
@@ -129,6 +136,10 @@ class Collector implements EventSink {
             'timestamp': timestamp,
             'attributes': enriched,
           };
+
+    // Counted here and nowhere else: this is the one place an item is known to
+    // be leaving the device, so it is the only honest input to the budget.
+    gate?.recordItem();
 
     // Two send rails: crashes (and any immediate event) bypass the batch; every
     // batched event/metric buffers in the Pipeline.

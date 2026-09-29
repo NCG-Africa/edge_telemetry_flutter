@@ -221,29 +221,16 @@ void main() {
     wiring.disposeAll();
   });
 
-  test('public-API break set: deprecated span no-ops run and record nothing',
-      () async {
-    // The 4 hard-removed symbols (startSpan/endSpan/activeScreenSpans/
-    // runAppCallback) are enforced by the compiler — referencing one fails the
-    // build. Here we assert the compat half: the 3 kept no-ops still execute
-    // their operation and emit no telemetry.
+  test('public-API break set: the kept surface still compiles', () async {
+    // The removals are enforced by the compiler — referencing startSpan,
+    // endSpan, activeScreenSpans, runAppCallback (v2) or withSpan,
+    // withNetworkSpan, useJsonFormat, batchTimeout, maxBatchSize,
+    // eventBatchSize, enableCrashReporting, enableErrorReporting (v3) fails
+    // the build. Here we assert the other half of that diff: the KEPT public
+    // surface. These tear-offs stop building if a member is removed by
+    // accident, which is the failure the break-set list cannot catch.
     final (telemetry, sender, wiring) = await _facade();
 
-    // ignore: deprecated_member_use_from_same_package
-    final r1 = await telemetry.withSpan('op', () async => 42);
-    // ignore: deprecated_member_use_from_same_package
-    final r2 = await telemetry.withNetworkSpan(
-        'op', 'https://x', 'GET', () async => 7);
-    await Future<void>(() {});
-
-    expect(r1, 42);
-    expect(r2, 7);
-    expect(sender.sent, isEmpty); // no span → no wire traffic
-
-    // Compile-time guard on the KEPT public surface ("your code mostly didn't
-    // change"): these tear-offs fail to build if a member is accidentally
-    // removed, catching the other half of the break-set diff the compiler
-    // already enforces for the 4 removals.
     final kept = <Function>[
       telemetry.trackEvent,
       telemetry.trackMetric,
@@ -253,6 +240,7 @@ void main() {
       telemetry.addBreadcrumb,
     ];
     expect(kept, hasLength(6));
+    expect(sender.sent, isEmpty);
     wiring.disposeAll();
   });
 
