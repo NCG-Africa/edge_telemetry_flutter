@@ -101,6 +101,7 @@ class EdgeTelemetry {
     int? flushIntervalMs,
     CollectionTier tier = CollectionTier.standard,
     Map<Capture, bool> captureOverrides = const {},
+    String? Function(String key, String value)? redactAttribute,
     @Deprecated(
         'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
     bool enableNetworkMonitoring = true,
@@ -129,6 +130,7 @@ class EdgeTelemetry {
       flushIntervalMs: flushIntervalMs ?? 5000,
       tier: tier,
       captureOverrides: captureOverrides,
+      redactAttribute: redactAttribute,
       // ignore: deprecated_member_use_from_same_package
       enableNetworkMonitoring: enableNetworkMonitoring,
       // ignore: deprecated_member_use_from_same_package

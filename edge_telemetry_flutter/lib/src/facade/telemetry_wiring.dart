@@ -7,6 +7,7 @@ import '../capture/lifecycle_capture_hook.dart';
 import '../capture/nav_capture_hook.dart';
 import '../capture/network_capture_hook.dart';
 import '../capture/perf_capture_hook.dart';
+import '../core/attribute_policy.dart';
 import '../core/capture_gate.dart';
 import '../core/collector.dart';
 import '../core/offline_queue.dart';
@@ -50,6 +51,9 @@ class TelemetryWiring {
   /// too; the check goes *before* the attribute-map literal, never after.
   final CaptureGate gate;
 
+  /// The PII policy the Collector applies to every item's own attributes.
+  final AttributePolicy policy;
+
   final List<DisposeHandle> _disposers;
   final NavCaptureHook? navHook;
   final NetworkCaptureHook? networkHook;
@@ -67,11 +71,13 @@ class TelemetryWiring {
     required this.collector,
     required List<DisposeHandle> disposers,
     CaptureGate? gate,
+    AttributePolicy? policy,
     NativeCrashChannel? nativeCrash,
     this.navHook,
     this.networkHook,
   })  : _disposers = disposers,
         gate = gate ?? CaptureGate(config),
+        policy = policy ?? AttributePolicy(redact: config.redactAttribute),
         nativeCrash = nativeCrash ?? NativeCrashChannel();
 
   EdgeNavigationObserver? get navigationObserver => navHook?.observer;
@@ -89,6 +95,13 @@ class TelemetryWiring {
     // dropped-item counter, the same counter the off-canon drop uses.
     final gate =
         CaptureGate(config, onShed: () => session.recordDropped('tier_shed'));
+
+    // The PII policy: the consumer's one redaction hook plus the per-key
+    // cardinality cap, both per session and both applied at the Collector.
+    final policy = AttributePolicy(
+      redact: config.redactAttribute,
+      onCapped: session.recordCardinalityCap,
+    );
 
     // Every delivery-side give-up lands on the same session counter as the
     // off-canon drop and the tier shed: a payload the SDK declined to send.
@@ -123,6 +136,7 @@ class TelemetryWiring {
       breadcrumbs: breadcrumbs,
       debugMode: config.debugMode,
       gate: gate,
+      policy: policy,
     );
 
     // Both per-session ceilings start a fresh allowance on rotation: the
@@ -130,6 +144,7 @@ class TelemetryWiring {
     session.onSessionStart = () {
       gate.resetBudget();
       collector.resetActionCap();
+      policy.reset();
     };
 
     // Late-bind the session bookend sink now the Collector exists (breaks the
@@ -154,9 +169,11 @@ class TelemetryWiring {
       disposers.add(PerfCaptureHook().start(collector));
     }
     if (gate.allows(Capture.http)) {
-      disposers.add(
-          HttpCaptureHook(debugMode: config.debugMode, breadcrumbs: breadcrumbs)
-              .start(collector));
+      disposers.add(HttpCaptureHook(
+        debugMode: config.debugMode,
+        breadcrumbs: breadcrumbs,
+        gate: gate,
+      ).start(collector));
     }
     if (gate.allows(Capture.navigation)) {
       navHook = NavCaptureHook(
@@ -199,6 +216,7 @@ class TelemetryWiring {
       collector: collector,
       disposers: disposers,
       gate: gate,
+      policy: policy,
       navHook: navHook,
       networkHook: networkHook,
     );

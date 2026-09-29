@@ -64,6 +64,17 @@ class EdgeEvent {
   /// was in flight.
   final bool ownsTraceContext;
 
+  /// Whether this item's attributes are the SDK's own rather than anything a
+  /// consumer or a capture hook collected.
+  ///
+  /// True on the session bookends alone, and it is not a fifth behavioural
+  /// axis — it is provenance, and it buys one thing: the redaction hook and
+  /// the cardinality cap skip these items. The bookends carry the session's
+  /// identity and its journey summary *as item attributes*, so a hook that
+  /// returned null for an unrecognised key would drop `session.id` and orphan
+  /// every row in the session it bracketed.
+  final bool sdkOwnedAttributes;
+
   const EdgeEvent.event(
     this.name, {
     this.attributes = const {},
@@ -71,6 +82,7 @@ class EdgeEvent {
     this.bypassSampling = false,
     this.ownsTraceContext = false,
   })  : type = 'event',
+        sdkOwnedAttributes = false,
         value = null,
         error = null,
         stackTrace = null,
@@ -83,6 +95,7 @@ class EdgeEvent {
     this.countsToSession = false,
     this.ownsTraceContext = false,
   })  : type = 'metric',
+        sdkOwnedAttributes = false,
         error = null,
         stackTrace = null,
         bypassSampling = false,
@@ -127,6 +140,7 @@ class EdgeEvent {
 
   const EdgeEvent._crash(this.attributes)
       : type = 'event',
+        sdkOwnedAttributes = false,
         // A crash mints no span and freezes nothing — it inherits the ambient
         // keys, which is exactly the attribution the action id already gives.
         ownsTraceContext = false,
@@ -145,6 +159,7 @@ class EdgeEvent {
   /// journey summary is pre-built by [SessionManager]).
   const EdgeEvent.session(this.name, this.attributes)
       : type = 'event',
+        sdkOwnedAttributes = true,
         ownsTraceContext = false,
         value = null,
         error = null,

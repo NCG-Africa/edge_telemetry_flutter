@@ -80,6 +80,12 @@ class SessionManager {
   /// is found by telemetry, not by audit.
   final Map<String, int> _droppedByReason = {};
 
+  /// Attribute values replaced by the cardinality sentinel this session. Its
+  /// own counter, not a `dropped` reason: a capped *value* is not a dropped
+  /// *item*, and folding it into `session.dropped_item_count` would corrupt
+  /// the one number the budget is asserted against.
+  int _cardinalityCapped = 0;
+
   SessionManager({
     void Function(EdgeEvent event)? emit,
     String Function()? newSessionId,
@@ -210,6 +216,9 @@ class SessionManager {
   void recordDropped(String reason) =>
       _droppedByReason[reason] = (_droppedByReason[reason] ?? 0) + 1;
 
+  /// Count one attribute value replaced by `kCardinalitySentinel`.
+  void recordCardinalityCap() => _cardinalityCapped++;
+
   void _resetCounters() {
     _eventCount = 0;
     _metricCount = 0;
@@ -221,6 +230,7 @@ class SessionManager {
     _screenJourney.clear();
     _currentScreenId = null;
     _droppedByReason.clear();
+    _cardinalityCapped = 0;
   }
 
   /// Ordered route path (for `screen_journey`) + distinct set (for count), and
@@ -276,6 +286,7 @@ class SessionManager {
           screenCount: _visitedScreens.length,
           journey: _screenJourney,
           dropped: _droppedByReason,
+          capped: _cardinalityCapped,
         )));
   }
 
@@ -305,6 +316,7 @@ class SessionManager {
           dropped: (r['dropped'] as Map?)
                   ?.map((k, v) => MapEntry('$k', (v as num?)?.toInt() ?? 0)) ??
               const {},
+          capped: (r['capped'] as num?)?.toInt() ?? 0,
           recovered: true,
         )));
   }
@@ -320,10 +332,11 @@ class SessionManager {
     required int screenCount,
     required List<String> journey,
     required Map<String, int> dropped,
+    required int capped,
     bool recovered = false,
   }) {
     // Last 20 hops only, so a multi-hour session can't emit a giant attribute.
-    final capped =
+    final lastHops =
         journey.length > 20 ? journey.sublist(journey.length - 20) : journey;
     return {
       'session.id': id,
@@ -335,7 +348,7 @@ class SessionManager {
       'session.crash_count': crashCount.toString(),
       'session.screen_count': screenCount.toString(),
       'session.http_request_count': httpCount.toString(),
-      'session.screen_journey': capped.join('>'),
+      'session.screen_journey': lastHops.join('>'),
       'session.dropped_item_count':
           dropped.values.fold(0, (a, b) => a + b).toString(),
       if (dropped.isNotEmpty)
@@ -343,6 +356,7 @@ class SessionManager {
               ..sort((a, b) => a.key.compareTo(b.key)))
             .map((e) => '${e.key}=${e.value}')
             .join(','),
+      if (capped > 0) 'session.cardinality_capped_count': capped.toString(),
       if (recovered) 'session.recovered': 'true',
     };
   }
@@ -367,6 +381,7 @@ class SessionManager {
         'screenCount': _visitedScreens.length,
         'journey': _screenJourney,
         'dropped': _droppedByReason,
+        'capped': _cardinalityCapped,
       }),
     );
   }

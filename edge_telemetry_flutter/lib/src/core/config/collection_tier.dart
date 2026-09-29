@@ -51,6 +51,7 @@ enum Capture {
   swipes(CollectionTier.diagnostic),
   interactionCoordinates(CollectionTier.diagnostic),
   httpQueryString(CollectionTier.diagnostic),
+  httpPhaseTiming(CollectionTier.diagnostic),
   deviceFingerprint(CollectionTier.diagnostic),
   accessibilityContext(CollectionTier.diagnostic),
   lifecycleTransitions(CollectionTier.diagnostic),

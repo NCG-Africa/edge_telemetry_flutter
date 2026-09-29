@@ -153,6 +153,39 @@ it and only the behavioural record thins, which is why `session.action_count` co
 roots minted rather than events emitted.
 _Avoid_: rate limit, throttle, action sampling
 
+**Seam**:
+A place the SDK can see an HTTP request from. Two exist: the `dart:io` override seam
+(`http_overrides`) and the client-wrapper seam. Every request names the seam that
+captured it, because absence alone conflates "never measurable" with "measurable and
+missing".
+_Avoid_: interceptor, adapter, hook (a capture hook is a different thing)
+
+**Fused connect**:
+DNS + TCP + TLS as one number (`http.connect_ms`). Fused because splitting DNS means
+resolving by hand, and resolving by hand means connecting to one address instead of
+every address the platform would try. Split only at `diagnostic`, and only as far as
+`http.dns_ms` — TCP and TLS are unreachable at this seam.
+_Avoid_: handshake time, setup time, TTFB
+
+**Templated path**:
+A URL path whose id segments — all-digits, a UUID, or 20+ hex characters — have become
+`{id}`. An **exact enumerable rule**, not a heuristic, so a backend reading the rows can
+reproduce it. Its real job is keeping a REST app under the cardinality cap.
+_Avoid_: normalised URL, sanitised URL, route pattern
+
+**Cardinality cap**:
+50 distinct values per attribute key per session; the 51st and everything after becomes
+`__over_cardinality__` and is counted on `session.cardinality_capped_count`. A capped
+value is **not** a dropped item and never touches the dropped-item counter.
+_Avoid_: dimension limit, tag limit, truncation
+
+**Redaction hook** (`redactAttribute`):
+The consumer's one callback at the wire choke point, over an item's **own** attributes.
+Never the context snapshot (30 callbacks per item on the UI isolate for values the SDK
+chose itself) and never the session bookends (whose attributes are the session's
+identity).
+_Avoid_: scrubber, filter, sanitizer, processor
+
 ### Session
 
 **Session**:

@@ -152,6 +152,22 @@ three languages — change it in lockstep or not at all.
 `http.request`. It chains to any previous overrides. **Consumers must not set their own
 `HttpOverrides.global` after init**, or tracking breaks.
 
+The clock is **re-based**: it starts before `openUrl` (which is what connects) and stops at
+headers received; `http.download_ms` carries the tail. The event is therefore emitted when the
+**body ends**, not when its headers arrive — a response nobody drains is never reported, which
+is already a broken consumer under `dart:io`. Phase timing comes from a **connection factory**
+installed on every client, and that carries the standing hazard: a factory makes the platform
+skip its own secure-socket call, so `SecurityContext`, `badCertificateCallback` and `keyLog` are
+threaded through by hand or **certificate pinning breaks silently at init**. A consumer factory
+is chained, never replaced. TCP/TLS cannot be split here (`ConnectionTask` has no public
+constructor) and TLS is unreachable under an HTTPS proxy at any tier — omit, never zero.
+
+PII partitions by who chose the value: the SDK redacts what it collected (`http.url` is
+path-only and id-templated, folded into one `http.url_redacted` flag), caps what the developer
+named (`AttributePolicy`, 50 distinct values per key per session), and hands the developer
+`redactAttribute` over what they supplied. The hook runs over an item's **own** attributes only
+— never the context snapshot, never the session bookends (`EdgeEvent.sdkOwnedAttributes`).
+
 ## Working with me
 - When reporting information to me, be extremely concise and sacrifice grammar for the sake of concision.
 - Never add Claude/AI attribution trailers anywhere — no `Co-Authored-By: Claude`, no `🤖 Generated with Claude Code`, in commits, PRs, comments, or code.
