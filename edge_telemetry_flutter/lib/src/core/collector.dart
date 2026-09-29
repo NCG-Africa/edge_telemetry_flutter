@@ -155,19 +155,25 @@ class Collector implements EventSink {
       // mutable session counters must still land.
       pipeline.sendNow(wireItem);
     } else {
-      pipeline.enqueue(wireItem, context: _hoist(enriched));
+      pipeline.enqueue(wireItem, context: _splitContextFrom(enriched));
     }
   }
 
-  /// Split the batch-level context out of [enriched] **in place** (the same map
-  /// object the wire item holds), returning the hoisted block. Mutable session
-  /// counters are removed outright: they re-measure per snapshot, so they can
-  /// be neither batch-scoped nor worth a copy per item.
+  /// Split the batch-level context out of [enriched] **in place** — the same map
+  /// object the wire item already holds — and return the hoisted block. Mutable
+  /// session counters are removed outright: they re-measure per snapshot, so
+  /// they can be neither batch-scoped nor worth a copy per item.
   ///
   /// The two halves are disjoint by construction, so the server-side merge of
   /// block + item bag is byte-identical to the bag this item would have carried
   /// un-hoisted, minus those counters.
-  Map<String, String> _hoist(Map<String, String> enriched) {
+  ///
+  /// Stripping the counters and building the block are one decision, not two:
+  /// both halves come from `SessionManager.getSessionAttributes()`, which is
+  /// all-or-nothing (empty until a session starts). So an empty block always
+  /// means there were no counters there to strip — the envelope can never ship
+  /// counters removed *and* no block to pay for it.
+  Map<String, String> _splitContextFrom(Map<String, String> enriched) {
     if (!hoistBatchContext) return const {};
     final hoisted = <String, String>{};
     enriched.removeWhere((key, value) {

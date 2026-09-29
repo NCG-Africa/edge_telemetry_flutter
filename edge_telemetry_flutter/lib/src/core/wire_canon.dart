@@ -128,15 +128,22 @@ const Set<String> kMutableSessionCounters = {
 };
 
 /// Whether [key] belongs in the batch-level context block: static device / app
-/// / SDK identity, the user id, session identity, and the two live-but-batch-
-/// scoped values (`network.type`, `device.platform_brightness`, the latter
-/// caught by the `device.` prefix).
+/// / SDK identity, the user id, session identity, and the live-but-batch-scoped
+/// values — `network.type` plus the `device.` keys `ContextManager` re-reads
+/// per snapshot (`platform_brightness` always, `text_scale_factor` and
+/// `reduce_motion` when `captureAccessibilityContext` is on).
 ///
 /// Flat dotted spelling is load-bearing: the server-side merge is a plain map
 /// merge, so each row's attribute bag comes out byte-identical to today's and
 /// no existing query, typed column or index changes. Consumer-supplied globals
 /// are deliberately *not* hoisted — their key names are arbitrary, so they
 /// cannot be classified, and leaving them per-item keeps the merge exact.
+///
+// ponytail: prefix match, not an explicit set — `device.*` is open-ended
+// (device_info_plus mints keys per platform), so no set could stay complete.
+// Ceiling: a *per-item* attribute minted under `device.`/`app.`/`sdk.` would be
+// silently batch-scoped. Today none exists (`app.crash` keys are unprefixed on
+// purpose); add an exception set here the day one does.
 bool isHoistedContextKey(String key) =>
     key.startsWith('device.') ||
     key.startsWith('app.') ||

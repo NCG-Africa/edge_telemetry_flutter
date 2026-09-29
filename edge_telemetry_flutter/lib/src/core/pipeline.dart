@@ -42,11 +42,13 @@ class Pipeline {
   /// the current batch before this event joins one.
   void enqueue(Map<String, dynamic> event,
       {Map<String, String> context = const {}}) {
-    // One batch is structurally one session and one user. Whole-map equality,
-    // not just session.id/user.id: it is the same one line, and it makes the
-    // server-side merge byte-exact by construction for *every* hoisted key —
-    // the live-but-batch-scoped ones (network.type, device.platform_brightness)
-    // included.
+    // One batch is structurally one session and one user. Whole-map equality
+    // rather than a session.id/user.id check: it is the same one line, and it
+    // makes the server-side merge byte-exact by construction for *every*
+    // hoisted key, the live-but-batch-scoped ones included (network.type, and
+    // the `device.` keys re-read per snapshot). Deliberately stronger than
+    // "session or user change forces a flush" — the cost is an extra batch on
+    // a network or brightness flip, which is rare and self-announcing.
     //
     // Per-item override is deliberately declined here: an item does not keep
     // its own copy of a hoisted key to win with at merge time. That precedence

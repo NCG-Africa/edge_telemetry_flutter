@@ -6,6 +6,8 @@
 // fails *silently* against an unmerged processor — so these tests pin both the
 // off state (byte-identical to v2) and the on state (an exact merge).
 
+import 'dart:convert';
+
 import 'package:edge_telemetry_flutter/src/core/collector.dart';
 import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
 import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
@@ -92,6 +94,11 @@ class _Rig {
       (batches.single['context'] as Map?)?.cast<String, String>() ?? const {};
 }
 
+/// Key-sorted JSON — the canonical form of a JSONB attribute bag, so "the same
+/// bytes" is a claim about content rather than about insertion order.
+String _canonical(Map<String, String> bag) => jsonEncode(Map.fromEntries(
+    bag.entries.toList()..sort((a, b) => a.key.compareTo(b.key))));
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -113,41 +120,59 @@ void main() {
     expect(rig.soleItemAttributes['session.event_count'], isNotNull);
   });
 
-  test('hoisted block + item bag merges byte-identical to the un-hoisted bag',
-      () async {
-    const attrs = {'navigation.to': '/home', 'device.id': 'device_1'};
-    // Frozen clock + a reset prefs store, so the only difference between the
-    // two runs is the hoist itself (start_time / total_sessions would drift).
-    final frozen = DateTime(2026, 1, 1, 12);
+  /// The merge test, run once per wire-item shape (`event` / `metric`): both
+  /// take the same batched path through `Pipeline.enqueue`, and a metric's bag
+  /// is built by the same choke point, so both must merge back exactly.
+  void mergesBackExactly(String label, EdgeEvent event) {
+    test(
+        'hoisted block + $label bag merges back to the un-hoisted bag, '
+        'minus the mutable counters', () async {
+      // Frozen clock + a reset prefs store, so the only difference between the
+      // two runs is the hoist itself (start_time / total_sessions would drift).
+      final frozen = DateTime(2026, 1, 1, 12);
 
-    final plain = _Rig(hoist: false, clock: () => frozen);
-    await plain.session.startSession('session_a');
-    plain.collector.add(const EdgeEvent.event('navigation', attributes: attrs));
-    plain.pipeline.flush();
+      final plain = _Rig(hoist: false, clock: () => frozen);
+      await plain.session.startSession('session_a');
+      plain.collector.add(event);
+      plain.pipeline.flush();
 
-    SharedPreferences.setMockInitialValues({});
-    final hoisted = _Rig(hoist: true, clock: () => frozen);
-    await hoisted.session.startSession('session_a');
-    hoisted.collector
-        .add(const EdgeEvent.event('navigation', attributes: attrs));
-    hoisted.pipeline.flush();
-    await Future<void>(() {});
+      SharedPreferences.setMockInitialValues({});
+      final hoisted = _Rig(hoist: true, clock: () => frozen);
+      await hoisted.session.startSession('session_a');
+      hoisted.collector.add(event);
+      hoisted.pipeline.flush();
+      await Future<void>(() {});
 
-    // The one deliberate difference: mutable counters leave the wire.
-    final expected = Map<String, String>.from(plain.soleItemAttributes)
-      ..removeWhere((k, _) => kMutableSessionCounters.contains(k));
+      // The one deliberate difference: mutable counters leave the wire.
+      final expected = Map<String, String>.from(plain.soleItemAttributes)
+        ..removeWhere((k, _) => kMutableSessionCounters.contains(k));
 
-    final merged = <String, String>{
-      ...hoisted.soleBatchContext,
-      ...hoisted.soleItemAttributes,
-    };
-    expect(merged, expected);
-    // Disjoint halves — no key is paid for twice, and no merge order matters.
-    expect(
-        merged,
-        hasLength(hoisted.soleBatchContext.length +
-            hoisted.soleItemAttributes.length));
-  });
+      final merged = <String, String>{
+        ...hoisted.soleBatchContext,
+        ...hoisted.soleItemAttributes,
+      };
+      expect(merged, expected);
+      // Byte-identical, not merely set-equal: the bag is a JSONB map on the
+      // server, so key order is not part of its identity — canonicalise by
+      // sorting, then compare the actual encoded bytes.
+      expect(
+          utf8.encode(_canonical(merged)), utf8.encode(_canonical(expected)));
+      // Disjoint halves — no key is paid for twice, so no merge order matters.
+      expect(
+          merged,
+          hasLength(hoisted.soleBatchContext.length +
+              hoisted.soleItemAttributes.length));
+    });
+  }
+
+  mergesBackExactly(
+      'an event',
+      const EdgeEvent.event('navigation',
+          attributes: {'navigation.to': '/home', 'device.id': 'device_1'}));
+  mergesBackExactly(
+      'a metric',
+      const EdgeEvent.metric('memory_usage', 42.0,
+          attributes: {'metric.source': 'test'}));
 
   test('the block carries identity and the two batch-scoped live values',
       () async {
