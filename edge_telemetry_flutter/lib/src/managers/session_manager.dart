@@ -251,7 +251,7 @@ class SessionManager {
           screenCount: (r['screenCount'] as num?)?.toInt() ?? 0,
           journey: (r['journey'] as List?)?.cast<String>() ?? const [],
           dropped: (r['dropped'] as Map?)
-                  ?.map((k, v) => MapEntry('$k', (v as num).toInt())) ??
+                  ?.map((k, v) => MapEntry('$k', (v as num?)?.toInt() ?? 0)) ??
               const {},
           recovered: true,
         )));

@@ -20,8 +20,10 @@
 /// - `app.anr` / `app.hang` — both already ship as `cause` values on the
 ///   unified `app.crash` event.
 ///
-/// `user.interaction` and `screen.duration` are retained deprecate-in-place:
-/// the name never goes, only the emission changes (their own tickets).
+/// `user.interaction` and `screen.duration` stay on the list because a canon
+/// name is never removed. Whether either is still emitted — and the deprecation
+/// annotations, changelog line and removal version that go with stopping — is
+/// owned by their own tickets, not by this list.
 const Set<String> kCanonEvents = {
   'session.started',
   'session.finalized',
@@ -43,7 +45,8 @@ const Set<String> kCanonEvents = {
 };
 
 /// The 4 canon metric names (§4). v3 adds none — the ceiling is 0 new metrics.
-/// `frame_render_time` and `resource_timing` are retained deprecate-in-place.
+/// `frame_render_time` and `resource_timing` stay listed for the same reason as
+/// above: the name is kept, the emission is their own tickets' business.
 const Set<String> kCanonMetrics = {
   'frame_render_time',
   'memory_usage',

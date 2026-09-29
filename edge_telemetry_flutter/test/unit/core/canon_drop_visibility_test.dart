@@ -5,6 +5,8 @@
 // and asserts the dropped-item counter rides the `session.finalized` bookend on
 // the wire — the seam that would have caught v2's seven silent drops.
 
+import 'dart:async';
+
 import 'package:edge_telemetry_flutter/src/core/collector.dart';
 import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
 import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
@@ -56,13 +58,17 @@ void main() {
   late DateTime clock;
   setUp(() => clock = DateTime(2026, 1, 1, 9, 0, 0));
 
-  Future<(Collector, SessionManager, _RecordingSender)> wire() async {
+  Future<(Collector, SessionManager, _RecordingSender)> wire({
+    bool? sampledRoll,
+    bool debugMode = false,
+  }) async {
     final sender = _RecordingSender();
     var ids = 0;
     final session = SessionManager(
       newSessionId: () => 'session_${++ids}',
       clock: () => clock,
       idleTimeout: idle,
+      sampledRoll: sampledRoll == null ? null : () => sampledRoll,
     );
     final context =
         ContextManager(sessionManager: session, global: {'device.id': 'd_1'});
@@ -73,8 +79,11 @@ void main() {
           sender: sender.call),
       batchSize: 100, // nothing flushes by size; only the immediate rail sends
     );
-    final collector =
-        Collector(context: context, session: session, pipeline: pipeline);
+    final collector = Collector(
+        context: context,
+        session: session,
+        pipeline: pipeline,
+        debugMode: debugMode);
     session.bindSink(collector);
     await session.recoverAndStart();
     return (collector, session, sender);
@@ -191,6 +200,64 @@ void main() {
     // Sorted by reason so the attribute is stable across runs.
     expect(attrs['session.dropped_reasons'],
         'action_cap=1,off_canon=1,tier_shed=2');
+  });
+
+  test('a sampled-out session still counts its drops — no confident zero',
+      () async {
+    // The finalize bookend bypasses sampling and ships this count, so the
+    // allowlist gate must run even when the session lost the roll. Otherwise
+    // the whole sampled-out population reports 0 drops it never looked at.
+    final (collector, session, sender) = await wire(sampledRoll: false);
+
+    _v2SilentDrops.forEach((name, type) {
+      collector.add(
+          type == 'metric' ? EdgeEvent.metric(name, 1) : EdgeEvent.event(name));
+    });
+    // A canon event in the same session is still sampled away, as before.
+    collector.add(const EdgeEvent.event('navigation',
+        attributes: {'navigation.to': '/home'}));
+
+    clock = clock.add(idle + const Duration(minutes: 1));
+    session.beforeEvent();
+    await Future<void>(() {});
+
+    final attrs = finalizeOnWire(sender)['attributes'] as Map;
+    expect(attrs['session.sampled'], 'false');
+    expect(attrs['session.dropped_item_count'], '7');
+    expect(attrs['session.dropped_reasons'], 'off_canon=7');
+  });
+
+  test('debugMode names the dropped item; silent when off', () async {
+    final logged = <String>[];
+    final spy =
+        ZoneSpecification(print: (_, __, ___, line) => logged.add(line));
+
+    await runZoned(() async {
+      final (collector, _, ignored) = await wire(debugMode: true);
+      expect(ignored.sent.map((p) => p['eventName']),
+          everyElement(startsWith('session.')));
+      collector.add(const EdgeEvent.event('performance.memory_pressure'));
+      collector.add(const EdgeEvent.metric('network.quality_score', 4));
+      collector.add(const EdgeEvent.event('navigation')); // canon → no log
+    }, zoneSpecification: spy);
+
+    final drops = logged.where((l) => l.contains('off-canon')).toList();
+    expect(drops, hasLength(2));
+    expect(drops[0], contains('performance.memory_pressure'));
+    expect(drops[0], contains('event'));
+    expect(drops[1], contains('network.quality_score'));
+    expect(drops[1], contains('metric'));
+
+    logged.clear();
+    await runZoned(() async {
+      final (collector, _, ignored) = await wire(); // debugMode off
+      collector.add(const EdgeEvent.event('performance.memory_pressure'));
+      expect(
+          ignored.sent.map((p) => p['eventName']),
+          everyElement(
+              startsWith('session.'))); // still a hard drop, logged or not
+    }, zoneSpecification: spy);
+    expect(logged.where((l) => l.contains('off-canon')), isEmpty);
   });
 
   test('a session killed mid-flight carries its drops into the next launch',

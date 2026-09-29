@@ -57,13 +57,16 @@ class Collector implements EventSink {
     // Guarded internally against the bookends it re-emits here.
     session.beforeEvent();
 
-    if (!_shouldSample(event)) return;
-
     // Allowlist gate: only the canon 16 events / 4 metrics reach the wire.
     // Immediate crashes (app.crash) bypass — they ride their own rail. Drops
-    // happen before counters so noise/folded events don't bump session counts.
-    // Still a hard drop (#79) — but no longer a silent one: it logs under
-    // debugMode and lands on `session.finalized` as a counted reason.
+    // happen before the session counters so noise/folded events don't bump
+    // session counts. Still a hard drop (#79) — but no longer a silent one: it
+    // logs under debugMode and lands on `session.finalized` as a counted reason.
+    //
+    // Ahead of the sample gate on purpose: `session.finalized` bypasses sampling
+    // and ships this count, so a sampled-out session must not report a confident
+    // zero for drops it never looked at. (It is also the cheaper check — a set
+    // lookup before `context.snapshot()`.)
     if (event.priority != EventPriority.immediate &&
         !isCanonWireItem(event.type, event.name)) {
       session.recordDropped('off_canon');
@@ -73,6 +76,8 @@ class Collector implements EventSink {
       }
       return;
     }
+
+    if (!_shouldSample(event)) return;
 
     // Counters bump before enrichment so the event's own session counts
     // include itself (matches v1.5.2 recordEvent-before-enrich ordering).

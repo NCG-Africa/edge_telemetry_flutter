@@ -9,7 +9,7 @@ Edge collector in the family's shared custom-JSON wire format.
 ### Wire
 
 **Canon**:
-The family-wide contract every Edge RUM SDK emits against — the 12 event names, 4
+The family-wide contract every Edge RUM SDK emits against — the 16 event names, 4
 metric names, envelope and attribute spelling. Defined here in `lib/src/core/wire_canon.dart`.
 _Avoid_: schema, spec, protocol
 
@@ -33,8 +33,21 @@ _Avoid_: measurement, gauge
 
 **Allowlist**:
 The canon-name gate in `Collector.add`. A batched event or metric whose name is off-canon
-is dropped on the device and never reaches the wire.
+is dropped on the device and never reaches the wire. A hard drop, but not a silent one —
+see **Dropped item**.
 _Avoid_: whitelist, filter
+
+**Dropped item**:
+A wire item the SDK built and then declined to send — off-canon at the allowlist today,
+tier-shed or capped later. Counted per session by **drop reason** and reported on
+`session.finalized` (`session.dropped_item_count`, `session.dropped_reasons`), so a drop
+is found by telemetry rather than by audit.
+_Avoid_: discarded, filtered, rejected, lost
+
+**Drop reason**:
+The short stable slug naming why an item was dropped (`off_canon`, …). Rides the finalize
+bookend verbatim; one counter, several gates.
+_Avoid_: drop cause, error code
 
 **Attribute**:
 A key/value pair on a wire item. Always String-valued on the wire. Dotted for identity and
