@@ -27,23 +27,26 @@ class _FakeSink implements EventSink {
       events.where((e) => e.name == name).toList();
 }
 
-/// A frame whose `totalSpan` is [totalMs] — vsync start to raster finish, the
-/// quantity the aggregate measures. `build` and `raster` are carved out of
-/// that span deliberately overlapping, which is the pipelining that makes
-/// their sum the wrong number.
+/// A frame finishing its raster at [atMicros] on the engine's monotonic clock,
+/// whose `totalSpan` is [totalMs] — vsync start to raster finish, the quantity
+/// the aggregate measures. `build` and `raster` are carved out of that span
+/// deliberately overlapping, which is the pipelining that makes their sum the
+/// wrong number.
 FrameTiming _frame({
+  required int atMicros,
   required double totalMs,
   double buildMs = 4,
   double rasterMs = 4,
 }) {
   int us(double ms) => (ms * 1000).round();
+  final vsyncStart = atMicros - us(totalMs);
   return FrameTiming(
-    vsyncStart: 0,
-    buildStart: us(1),
-    buildFinish: us(1 + buildMs),
-    rasterStart: us(totalMs - rasterMs),
-    rasterFinish: us(totalMs),
-    rasterFinishWallTime: us(totalMs),
+    vsyncStart: vsyncStart,
+    buildStart: vsyncStart + us(1),
+    buildFinish: vsyncStart + us(1 + buildMs),
+    rasterStart: atMicros - us(rasterMs),
+    rasterFinish: atMicros,
+    rasterFinishWallTime: atMicros,
   );
 }
 
@@ -55,6 +58,9 @@ void main() {
   late FrameCaptureHook hook;
   late DisposeHandle dispose;
   late DateTime now;
+
+  /// The engine's monotonic frame clock, advanced alongside [now].
+  late int monoUs;
 
   /// `diagnostic` off, `standard` on — the default row.
   CaptureGate standardGate() => CaptureGate(const TelemetryConfig(
@@ -83,7 +89,7 @@ void main() {
     dispose = hook.start(sink);
   }
 
-  /// Feed [count] frames of [totalMs] each, advancing the clock by [stepMs].
+  /// Feed [count] frames of [totalMs] each, advancing both clocks by [stepMs].
   void frames(
     int count, {
     required double totalMs,
@@ -93,8 +99,13 @@ void main() {
   }) {
     for (var i = 0; i < count; i++) {
       now = now.add(Duration(milliseconds: stepMs));
-      hook.recordFrame(
-          _frame(totalMs: totalMs, buildMs: buildMs, rasterMs: rasterMs));
+      monoUs += stepMs * 1000;
+      hook.recordFrame(_frame(
+        atMicros: monoUs,
+        totalMs: totalMs,
+        buildMs: buildMs,
+        rasterMs: rasterMs,
+      ));
     }
   }
 
@@ -105,6 +116,7 @@ void main() {
     session.recordScreen('/home');
     sink = _FakeSink();
     now = DateTime(2026, 1, 1, 9, 0, 0);
+    monoUs = 5000000;
     startHook();
   });
 
@@ -149,6 +161,7 @@ void main() {
       expect(a['frame.max_build_duration_ms'], '500.00');
       expect(a['frame.max_raster_duration_ms'], '300.00');
       expect(a['display.refresh_rate'], '120.0');
+      expect(a['frame.window_duration_ms'], '144.00'); // 10 frames, 16 ms apart
       expect(a['screen.name'], '/home');
       expect(a['screen.id'], session.currentScreenId);
     });
@@ -211,10 +224,11 @@ void main() {
       hook.flushReservoir();
       expect(sink.named('frame.summary').length, greaterThan(1));
       expect(
-        sink
-            .named('frame.summary')
-            .map((e) => int.parse(e.attributes['frame.window_duration_ms']!)),
-        everyElement(lessThanOrEqualTo(kFrameWindowCap.inMilliseconds)),
+        sink.named('frame.summary').map(
+            (e) => double.parse(e.attributes['frame.window_duration_ms']!)),
+        // The cap is checked once per frame, so a window overshoots by at
+        // most the one frame that crossed it.
+        everyElement(lessThan(kFrameWindowCap.inMilliseconds + 17)),
       );
     });
 
@@ -355,7 +369,7 @@ void main() {
       frames(kLongTaskCap + 20, totalMs: 900, stepMs: 1);
       expect(sink.named('long_task'), hasLength(kLongTaskCap));
 
-      hook.resetSessionCaps();
+      hook.resetForNewSession();
       frames(1, totalMs: 900, stepMs: 1);
       expect(sink.named('long_task'), hasLength(kLongTaskCap + 1));
     });
@@ -387,6 +401,93 @@ void main() {
       expect(sink.named('frame.summary'), isEmpty);
       hook.flushReservoir();
       expect(sink.named('frame.summary'), hasLength(2));
+    });
+  });
+
+  group('the reservoir survives a pause', () {
+    test('a resumed session neither re-sends nor re-ranks from empty', () {
+      session.recordScreen('/mild');
+      frames(4, totalMs: 20, stepMs: 1);
+      hook.flushReservoir(); // backgrounded
+      expect(sink.named('frame.summary'), hasLength(1));
+
+      // Resumed, and nothing worse happens: no second copy of the same window.
+      session.recordScreen('/also-mild');
+      frames(2, totalMs: 20, stepMs: 1);
+      hook.flushReservoir();
+      final afterResume = sink.named('frame.summary');
+      expect(afterResume, hasLength(2));
+      expect(
+        afterResume.map((e) => e.attributes['screen.name']),
+        containsAll(<String>['/mild', '/also-mild']),
+      );
+
+      // A third, milder window cannot displace either incumbent, so it costs
+      // no item at all.
+      session.recordScreen('/mildest');
+      frames(2, totalMs: 17, stepMs: 1);
+      hook.flushReservoir();
+      expect(sink.named('frame.summary'), hasLength(2));
+    });
+
+    test('a post-resume window only costs an item by being worse', () {
+      frames(2, totalMs: 20, stepMs: 1);
+      hook.flushReservoir();
+      expect(sink.named('frame.summary'), hasLength(1));
+
+      session.recordScreen('/the-real-worst');
+      frames(40, totalMs: 900, stepMs: 1);
+      hook.flushReservoir();
+      final items = sink.named('frame.summary');
+      expect(items, hasLength(2));
+      expect(items.last.attributes['screen.name'], '/the-real-worst');
+    });
+
+    test('a session rotation empties the reservoir', () {
+      frames(2, totalMs: 20, stepMs: 1);
+      hook.flushReservoir();
+      hook.resetForNewSession();
+
+      session.recordScreen('/next-session');
+      frames(2, totalMs: 20, stepMs: 1);
+      hook.flushReservoir();
+      final items = sink.named('frame.summary');
+      expect(items, hasLength(2));
+      expect(items.last.attributes['screen.name'], '/next-session');
+    });
+  });
+
+  group('long_task is independent of the aggregate', () {
+    test('frames off, longTask on: the metric still fires, no summary does',
+        () {
+      hook = FrameCaptureHook(
+        session: session,
+        gate: diagnosticGate(overrides: {Capture.frames: false}),
+        aggregate: false,
+        clock: () => now,
+        refreshRate: () => 120,
+      );
+      dispose = hook.start(sink);
+
+      frames(3, totalMs: 900, stepMs: 1);
+      hook.flushReservoir();
+      expect(sink.named('long_task'), hasLength(3));
+      expect(sink.named('frame.summary'), isEmpty);
+    });
+  });
+
+  group('an unknown refresh rate is omitted, never zeroed', () {
+    test('no view reporting a rate leaves the key off entirely', () {
+      hook = FrameCaptureHook(
+        session: session,
+        clock: () => now,
+        refreshRate: () => null,
+      );
+      dispose = hook.start(sink);
+
+      frames(2, totalMs: 900, stepMs: 1);
+      hook.flushReservoir();
+      expect(onlySummary().containsKey('display.refresh_rate'), isFalse);
     });
   });
 

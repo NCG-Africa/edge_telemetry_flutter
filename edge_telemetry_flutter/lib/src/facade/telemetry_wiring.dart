@@ -165,7 +165,7 @@ class TelemetryWiring {
       gate.resetBudget();
       collector.resetActionCap();
       policy.reset();
-      frameHook?.resetSessionCaps();
+      frameHook?.resetForNewSession();
     };
 
     // The frame reservoir holds its two survivors until the session ends, so
@@ -193,8 +193,17 @@ class TelemetryWiring {
     // Its own switch since #89: `Capture.frames: false` must take the
     // `addTimingsCallback` registration with it, so the per-frame cost goes to
     // zero rather than to "accumulate and discard".
-    if (gate.allows(Capture.frames)) {
-      frameHook = FrameCaptureHook(session: session, gate: gate);
+    //
+    // `Capture.longTask` keeps the callback alive on its own, though — it is a
+    // per-frame predicate, independent of the aggregate — and then the hook
+    // runs with the windowing switched off.
+    final aggregateFrames = gate.allows(Capture.frames);
+    if (aggregateFrames || gate.allows(Capture.longTask)) {
+      frameHook = FrameCaptureHook(
+        session: session,
+        gate: gate,
+        aggregate: aggregateFrames,
+      );
       disposers.add(frameHook.start(collector));
     }
     HttpCaptureHook? httpHook;

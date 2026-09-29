@@ -236,7 +236,8 @@
   (`frame.total_frames`, `frame.slow_frames`, `frame.frozen_frames`,
   `frame.slow_frame_rate`, `frame.max_total_duration_ms`,
   `frame.max_build_duration_ms`, `frame.max_raster_duration_ms`,
-  `frame.window_duration_ms`, `display.refresh_rate`, `screen.name`) — zero
+  `frame.window_duration_ms`, `display.refresh_rate`, `screen.name`; the rate
+  key is **omitted, never zeroed**, when no view reports one) — zero
   Flutter inventions and zero new backend columns, and the build/raster triage
   split survives aggregation as the two max-duration keys. Thresholds are
   **fixed absolutes** — slow above 16 ms, frozen above 700 ms — and do **not**
@@ -254,6 +255,8 @@
   is ever counted twice. Note that at the default tier `frame.total_frames` is
   *not* a fleet denominator: the two rows are exemplars (the session's two worst
   screen segments), not a sample. Use `screen.load` / `navigation` counts.
+  `Capture.longTask` stays independent of both: with `Capture.frames` off it
+  keeps the frame callback alive on its own and nothing accumulates behind it.
 
 ### Changed
 

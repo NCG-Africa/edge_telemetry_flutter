@@ -22,7 +22,7 @@
 //   and over-reported drops.
 // - **The aggregate carries no trace keys at all.** See [_emit].
 
-import 'dart:ui' show FrameTiming, PlatformDispatcher;
+import 'dart:ui' show FramePhase, FrameTiming, PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
@@ -67,12 +67,20 @@ class FrameCaptureHook implements CaptureHook {
   /// the `standard` behaviour and the right default for a state-only test.
   final CaptureGate? gate;
 
-  /// Injectable clock — tests advance it rather than waiting ten real seconds.
+  /// Whether to run the windowing at all.
+  ///
+  /// False when the consumer wants `Capture.longTask` with `Capture.frames`
+  /// off — `long_task` is a **per-frame predicate, independent of both** the
+  /// aggregate and its `diagnostic` sibling, so the timings callback still has
+  /// to run, and nothing accumulates behind it.
+  final bool aggregate;
+
+  /// Injectable clock, for the one wall-clock reading each window needs: its
+  /// start, which the item is backdated to.
   final DateTime Function() _clock;
 
-  /// Injectable display rate, for the same reason: `PlatformDispatcher` has no
-  /// view in a unit test.
-  final double Function() _refreshRate;
+  /// Injectable display rate: `PlatformDispatcher` has no view in a unit test.
+  final double? Function() _refreshRate;
 
   EventSink? _sink;
   TimingsCallback? _callback;
@@ -87,8 +95,9 @@ class FrameCaptureHook implements CaptureHook {
   FrameCaptureHook({
     required this.session,
     this.gate,
+    this.aggregate = true,
     DateTime Function()? clock,
-    double Function()? refreshRate,
+    double? Function()? refreshRate,
   })  : _clock = clock ?? DateTime.now,
         _refreshRate = refreshRate ?? _platformRefreshRate;
 
@@ -113,18 +122,26 @@ class FrameCaptureHook implements CaptureHook {
   }
 
   /// The whole per-frame cost: three divisions, four comparisons, three max
-  /// updates, one increment, one clock read, one screen read. No allocation
-  /// beyond the clock's `DateTime`, no retained frame list, no percentile
-  /// structure, no lock — the timings callback is main-isolate.
+  /// updates, one increment and one screen read. **No allocation** — the
+  /// elapsed check reads the engine's own monotonic frame timestamp rather
+  /// than minting a `DateTime`, which is also the more correct clock for a
+  /// duration: a wall clock can be stepped by the OS mid-window.
   @visibleForTesting
   void recordFrame(FrameTiming timing) {
     final totalMs = timing.totalSpan.inMicroseconds / 1000;
     final buildMs = timing.buildDuration.inMicroseconds / 1000;
     final rasterMs = timing.rasterDuration.inMicroseconds / 1000;
-    final now = _clock();
 
+    final frozen = totalMs > kFrozenFrameMs;
+    // Ahead of the window, and outside `aggregate`: this predicate is nobody's
+    // window product.
+    if (frozen) _emitLongTask(totalMs, buildMs, rasterMs);
+    if (!aggregate) return;
+
+    final atMicros = timing.timestampInMicroseconds(FramePhase.rasterFinish);
     final window = _open ??= _FrameWindow(
-      start: now,
+      start: _clock(),
+      startMicros: atMicros,
       screenId: session.currentScreenId,
       screenName: session.currentScreenName,
       refreshRate: _refreshRate(),
@@ -133,22 +150,20 @@ class FrameCaptureHook implements CaptureHook {
     window.totalFrames++;
     if (totalMs > kSlowFrameMs) {
       window.slowFrames++;
-      if (totalMs > kFrozenFrameMs) {
-        window.frozenFrames++;
-        _emitLongTask(totalMs, buildMs, rasterMs);
-      }
+      if (frozen) window.frozenFrames++;
     }
     if (totalMs > window.maxTotalMs) window.maxTotalMs = totalMs;
     if (buildMs > window.maxBuildMs) window.maxBuildMs = buildMs;
     if (rasterMs > window.maxRasterMs) window.maxRasterMs = rasterMs;
+    window.endMicros = atMicros;
 
     // The boundary, checked after the accumulators — the sibling's ordering,
     // and the honest one: the timings callback lags the route push by a
     // frame, so the first frame reported after a screen change is the
     // outgoing screen's last frame, not the incoming screen's first.
     if (session.currentScreenId != window.screenId ||
-        now.difference(window.start) >= kFrameWindowCap) {
-      _close(window, now);
+        atMicros - window.startMicros >= kFrameWindowCap.inMicroseconds) {
+      _close(window);
     }
   }
 
@@ -159,27 +174,41 @@ class FrameCaptureHook implements CaptureHook {
   /// happening right now can still evict a held one.
   void flushReservoir() {
     final open = _open;
-    if (open != null) _close(open, _clock());
-    if (_held.isEmpty) return;
+    if (open != null) _close(open);
     for (final window in _held) {
+      // **The reservoir is not drained, only read.** A survivor already sent
+      // stays as a ranking incumbent for the rest of the session, so a
+      // backgrounded-and-resumed session neither re-sends it nor starts
+      // ranking from empty — which would reproduce, one pause at a time,
+      // exactly the start-of-session bias the reservoir exists to avoid. A
+      // later window only costs an item by being worse than what it evicts.
+      if (window.emitted) continue;
+      window.emitted = true;
       _emit(window);
     }
+  }
+
+  /// Per-session state starts fresh on rotation, like the governor's budget
+  /// and the Collector's action cap. The reservoir is session-scoped too: its
+  /// survivors are already gone by now, flushed by `onBeforeFinalize`, and a
+  /// held window would otherwise be ranked against the next session's.
+  void resetForNewSession() {
+    _longTasks = 0;
     _held.clear();
   }
 
-  /// Per-session ceilings start a fresh allowance on rotation, like the
-  /// governor's budget and the Collector's action cap.
-  void resetSessionCaps() => _longTasks = 0;
-
-  void _close(_FrameWindow window, DateTime at) {
+  void _close(_FrameWindow window) {
     _open = null;
-    window.end = at;
     // The sibling's eligibility floor. Under the reservoir it is no longer
     // what makes the category affordable — the two-item cap does that — but it
     // is what stops a perfectly smooth session emitting two items describing
     // nothing, and what keeps `screen.name` pointing at a screen that actually
     // stuttered.
     if (window.slowFrames == 0) return;
+    // The governor sheds whole tiers, and `frames` is one of the `standard`
+    // ones. Asked here rather than only at construction because the shed
+    // happens mid-session.
+    if (gate != null && !gate!.allows(Capture.frames)) return;
     // Tiers split the emitter, never double it: `screenWindowedFrames`
     // *supersedes* the reservoir rather than adding a second emitter, or the
     // two worst windows would appear twice per session. Asked per close, not
@@ -229,8 +258,11 @@ class FrameCaptureHook implements CaptureHook {
         'frame.max_build_duration_ms': window.maxBuildMs.toStringAsFixed(2),
         'frame.max_raster_duration_ms': window.maxRasterMs.toStringAsFixed(2),
         'frame.window_duration_ms':
-            window.end.difference(window.start).inMilliseconds.toString(),
-        'display.refresh_rate': window.refreshRate.toStringAsFixed(1),
+            ((window.endMicros - window.startMicros) / 1000).toStringAsFixed(2),
+        // Omitted, never zeroed, when no view has reported one: a 0 Hz row is
+        // indistinguishable from a real reading.
+        if (window.refreshRate != null)
+          'display.refresh_rate': window.refreshRate!.toStringAsFixed(1),
         // Frozen at window start, overriding the ambient snapshot: by the time
         // the reservoir flushes, the current screen is whichever one the user
         // happens to be on. A window opened before the first route push
@@ -276,9 +308,9 @@ class FrameCaptureHook implements CaptureHook {
   /// The display's *actual* rate, not a target — the budget above stays at
   /// 16 ms whatever this reads. Defensive because a view is not guaranteed:
   /// `views` is empty before the first frame and in a headless test.
-  static double _platformRefreshRate() {
+  static double? _platformRefreshRate() {
     final views = PlatformDispatcher.instance.views;
-    return views.isEmpty ? 0 : views.first.display.refreshRate;
+    return views.isEmpty ? null : views.first.display.refreshRate;
   }
 }
 
@@ -288,17 +320,26 @@ class FrameCaptureHook implements CaptureHook {
 class _FrameWindow {
   _FrameWindow({
     required this.start,
+    required this.startMicros,
     required this.screenId,
     required this.screenName,
     required this.refreshRate,
-  }) : end = start;
+  }) : endMicros = startMicros;
 
+  /// Wall clock, for the backdated item timestamp only.
   final DateTime start;
+
+  /// The engine's monotonic frame clock, for every elapsed measurement.
+  final int startMicros;
+
   final String? screenId;
   final String? screenName;
-  final double refreshRate;
+  final double? refreshRate;
 
-  DateTime end;
+  int endMicros;
+
+  /// Whether this survivor has already been sent — see [flushReservoir].
+  bool emitted = false;
   int totalFrames = 0;
   int slowFrames = 0;
   int frozenFrames = 0;

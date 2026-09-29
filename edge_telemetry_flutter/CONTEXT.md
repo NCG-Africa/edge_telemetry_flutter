@@ -202,6 +202,35 @@ callbacks per item on the UI isolate for values the SDK chose itself) and never 
 SDK's own item keys.
 _Avoid_: scrubber, filter, sanitizer, processor
 
+**Window** (a frame window):
+One **screen segment** of accumulated frame timings — opened at the first frame after
+the last one closed, closed by a screen change or a 10 s cap, whichever comes first,
+both checked inside the frame callback. It is the subject of a `frame.summary`, and
+it is **not an action**: a window spans several of them, which is why the event
+carries no trace or action id.
+_Avoid_: bucket, interval, sample period, frame batch
+
+**Slow frame** / **Frozen frame**:
+A frame whose **total span** (vsync start → raster finish, never build + raster, which
+are pipelined) exceeds 16 ms / 700 ms. Frozen is a subset of slow. Both thresholds are
+**fixed absolutes** and never derived from the refresh rate — the rate is recorded, not
+applied, so the count means one quantity across every device and every sibling SDK.
+_Avoid_: janky frame, dropped frame, ANR frame, budget overrun
+
+**Eligibility floor**:
+The rule that a window with **zero slow frames is discarded** rather than emitted. It is
+what keeps `screen.name` pointing at a screen that actually stuttered. Its cost is that
+`frame.total_frames` is a biased denominator — never a fleet rate.
+_Avoid_: threshold, filter, minimum
+
+**Reservoir** (the frame reservoir):
+The **keep-worst-two** hold over closed windows, ranked on `(frozen frames, slow frames,
+worst frame)` — **absolute counts, never a rate**, or a five-frame window would evict a
+six-hundred-frame one. Survivors are emitted at pause and before `session.finalized`,
+and an emitted survivor **stays as a ranking incumbent** for the rest of the session, so
+a resumed session neither re-sends it nor starts ranking from empty.
+_Avoid_: buffer, cache, sample, top-N queue
+
 ### Session
 
 **Session**:

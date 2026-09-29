@@ -334,7 +334,14 @@ is ever counted twice.
 
 `Capture.longTask` (diagnostic) adds one `long_task` metric per **frozen** frame
 — redefined from v2's every-dropped-frame, where a single two-second stall
-exhausted the whole session's allowance in one go.
+exhausted the whole session's allowance in one go. It is independent of
+`Capture.frames`: turn frames off and long tasks on and you get the frozen-frame
+metric with no windowing behind it.
+
+Backgrounding flushes the reservoir but does not empty it. A survivor already
+sent stays as a ranking incumbent, so a session you background and return to
+neither re-sends the same window nor starts ranking from scratch — a later
+window costs an item only by being genuinely worse.
 
 ### 👆 User Actions (Zero Setup Required)
 ```dart
