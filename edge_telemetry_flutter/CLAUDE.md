@@ -99,8 +99,11 @@ three languages — change it in lockstep or not at all.
 - Public API changes stay backward compatible (deprecate, don't remove). `useJsonFormat`, `batchTimeout`,
   `maxBatchSize`, `eventBatchSize`, `withSpan`, `withNetworkSpan` are shipped no-ops kept for that reason —
   they go in v3.0.0.
-- Terminology firewall on **new** public symbols and docs: no `span`, `trace`, `instrumentation`, `OTLP`,
-  `OpenTelemetry`. Existing names are grandfathered.
+- Terminology firewall on **new** public symbols and docs — an **anti-OpenTelemetry** rule, not an
+  anti-tracing one (#56): banned are `instrumentation`/`instrument`, `OTLP`, `OpenTelemetry` and OTel
+  class names (`tracer`, `SpanProcessor`, `SpanExporter`). `trace` and `span` are **permitted** where
+  they name the W3C `traceparent` concept. Use `capture`, never `instrument`, for wrapping a
+  consumer's client. Existing names are grandfathered; the wire (`eventName`/attr keys) is out of scope.
 - Debug output is `print()` guarded by `config.debugMode`; crash send/fail logs in `RetryTransport` are
   **intentionally always printed** — leave those un-guarded.
 - Custom profile attributes are auto-prefixed with `user.`.
