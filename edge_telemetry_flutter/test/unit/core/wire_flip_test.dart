@@ -34,7 +34,9 @@ class _NoopQueue extends OfflineQueue {
           {bool isCrash = false}) async =>
       null;
   @override
-  Future<int> drain(Future<bool> Function(Map<String, dynamic>) s) async => 0;
+  Future<int> drain(
+          Future<DrainResult> Function(Map<String, dynamic>) s) async =>
+      0;
 }
 
 /// Build a Collector wired to a recording sender; [flushAt] events per batch.

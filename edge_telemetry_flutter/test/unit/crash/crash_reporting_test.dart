@@ -19,6 +19,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
+
+  /// Wire items, unwrapped from their `telemetry_batch` envelope. Since #81
+  /// both rails envelope — the immediate crash as a one-item batch.
+  List<Map<String, dynamic>> get items => [
+        for (final p in sent)
+          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
+      ];
   Future<bool> call(Map<String, dynamic> payload) async {
     sent.add(payload);
     return true;
@@ -33,7 +40,9 @@ class _NoopQueue extends OfflineQueue {
           {bool isCrash = false}) async =>
       null;
   @override
-  Future<int> drain(Future<bool> Function(Map<String, dynamic>) s) async => 0;
+  Future<int> drain(
+          Future<DrainResult> Function(Map<String, dynamic>) s) async =>
+      0;
 }
 
 void main() {
@@ -164,8 +173,8 @@ void main() {
           source: 'platform_dispatcher'));
       await Future<void>(() {});
 
-      expect(sender.sent, hasLength(1));
-      final wireEvent = sender.sent.single;
+      expect(sender.items, hasLength(1));
+      final wireEvent = sender.items.single;
       expect(wireEvent['type'], 'event');
       expect(wireEvent['eventName'], 'app.crash');
       final attrs = wireEvent['attributes'] as Map;
@@ -188,9 +197,9 @@ void main() {
       }));
       await Future<void>(() {});
 
-      expect(sender.sent, hasLength(1));
-      final attrs = sender.sent.single['attributes'] as Map;
-      expect(sender.sent.single['eventName'], 'app.crash');
+      expect(sender.items, hasLength(1));
+      final attrs = sender.items.single['attributes'] as Map;
+      expect(sender.items.single['eventName'], 'app.crash');
       expect(attrs['cause'], 'NativeCrash');
       expect(attrs['is_fatal'], 'true');
       expect(attrs['sdk.native_capture_tier'], 'full'); // tiering asserted

@@ -83,8 +83,13 @@ class TelemetryWiring {
     // The budget is per session, so a rotation starts a fresh allowance.
     session.onSessionStart = gate.resetBudget;
 
+    // Every delivery-side give-up lands on the same session counter as the
+    // off-canon drop and the tier shed: a payload the SDK declined to send.
     final queue = OfflineQueue(
-        debugMode: config.debugMode, maxQueueSize: config.maxQueueSize);
+      debugMode: config.debugMode,
+      maxQueueSize: config.maxQueueSize,
+      onDrop: session.recordDropped,
+    );
     await queue.initialize();
 
     final transport = RetryTransport(
@@ -92,6 +97,7 @@ class TelemetryWiring {
       apiKey: config.apiKey,
       queue: queue,
       debugMode: config.debugMode,
+      onDrop: session.recordDropped,
     );
     // Drain any crashes persisted on a previous launch (drain-on-startup).
     await transport.drainQueue();

@@ -16,8 +16,40 @@
   device for the whole release and were found by audit rather than by telemetry;
   this is the fix for the silence, not for the drop.
 
+### Fixed
+
+- **Crashes are delivered.** The immediate rail POSTed a bare wire item with no
+  `events` array; the collector answered 400, and the payload parked in a
+  cap-exempt file that was re-POSTed after every successful batch for the life
+  of the install. **No consumer has received a crash since v2.0.0** — externally
+  indistinguishable from an app that does not crash, which is why the bug
+  survived a release. The rail now sends a one-item `telemetry_batch` envelope,
+  and a payload stored bare by an earlier version is re-wrapped when it drains,
+  so the backlog accumulated since v2.0.0 arrives as soon as v3 runs once.
+
+### Added
+
+- **gzip on every POST**, with a self-verifying one-shot downgrade: a 400 on a
+  compressed body is re-POSTed once uncompressed, and compression stays off for
+  the launch only if that succeeds. No config flag and no version endpoint — the
+  probe *is* the capability check, and it costs at most one wasted POST per
+  launch until the collector registers decompression.
+
 ### Changed
 
+- **A 4xx is dropped, never retried and never queued**, and counted on the
+  existing session counter by status (`http_400=1`). A payload the collector
+  refuses will be refused every time; queueing it only bought an unbounded
+  re-POST.
+- **Crash payloads lose their queue exemption.** They now have their own
+  generous cap (50 files, drop-oldest) plus a five-attempt per-file ceiling,
+  with every drop counted (`queue_overflow`, `queue_attempts_exhausted`, and
+  `queue_corrupt` for an unreadable file). An attempt is spent only when the
+  collector was reachable — a drain cycle that finds the device offline is
+  abandoned untouched, so a week with no network cannot delete a crash.
+  "A crash is never dropped" is exactly what made the re-POST amplification
+  unbounded. Crashes drain ahead of batches, and a drain cycle is paced at five
+  files on the existing successful-send trigger — no new timer.
 - **Collection is now two fields: `tier` and `captureOverrides`.**
   `tier: CollectionTier.essential | standard | diagnostic` is the dial;
   `captureOverrides: Map<Capture, bool>` is the scalpel and works in both

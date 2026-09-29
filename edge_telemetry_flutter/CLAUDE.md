@@ -51,8 +51,10 @@ library entry point.
 drops any batched item whose name is off-canon** — adding an event means adding it to the canon
 first, or it never leaves the device. The drop is a hard drop and stays one; from v3 it is no longer
 silent — a `debugMode` log naming the item, plus a dropped-item counter on `session.finalized`.
-Envelope is `telemetry_batch`; POST goes to
-`<endpoint>/collector/telemetry` with `X-API-Key`.
+Envelope is `telemetry_batch` and **both rails send it** — a crash is a one-item batch, not a
+bare item (a bare item is what the collector 400'd through all of v2). POST goes to
+`<endpoint>/collector/telemetry` with `X-API-Key`, gzipped; a 400 on a compressed body
+triggers one uncompressed re-POST per launch, and that probe is the only capability check.
 
 Attribute spelling is deliberately mixed and must not be "normalized": dotted for identity/domain keys
 (`session.id`, `http.url`), **unprefixed** on `app.crash` (`message`, `stacktrace`, `exception_type`,
@@ -83,8 +85,11 @@ Read the sibling's source or spec directly before building on a claim about it.
 
 ### Two rails, orthogonal to sampling
 
-Crashes take the immediate rail (`EventPriority.immediate` → POSTed alone, single attempt, then
-persisted with a `crash_` prefix that exempts them from the queue cap). Everything else batches.
+Crashes take the immediate rail (`EventPriority.immediate` → its own one-item batch, single
+attempt, then persisted with a `crash_` prefix under its own 50-file cap). Everything else
+batches. **Nothing on the wire is exempt from a cap or an attempt ceiling** — a 4xx is dropped
+and counted by status, never retried, never queued, because an undeliverable payload that
+cannot die is what re-POSTed the whole v2 crash backlog after every successful send.
 Separately, the sampling roll happens **once per session**; crashes, session bookends, and
 `user.profile.update` bypass it. Priority and bypass are independent — check both when adding an event.
 

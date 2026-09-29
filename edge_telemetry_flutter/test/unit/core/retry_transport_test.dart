@@ -25,7 +25,8 @@ class _RecordingQueue extends OfflineQueue {
   }
 
   @override
-  Future<int> drain(Future<bool> Function(Map<String, dynamic>) send) async =>
+  Future<int> drain(
+          Future<DrainResult> Function(Map<String, dynamic>) send) async =>
       0;
 }
 

@@ -62,3 +62,22 @@ const Set<String> kForbiddenAttributes = {'location', 'tenant_id', 'geo'};
 bool isCanonWireItem(String type, String name) => type == 'metric'
     ? kCanonMetrics.contains(name)
     : kCanonEvents.contains(name);
+
+/// The one wire envelope (`telemetry_batch`). Both rails send this shape — the
+/// batched flush and the one-item immediate crash — so a payload the queue
+/// stored verbatim and drained days later is still self-describing: the item
+/// carries its own context snapshot in `attributes`, and the envelope names it.
+///
+/// Field order is part of the canon (`type`/`timestamp`/`batch_size`/`events`).
+Map<String, dynamic> telemetryBatch(List<Map<String, dynamic>> items) => {
+      'type': 'telemetry_batch',
+      'timestamp': DateTime.now().toIso8601String(),
+      'batch_size': items.length,
+      'events': items,
+    };
+
+/// A payload stored before the immediate rail was enveloped (v2.0.0 → v3) is a
+/// bare wire item. Re-wrap it at drain so the crash backlog becomes deliverable
+/// at the moment the envelope fix ships.
+Map<String, dynamic> rewrapIfBare(Map<String, dynamic> stored) =>
+    stored['type'] == 'telemetry_batch' ? stored : telemetryBatch([stored]);
