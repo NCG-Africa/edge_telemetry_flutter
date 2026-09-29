@@ -1,11 +1,14 @@
 // lib/src/capture/http_capture_hook.dart
 
+import 'package:http/http.dart' as http;
+
 import '../core/capture_gate.dart';
 import '../core/config/collection_tier.dart';
 import '../core/edge_event.dart';
 import '../core/models/breadcrumb.dart';
 import '../managers/breadcrumb_manager.dart';
 import 'capture_hook.dart';
+import 'http_client_capture.dart';
 import 'http_overrides.dart';
 import 'http_url.dart';
 import 'trace_injection.dart';
@@ -48,6 +51,11 @@ class HttpCaptureHook implements CaptureHook {
 
   bool _installed = false;
 
+  /// Held from [start] so [capture] can emit down the same path the global
+  /// override does — one `_emit`, so both seams produce the same row shape,
+  /// the same breadcrumb and the same tier switches.
+  EventSink? _sink;
+
   HttpCaptureHook({
     this.debugMode = false,
     this.breadcrumbs,
@@ -58,6 +66,7 @@ class HttpCaptureHook implements CaptureHook {
 
   @override
   DisposeHandle start(EventSink sink) {
+    _sink = sink;
     if (!_installed) {
       _fullUrl = gate?.allows(Capture.httpQueryString) ?? false;
       _phases = gate?.allows(Capture.httpRequestPhases) ?? false;
@@ -75,7 +84,28 @@ class HttpCaptureHook implements CaptureHook {
         TelemetryHttpOverrides.uninstallGlobal();
         _installed = false;
       }
+      _sink = null;
     };
+  }
+
+  /// Wrap one `package:http` client — the bypass half of §8 (#87).
+  ///
+  /// An already-captured client is returned **unchanged**, which is why the
+  /// call returns the same type it takes: double capture is designed out at
+  /// construction rather than documented around. So is a call made before
+  /// [start] — with no sink there is nothing to emit into, and a wrapper that
+  /// silently dropped rows would be worse than no wrapper.
+  http.Client capture(http.Client client) {
+    final sink = _sink;
+    if (client is CapturedClient || sink == null) return client;
+    markClientWrapped();
+    return CapturedClient(
+      inner: client,
+      onRequestComplete: (t) => _emit(sink, t),
+      injector: injector,
+      selfUrl: selfUrl,
+      debugMode: debugMode,
+    );
   }
 
   /// Canon: every request completes as a single `http.request` (mapping §2 —

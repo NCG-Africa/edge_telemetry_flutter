@@ -9,6 +9,7 @@ import 'dart:isolate';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../collectors/flutter_device_info_collector.dart';
@@ -345,6 +346,38 @@ class EdgeTelemetry {
     _ensureInitialized();
     _wiring!.trace.nameCurrent(name);
   }
+
+  /// Capture a `package:http` client that `HttpOverrides` cannot see.
+  ///
+  /// `HttpOverrides.global` reaches every `dart:io` socket and nothing else, so
+  /// a client built on `cupertino_http` (NSURLSession) or `cronet_http`
+  /// (Cronet) is not thinly covered — it is **totally invisible**, and the same
+  /// seam carries `traceparent`, so every one of its requests is also a severed
+  /// distributed trace. Hand the client here once, at construction:
+  ///
+  /// ```dart
+  /// final client = EdgeTelemetry.instance.captureClient(CupertinoClient.defaultSessionConfiguration());
+  /// ```
+  ///
+  /// **Client in, same type out**, which is what lets the answer to every
+  /// degenerate call be "your client, unchanged" rather than a thrown error or
+  /// a second wrapper: a client already captured, a call made before
+  /// [initialize], and a build with `Capture.http` switched off all return the
+  /// argument itself.
+  ///
+  /// Wrap only a client the override **cannot** see. A plain `http.Client()`
+  /// runs on `dart:io`, so wrapping one while the override is live measures the
+  /// same request through both seams. That is not hidden — the two rows carry
+  /// different `http.seam` values and `sdk.http_seam_state` says `both` — but it
+  /// is still two rows, and the SDK cannot tell the cases apart: a
+  /// `cupertino_http` client and an `IOClient` are the same static type.
+  ///
+  /// gRPC, HTTP/2 and `http2_adapter` are **out of scope** — they bypass
+  /// `package:http` as well, which is a protocol gap rather than a wrapper gap.
+  /// `sdk.http_seam_state` says which seams are live so a dashboard never has
+  /// to infer coverage from silence.
+  http.Client captureClient(http.Client client) =>
+      _wiring?.httpHook?.capture(client) ?? client;
 
   /// Track a custom event with flexible attribute support.
   void trackEvent(String eventName, {Map<String, Object?>? attributes}) {

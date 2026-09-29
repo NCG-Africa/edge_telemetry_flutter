@@ -81,7 +81,12 @@ Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
               k.startsWith('network.') ||
               k == 'device.platform_brightness' ||
               k == 'device.text_scale_factor' ||
-              k == 'device.reduce_motion');
+              k == 'device.reduce_motion')
+          // The key is canon and rides every item; its *value* says which
+          // seams happen to be live in this process, so the fixture pins the
+          // presence and not the environment.
+          ..update('sdk.http_seam_state', (_) => '<SEAM>',
+              ifAbsent: () => '<MISSING>');
         return ev;
       }).toList(),
     };

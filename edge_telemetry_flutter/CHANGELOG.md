@@ -31,6 +31,35 @@
 - **`http.seam`** on every request, naming the capture seam that saw it. Absence
   alone conflates "never measurable" with "measurable and missing" and leaves a
   backend's connect-time denominator wrong.
+- **`EdgeTelemetry.instance.captureClient(client)` — capture a `package:http`
+  client that `HttpOverrides` cannot see.** `HttpOverrides.global` reaches every
+  `dart:io` socket and nothing else, so an app on `cupertino_http` (NSURLSession)
+  or `cronet_http` (Cronet) is not *thinly* covered — it is **totally invisible**,
+  and because the same seam carries `traceparent`, every one of its requests is
+  also a severed distributed trace. **Client in, same type out**: an already
+  captured client, a call made before `initialize()`, and a build with
+  `Capture.http` off all return the argument itself, so double capture is designed
+  out at construction rather than documented around. Freeze and inject collapse
+  into **one instant** on this seam — `send` is entered synchronously and the
+  headers precede it — which makes `injected_expired` unreachable here. Rows carry
+  `http.seam: http_client` and omit `http.connect_ms` / `http.dns_ms` /
+  `http.queue_ms` / `http.connection_reused`: the platform client below the wrapper
+  owns the connection pool. gRPC, HTTP/2 and `http2_adapter` stay out of scope — a
+  protocol gap, not a wrapper gap. Adds `package:http` as a direct dependency:
+  Dart-team owned, pure Dart, and already in the pubspec of every consumer who can
+  hit this, since `cupertino_http` and `cronet_http` *are* `package:http`
+  implementations.
+- **`sdk.http_seam_state` on every item — four values, one of them provable.**
+  `overrides`, `wrapper`, `both`, `blind`. It says which seams are **live**, and
+  pointedly not how much of your traffic they see; a client the SDK was never
+  handed is indistinguishable from one that is never used. `blind` is provable: the
+  `dart:io` global is no longer ours and nothing was wrapped. It is evaluated at
+  every snapshot rather than latched at install, because a consumer can sever the
+  override at any instant and nothing notifies the SDK. The one undetectable case —
+  capture healthy, every request going through a bypassing client nobody wrapped —
+  is **not** papered over client-side; it is a backend alert on sessions that
+  finalize with `session.http_request_count == 0` while the seam state says a seam
+  was live.
 - **A connection that never opened is now a measured row.** A refused connection,
   a DNS failure or no network at all emits `http.request` with status 0 and
   `http.error`; v2 started measuring only once the connection had succeeded, so
