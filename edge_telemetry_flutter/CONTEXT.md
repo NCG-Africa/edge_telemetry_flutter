@@ -38,15 +38,15 @@ see **Dropped item**.
 _Avoid_: whitelist, filter
 
 **Dropped item**:
-A wire item the SDK built and then declined to send — off-canon at the allowlist today,
-tier-shed or capped later. Counted per session by **drop reason** and reported on
+A wire item the SDK built and then declined to send — off-canon at the allowlist, shed by
+the **governor**, capped later. Counted per session by **drop reason** and reported on
 `session.finalized` (`session.dropped_item_count`, `session.dropped_reasons`), so a drop
 is found by telemetry rather than by audit.
 _Avoid_: discarded, filtered, rejected, lost
 
 **Drop reason**:
-The short stable slug naming why an item was dropped (`off_canon`, …). Rides the finalize
-bookend verbatim; one counter, several gates.
+The short stable slug naming why an item was dropped (`off_canon`, `tier_shed`, …). Rides
+the finalize bookend verbatim; one counter, several gates.
 _Avoid_: drop cause, error code
 
 **Attribute**:
@@ -78,6 +78,38 @@ _Avoid_: force-send, priority
 The on-disk backlog — one JSON file per undeliverable payload, drained FIFO on the next
 successful send or on startup. Crash files are exempt from its drop-oldest cap.
 _Avoid_: cache, outbox, spool
+
+### Collection
+
+**Tier**:
+A collection level — an **on/off plus a shed rank**, never a sampling axis.
+`essential` (crashes, session bookends, profile updates: never shed, never sampled, no
+off-switch) · `standard` (default-on) · `diagnostic` (opt-in). Named `CollectionTier`.
+_Avoid_: level, priority, severity, sample tier
+
+**Capture** (the enum):
+A thing a consumer may switch on or off — `Capture.http`, `Capture.swipes`. **Closed at
+the `essential` boundary on purpose**: there is no `crash`, `session`, `errors` or
+`profile` member, because an SDK reporting no crashes must never be indistinguishable
+from one configured not to. The gap is the decision.
+_Avoid_: feature, module, monitor
+
+**Capture override**:
+The `Map<Capture, bool>` that works in both directions — one map adds a diagnostic capture
+and removes a standard one. Wins over the tier dial and over the deprecated v2 booleans.
+_Avoid_: feature flags, toggles, enable/disable map
+
+**Gate** (`CaptureGate`):
+What a capture hook asks before it builds an attribute map. Gating happens **at the hook**;
+gating at the Collector would build the map, stringify the attributes, spend the CPU and
+discard the item.
+_Avoid_: filter, guard, policy
+
+**Governor**:
+The per-session item counter that sheds **whole tiers** on breach — `diagnostic`, then
+`standard`, never `essential` — and never individual signals. Every shed lands on the
+dropped-item counter as `tier_shed`.
+_Avoid_: throttle, rate limiter, sampler
 
 ### Session
 

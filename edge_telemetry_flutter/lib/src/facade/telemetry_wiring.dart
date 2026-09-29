@@ -6,10 +6,12 @@ import '../capture/lifecycle_capture_hook.dart';
 import '../capture/nav_capture_hook.dart';
 import '../capture/network_capture_hook.dart';
 import '../capture/perf_capture_hook.dart';
+import '../core/capture_gate.dart';
 import '../core/collector.dart';
 import '../core/offline_queue.dart';
 import '../core/pipeline.dart';
 import '../core/retry_transport.dart';
+import '../core/config/capture_tier.dart';
 import '../core/config/telemetry_config.dart';
 import '../crash/crash_reporting.dart';
 import '../crash/native_crash_channel.dart';
@@ -36,6 +38,11 @@ class TelemetryWiring {
   final Pipeline pipeline;
   final Collector collector;
 
+  /// The tier gate every capture hook is started behind. Hooks that need
+  /// emit-level gating (a variant or field off inside a running hook) hold it
+  /// too; the check goes *before* the attribute-map literal, never after.
+  final CaptureGate gate;
+
   final List<DisposeHandle> _disposers;
   final NavCaptureHook? navHook;
   final NetworkCaptureHook? networkHook;
@@ -51,10 +58,12 @@ class TelemetryWiring {
     required this.pipeline,
     required this.collector,
     required List<DisposeHandle> disposers,
+    CaptureGate? gate,
     NativeCrashChannel? nativeCrash,
     this.navHook,
     this.networkHook,
   })  : _disposers = disposers,
+        gate = gate ?? CaptureGate(config),
         nativeCrash = nativeCrash ?? NativeCrashChannel();
 
   EdgeNavigationObserver? get navigationObserver => navHook?.observer;
@@ -66,6 +75,14 @@ class TelemetryWiring {
     required ContextManager context,
     required BreadcrumbManager breadcrumbs,
   }) async {
+    // Resolve the collection surface once: overrides → deprecated booleans →
+    // tier default. Every shed the governor makes lands on the session's
+    // dropped-item counter, the same counter the off-canon drop uses.
+    final gate =
+        CaptureGate(config, onShed: () => session.recordDropped('tier_shed'));
+    // The budget is per session, so a rotation starts a fresh allowance.
+    session.onSessionStart = gate.resetBudget;
+
     final queue = OfflineQueue(
         debugMode: config.debugMode, maxQueueSize: config.maxQueueSize);
     await queue.initialize();
@@ -92,6 +109,7 @@ class TelemetryWiring {
       pipeline: pipeline,
       breadcrumbs: breadcrumbs,
       debugMode: config.debugMode,
+      gate: gate,
     );
 
     // Late-bind the session bookend sink now the Collector exists (breaks the
@@ -105,19 +123,19 @@ class TelemetryWiring {
     NavCaptureHook? navHook;
     NetworkCaptureHook? networkHook;
 
-    if (config.enableNetworkMonitoring) {
+    if (gate.allows(Capture.connectivity)) {
       networkHook = NetworkCaptureHook(context: context);
       disposers.add(networkHook.start(collector));
     }
-    if (config.enablePerformanceMonitoring) {
+    if (gate.allows(Capture.frames) || gate.allows(Capture.health)) {
       disposers.add(PerfCaptureHook().start(collector));
     }
-    if (config.enableHttpMonitoring) {
+    if (gate.allows(Capture.http)) {
       disposers.add(
           HttpCaptureHook(debugMode: config.debugMode, breadcrumbs: breadcrumbs)
               .start(collector));
     }
-    if (config.enableNavigationTracking) {
+    if (gate.allows(Capture.navigation)) {
       navHook = NavCaptureHook(session: session, breadcrumbs: breadcrumbs);
       disposers.add(navHook.start(collector));
     }
@@ -142,6 +160,7 @@ class TelemetryWiring {
       pipeline: pipeline,
       collector: collector,
       disposers: disposers,
+      gate: gate,
       navHook: navHook,
       networkHook: networkHook,
     );

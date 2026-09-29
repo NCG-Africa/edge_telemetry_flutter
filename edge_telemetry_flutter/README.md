@@ -146,33 +146,35 @@ Navigator.pop(context);                    // ✅ Automatically tracked
 
 ## 🎛️ Configuration Options
 
+Collection is **two fields**: a `tier` dial and a `captureOverrides` map that works in
+both directions. There is no enable/disable pair to keep consistent.
+
 ```dart
 await EdgeTelemetry.initialize(
   endpoint: 'https://your-backend.com',  // base URL — SDK posts to /collector/telemetry
   serviceName: 'my-app',
   apiKey: 'edgekey_xxx_yyy',             // sent as X-API-Key
 
-  // 🎯 Monitoring Controls (all default to true)
-  enableHttpMonitoring: true,        // Automatic HTTP request tracking
-  enableCrashReporting: true,        // Automatic crash & error reporting
-  enableNetworkMonitoring: true,     // Network connectivity changes
-  enablePerformanceMonitoring: true, // Frame drops, memory usage
-  enableNavigationTracking: true,    // Screen transitions
+  // 🎯 The dial — how much to collect
+  tier: CollectionTier.standard,     // essential | standard (default) | diagnostic
+
+  // 🔪 The scalpel — one specific thing, either direction
+  captureOverrides: {
+    Capture.http: false,             // turn a standard capture off
+    Capture.httpQueryString: true,   // turn a diagnostic capture on
+  },
 
   // 🔧 Advanced Options
   debugMode: true,                   // Enable console logging
-  batchSize: 30,                    // Events per batch
-  flushIntervalMs: 5000,            // Send a partial batch after this long
-  maxQueueSize: 200,                // Offline batch files kept before drop-oldest
-  sampleRate: 1.0,                  // Fraction of sessions kept (0.0–1.0). Rolled
+  batchSize: 30,                     // Events per batch
+  flushIntervalMs: 5000,             // Send a partial batch after this long
+  maxQueueSize: 200,                 // Offline batch files kept before drop-oldest
+  sampleRate: 1.0,                   // Fraction of sessions kept (0.0–1.0). Rolled
                                      // once/session: a sampled-out session drops its
                                      // events, but crashes, session bookends, and
                                      // user.profile.update always land. 1.0 = keep all.
-  enableLocalReporting: true,       // Store data locally for reports
-  captureAccessibilityContext: false, // Opt-in: adds device.text_scale_factor +
-                                      // device.reduce_motion (accessibility-
-                                      // sensitive). device.platform_brightness is
-                                      // captured regardless.
+  enableLocalReporting: true,        // Store data locally for reports (a sink, not a
+                                     // capture — it never touches the wire)
 
   // 🏷️ Global attributes added to all telemetry
   globalAttributes: {
@@ -184,6 +186,28 @@ await EdgeTelemetry.initialize(
 
 runApp(MyApp());
 ```
+
+### Tiers
+
+| Tier | Meaning |
+|---|---|
+| `essential` | Never shed, never sampled, no off-switch: crashes, session bookends, profile updates. Sheds everything else — the real answer to "send me almost nothing". |
+| `standard` | **Default.** Everything above plus HTTP, navigation, screen load, actions, frames, health, connectivity, lifecycle. Subject to the one per-session sampling roll. |
+| `diagnostic` | Everything above plus the high-volume / privacy-sensitive variants: swipes, tap coordinates, full HTTP URLs (query included), device fingerprint, accessibility context, extra lifecycle states, long tasks, per-screen frame summaries. |
+
+A tier is an **on/off plus a shed rank**, never a sampling axis — `sampleRate` stays the
+one roll over the whole session. If a session blows through its item budget the SDK
+sheds a *whole tier* (`diagnostic`, then `standard`, never `essential`) and reports
+every shed on `session.dropped_item_count` / `session.dropped_reasons`.
+
+### There is no crash off-switch
+
+`Capture` has no `crash`, `session`, `errors` or `profile` member, and that gap is
+deliberate: an SDK reporting no crashes must never be indistinguishable from one
+configured not to. If the concern is privacy, note that `app.crash` accepts **no
+arbitrary consumer attributes** — the only consumer data that can reach it is an
+exception's own text. If it is volume, crash is ≤1% of a session's items;
+`tier: CollectionTier.essential` is the knob you want.
 
 ## 👤 User Management
 

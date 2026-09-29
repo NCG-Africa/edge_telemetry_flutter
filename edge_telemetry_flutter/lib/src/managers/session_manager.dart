@@ -28,6 +28,11 @@ class SessionManager {
   /// state-only tests → bookends are simply not emitted.
   void Function(EdgeEvent event)? _emit;
 
+  /// Called at the start of every session, rotations included. The budget
+  /// governor binds `CaptureGate.resetBudget` here — the item allowance is per
+  /// session, so a rotation starts a fresh one.
+  void Function()? onSessionStart;
+
   /// New session id minter (the facade injects the family-format generator).
   final String Function() _newId;
 
@@ -118,6 +123,7 @@ class SessionManager {
     // Roll sampling once per session; the whole session drops-or-keeps coherently.
     _sampled = _sampledRoll == null ? null : _sampledRoll!().toString();
     _resetCounters();
+    onSessionStart?.call();
 
     if (_prefs != null) {
       final sessionCount = (_prefs!.getInt(_sessionCountKey) ?? 0) + 1;

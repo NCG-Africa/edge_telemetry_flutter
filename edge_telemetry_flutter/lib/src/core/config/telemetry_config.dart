@@ -1,8 +1,12 @@
-// lib/src/core/config/telemetry_config.dart - Enhanced with HTTP monitoring
+// lib/src/core/config/telemetry_config.dart
 
-/// Configuration class for EdgeTelemetry initialization
+import 'capture_tier.dart';
+
+/// Configuration for `EdgeTelemetry.initialize()`.
 ///
-/// Contains all settings needed to set up automatic telemetry collection and reporting
+/// The v3 collection surface is **two fields** — [tier] and [captureOverrides].
+/// The v2 capture booleans survive deprecated-in-place and act as a fallback;
+/// the new key always wins.
 class TelemetryConfig {
   /// Name of the service/app for telemetry identification
   final String serviceName;
@@ -18,6 +22,8 @@ class TelemetryConfig {
   /// sampled-out session drops its subject-to-sample events coherently, while
   /// crashes, `session.*` bookends, and `user.profile.update` still land. 1.0
   /// (default) = no roll, keep everything.
+  ///
+  /// Orthogonal to [tier]: sampling says how often, tiers say what at all.
   final double sampleRate;
 
   /// Enable debug logging and console output
@@ -36,35 +42,47 @@ class TelemetryConfig {
   /// Crashes (`crash_` prefix) are exempt and never dropped.
   final int maxQueueSize;
 
-  /// Batch timeout for sending telemetry data.
-  @Deprecated('Use flushIntervalMs. Removed in v3.0.0.')
-  final Duration batchTimeout;
+  /// The dial. `standard` (default) collects the default-on set; `essential`
+  /// sheds everything sheddable and is the real answer to "send me almost
+  /// nothing"; `diagnostic` turns the opt-in set on as well.
+  final CollectionTier tier;
 
-  /// Maximum number of spans in a batch (OTel-era, unused).
-  @Deprecated('Use batchSize. Removed in v3.0.0.')
-  final int maxBatchSize;
+  /// The scalpel, in both directions: `{Capture.swipes: true}` adds a
+  /// diagnostic capture to a standard config, `{Capture.http: false}` removes a
+  /// standard one. Wins over [tier] **and** over the deprecated booleans below.
+  final Map<Capture, bool> captureOverrides;
 
   /// Enable automatic network monitoring (connectivity changes)
+  @Deprecated('Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
   final bool enableNetworkMonitoring;
 
   /// Enable automatic performance monitoring (frame drops, memory)
+  @Deprecated(
+      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.')
   final bool enablePerformanceMonitoring;
 
-  /// Enable automatic error and crash reporting
-  final bool enableErrorReporting;
-
   /// Enable automatic navigation tracking
+  @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
   final bool enableNavigationTracking;
 
-  /// Enable automatic HTTP request monitoring
-  /// This intercepts ALL HTTP requests made by the app
+  /// Enable automatic HTTP request monitoring.
+  /// This intercepts ALL HTTP requests made by the app.
+  @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
   final bool enableHttpMonitoring;
 
-  /// Enable automatic crash reporting
-  final bool enableCrashReporting;
+  /// Capture the accessibility-sensitive device keys (`device.text_scale_factor`,
+  /// `device.reduce_motion`). `device.platform_brightness` is captured
+  /// regardless — it carries no flag.
+  @Deprecated(
+      'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.')
+  final bool captureAccessibilityContext;
 
   // Report system configuration
-  /// Enable local data storage for generating reports
+  /// Enable local data storage for generating reports.
+  ///
+  /// **Not** a capture and deliberately not deprecated: it gates a *sink* (the
+  /// on-device report store behind `generateSummaryReport` and friends), never
+  /// a hook, and never touches the wire.
   final bool enableLocalReporting;
 
   /// Path for local report storage (null = use default)
@@ -72,18 +90,6 @@ class TelemetryConfig {
 
   /// How long to keep data for reports (default: 30 days)
   final Duration dataRetentionPeriod;
-
-  /// Use JSON format instead of OpenTelemetry (simpler for most use cases)
-  final bool useJsonFormat;
-
-  /// Capture the accessibility-sensitive device keys (`device.text_scale_factor`,
-  /// `device.reduce_motion`). Off by default pending privacy sign-off (glossary
-  /// §6). `device.platform_brightness` is captured regardless — it carries no flag.
-  final bool captureAccessibilityContext;
-
-  /// Number of events to batch before sending.
-  @Deprecated('Use batchSize. Removed in v3.0.0.')
-  final int eventBatchSize;
 
   const TelemetryConfig({
     required this.serviceName,
@@ -95,20 +101,24 @@ class TelemetryConfig {
     this.batchSize = 30,
     this.flushIntervalMs = 5000,
     this.maxQueueSize = 200,
-    this.batchTimeout = const Duration(seconds: 5),
-    this.maxBatchSize = 512,
+    this.tier = CollectionTier.standard,
+    this.captureOverrides = const {},
+    @Deprecated(
+        'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
     this.enableNetworkMonitoring = true,
+    @Deprecated(
+        'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.')
     this.enablePerformanceMonitoring = true,
-    this.enableErrorReporting = true,
+    @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
     this.enableNavigationTracking = true,
+    @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
     this.enableHttpMonitoring = true,
-    this.enableCrashReporting = true,
+    @Deprecated(
+        'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.')
+    this.captureAccessibilityContext = false,
     this.enableLocalReporting = false,
     this.reportStoragePath,
     this.dataRetentionPeriod = const Duration(days: 30),
-    this.useJsonFormat = true,
-    this.eventBatchSize = 30,
-    this.captureAccessibilityContext = false,
   });
 
   /// Create a copy of this config with some values overridden
@@ -122,20 +132,16 @@ class TelemetryConfig {
     int? batchSize,
     int? flushIntervalMs,
     int? maxQueueSize,
-    Duration? batchTimeout,
-    int? maxBatchSize,
+    CollectionTier? tier,
+    Map<Capture, bool>? captureOverrides,
     bool? enableNetworkMonitoring,
     bool? enablePerformanceMonitoring,
-    bool? enableErrorReporting,
     bool? enableNavigationTracking,
     bool? enableHttpMonitoring,
-    bool? enableCrashReporting,
+    bool? captureAccessibilityContext,
     bool? enableLocalReporting,
     String? reportStoragePath,
     Duration? dataRetentionPeriod,
-    bool? useJsonFormat,
-    int? eventBatchSize,
-    bool? captureAccessibilityContext,
   }) {
     return TelemetryConfig(
       serviceName: serviceName ?? this.serviceName,
@@ -147,60 +153,81 @@ class TelemetryConfig {
       batchSize: batchSize ?? this.batchSize,
       flushIntervalMs: flushIntervalMs ?? this.flushIntervalMs,
       maxQueueSize: maxQueueSize ?? this.maxQueueSize,
+      tier: tier ?? this.tier,
+      captureOverrides: captureOverrides ?? this.captureOverrides,
       // ignore: deprecated_member_use_from_same_package
-      batchTimeout: batchTimeout ?? this.batchTimeout,
-      // ignore: deprecated_member_use_from_same_package
-      maxBatchSize: maxBatchSize ?? this.maxBatchSize,
       enableNetworkMonitoring:
+          // ignore: deprecated_member_use_from_same_package
           enableNetworkMonitoring ?? this.enableNetworkMonitoring,
+      // ignore: deprecated_member_use_from_same_package
       enablePerformanceMonitoring:
+          // ignore: deprecated_member_use_from_same_package
           enablePerformanceMonitoring ?? this.enablePerformanceMonitoring,
-      enableErrorReporting: enableErrorReporting ?? this.enableErrorReporting,
+      // ignore: deprecated_member_use_from_same_package
       enableNavigationTracking:
+          // ignore: deprecated_member_use_from_same_package
           enableNavigationTracking ?? this.enableNavigationTracking,
-      enableHttpMonitoring: enableHttpMonitoring ?? this.enableHttpMonitoring,
-      enableCrashReporting: enableCrashReporting ?? this.enableCrashReporting,
+      // ignore: deprecated_member_use_from_same_package
+      enableHttpMonitoring:
+          // ignore: deprecated_member_use_from_same_package
+          enableHttpMonitoring ?? this.enableHttpMonitoring,
+      // ignore: deprecated_member_use_from_same_package
+      captureAccessibilityContext:
+          // ignore: deprecated_member_use_from_same_package
+          captureAccessibilityContext ?? this.captureAccessibilityContext,
       enableLocalReporting: enableLocalReporting ?? this.enableLocalReporting,
       reportStoragePath: reportStoragePath ?? this.reportStoragePath,
       dataRetentionPeriod: dataRetentionPeriod ?? this.dataRetentionPeriod,
-      useJsonFormat: useJsonFormat ?? this.useJsonFormat,
-      // ignore: deprecated_member_use_from_same_package
-      eventBatchSize: eventBatchSize ?? this.eventBatchSize,
-      captureAccessibilityContext:
-          captureAccessibilityContext ?? this.captureAccessibilityContext,
     );
   }
 
-  /// Get a summary of enabled features
-  Map<String, bool> get enabledFeatures {
-    return {
-      'networkMonitoring': enableNetworkMonitoring,
-      'performanceMonitoring': enablePerformanceMonitoring,
-      'errorReporting': enableErrorReporting,
-      'navigationTracking': enableNavigationTracking,
-      'httpMonitoring': enableHttpMonitoring,
-      'localReporting': enableLocalReporting,
-    };
-  }
+  /// Whether [c] is enabled by this configuration: the override map wins, then
+  /// the deprecated booleans, then the [tier] default. Runtime shedding is the
+  /// governor's, on `CaptureGate` — this is the config half only.
+  bool capturesEnabled(Capture c) =>
+      _legacyOverrides[c] ?? kCaptureTiers[c]!.index <= tier.index;
 
-  /// Check if any automatic monitoring is enabled
-  bool get hasAutomaticMonitoring {
-    return enableNetworkMonitoring ||
-        enablePerformanceMonitoring ||
-        enableErrorReporting ||
-        enableNavigationTracking ||
-        enableHttpMonitoring;
-  }
+  /// The deprecated booleans folded into override shape, with
+  /// [captureOverrides] layered on top so the new key wins. A legacy `true`
+  /// contributes nothing — it only ever agreed with the tier default; the
+  /// exception is `captureAccessibilityContext`, whose `true` is the opt-in it
+  /// always was.
+  Map<Capture, bool> get _legacyOverrides => {
+        // ignore: deprecated_member_use_from_same_package
+        if (!enableHttpMonitoring) Capture.http: false,
+        // ignore: deprecated_member_use_from_same_package
+        if (!enableNavigationTracking) Capture.navigation: false,
+        // ignore: deprecated_member_use_from_same_package
+        if (!enablePerformanceMonitoring) ...{
+          Capture.frames: false,
+          Capture.health: false,
+        },
+        // ignore: deprecated_member_use_from_same_package
+        if (!enableNetworkMonitoring) Capture.connectivity: false,
+        // ignore: deprecated_member_use_from_same_package
+        if (captureAccessibilityContext) Capture.accessibilityContext: true,
+        ...captureOverrides,
+      };
+
+  /// Every capture this config enables, by name — for debug output.
+  Map<String, bool> get enabledFeatures => {
+        for (final c in Capture.values) c.name: capturesEnabled(c),
+        'localReporting': enableLocalReporting,
+      };
+
+  /// Whether any automatic capture is running.
+  bool get hasAutomaticMonitoring => Capture.values.any(capturesEnabled);
 
   /// Get configuration summary for debugging
   String get summary {
+    final on = Capture.values.where(capturesEnabled).map((c) => c.name);
     return '''
 EdgeTelemetry Configuration:
   Service: $serviceName
   Endpoint: $endpoint
-  Format: ${useJsonFormat ? 'JSON' : 'OpenTelemetry'}
   Debug: $debugMode
-  Features: ${enabledFeatures.entries.where((e) => e.value).map((e) => e.key).join(', ')}
+  Tier: ${tier.name}
+  Captures: ${on.join(', ')}
   Batch: $batchSize events / ${flushIntervalMs}ms
   Local Reports: $enableLocalReporting
 ''';

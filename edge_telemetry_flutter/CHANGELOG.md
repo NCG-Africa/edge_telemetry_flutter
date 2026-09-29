@@ -16,6 +16,72 @@
   device for the whole release and were found by audit rather than by telemetry;
   this is the fix for the silence, not for the drop.
 
+### Changed
+
+- **Collection is now two fields: `tier` and `captureOverrides`.**
+  `tier: CollectionTier.essential | standard | diagnostic` is the dial;
+  `captureOverrides: Map<Capture, bool>` is the scalpel and works in both
+  directions (`{Capture.swipes: true}` adds, `{Capture.http: false}` removes).
+  A tier is an on/off plus a shed rank, never a sampling axis — `sampleRate`
+  remains one roll per session.
+- **A budget governor sheds whole tiers** — `diagnostic`, then `standard`,
+  never `essential` — once a session crosses its item ceiling, and counts every
+  shed on the existing `session.dropped_item_count` /
+  `session.dropped_reasons` (`tier_shed=N`) that ships on the session's closing
+  event.
+- **`trackEvent` / `trackMetric` take `Map<String, Object?>?`** instead of
+  `dynamic`. Values are stringified as before, so `{'count': 3, 'ok': true}`
+  keeps compiling and the bytes on the wire are unchanged. The `toJson()`
+  reflection fallback is deleted — passing an arbitrary object is no longer a
+  supported attribute shape.
+
+### Removed
+
+- **`enableCrashReporting` and `enableErrorReporting` are removed outright** —
+  from `initialize()` and from `TelemetryConfig`. This is a deliberate hard
+  compile break, not a silent no-op: a consumer who had deliberately suppressed
+  crash reporting must not begin transmitting because of a `pub upgrade`. Crash
+  and error capture are unconditional in v3, and `Capture` has no member for
+  either — an SDK reporting no crashes must never be indistinguishable from one
+  configured not to. If the concern is volume, use
+  `tier: CollectionTier.essential`; if it is privacy, note that `app.crash`
+  carries no arbitrary consumer attributes.
+- `initialize(useJsonFormat:)` and `TelemetryConfig.useJsonFormat` — the SDK has
+  been custom-JSON only since v2.0.0. **The `TelemetryConfig` field never
+  carried a `@Deprecated` annotation**, so a consumer who constructed the class
+  by hand gets a compile error with no deprecation cycle behind it. Named here
+  rather than left to the compiler.
+- `initialize(batchTimeout:/maxBatchSize:/eventBatchSize:)` and the matching
+  `TelemetryConfig` fields — use `flushIntervalMs` and `batchSize`.
+- `withSpan()` / `withNetworkSpan()` — OTel-era no-ops that recorded nothing.
+
+### Deprecated
+
+Deprecated-in-place, still honoured as a fallback (the new key always wins), and
+**removed in v4.0.0** — annotated on the facade parameter *and* the
+`TelemetryConfig` field:
+
+| v2 | v3 |
+|---|---|
+| `enableHttpMonitoring: false` | `captureOverrides: {Capture.http: false}` |
+| `enableNavigationTracking: false` | `captureOverrides: {Capture.navigation: false}` |
+| `enablePerformanceMonitoring: false` | `captureOverrides: {Capture.frames: false, Capture.health: false}` |
+| `enableNetworkMonitoring: false` | `captureOverrides: {Capture.connectivity: false}` |
+| `captureAccessibilityContext: true` | `captureOverrides: {Capture.accessibilityContext: true}` |
+
+`enableLocalReporting` is **not** deprecated: it gates a sink (the on-device
+report store), not a capture, and never touches the wire.
+
+### Errata
+
+- **`enableErrorReporting` has had no effect since v2.0.0.** Error capture has
+  been unconditional since that release — `initialize()` never exposed the
+  parameter and hardcoded the config field to `true`. This was not disclosed at
+  the time.
+- **`TelemetryConfig.hasAutomaticMonitoring` could never return `false`** in
+  v2.0.0, because it OR'd `enableErrorReporting`, which was always `true`. It
+  now reports whether any capture is actually enabled.
+
 ## [2.0.0] - 2026-07-13
 
 **The wire changed — your code mostly didn't.** This is the atomic v2.0.0:
