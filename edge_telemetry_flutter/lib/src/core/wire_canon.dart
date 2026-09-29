@@ -4,9 +4,26 @@
 // drops any batched event/metric whose name is not on these lists, so only canon
 // signal reaches the wire. Capture hooks emit canon names at the source; this is
 // the enforced boundary + the anchor the wire snapshot test asserts against.
+//
+// The drop is a hard drop and stays one — it is the only device-side guard
+// against an unbudgeted emitter. From v3 it is no longer *silent*: see
+// `Collector.add`, which logs under `debugMode` and bumps a session-scoped
+// dropped-item counter that ships on `session.finalized`.
 
-/// The 12 canon event names (§2). `app.crash` rides the immediate crash rail,
+/// The 16 canon event names (§2). `app.crash` rides the immediate crash rail,
 /// not the batch, but is listed here for completeness.
+///
+/// v3 adds four (#79): `ui.interaction`, `frame.summary`, `screen.load`,
+/// `task.complete`. Deliberately **not** added:
+/// - `memory_pressure` / `storage_usage` — struck off the sibling's
+///   "Unsupported Events — NOT processed by the backend" list.
+/// - `app.anr` / `app.hang` — both already ship as `cause` values on the
+///   unified `app.crash` event.
+///
+/// `user.interaction` and `screen.duration` stay on the list because a canon
+/// name is never removed. Whether either is still emitted — and the deprecation
+/// annotations, changelog line and removal version that go with stopping — is
+/// owned by their own tickets, not by this list.
 const Set<String> kCanonEvents = {
   'session.started',
   'session.finalized',
@@ -20,9 +37,16 @@ const Set<String> kCanonEvents = {
   'user.profile.update',
   'custom_event',
   'app.crash',
+  // v3 (#79)
+  'ui.interaction',
+  'frame.summary',
+  'screen.load',
+  'task.complete',
 };
 
-/// The 4 canon metric names (§4).
+/// The 4 canon metric names (§4). v3 adds none — the ceiling is 0 new metrics.
+/// `frame_render_time` and `resource_timing` stay listed for the same reason as
+/// above: the name is kept, the emission is their own tickets' business.
 const Set<String> kCanonMetrics = {
   'frame_render_time',
   'memory_usage',

@@ -91,6 +91,7 @@ class TelemetryWiring {
       session: session,
       pipeline: pipeline,
       breadcrumbs: breadcrumbs,
+      debugMode: config.debugMode,
     );
 
     // Late-bind the session bookend sink now the Collector exists (breaks the

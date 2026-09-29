@@ -75,7 +75,7 @@ first (#53, amended by #61):
    awaiting approval. Because the raw key is always stored, promoting it to a typed column later is a
    backfill, so a ship date here and a column date there are independent.
 6. **The allowlist stays a hard drop; the drop becomes visible.** The drop is the only device-side
-   guard against an unbudgeted emitter. The *silence* was the bug — six emissions were dropped on
+   guard against an unbudgeted emitter. The *silence* was the bug — seven emissions were dropped on
    every device through all of v2 and found by audit, not by telemetry.
 
 Corollary, earned three times on this map: **a summary of a sibling is evidence about the summary.**

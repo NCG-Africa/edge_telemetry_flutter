@@ -62,6 +62,12 @@ class SessionManager {
   final Set<String> _visitedScreens = {};
   final List<String> _screenJourney = [];
 
+  /// Items the SDK built but never sent, by reason. One counter, several
+  /// clients: the off-canon allowlist gate today (#79), tier shedding / the
+  /// action cap / the error caps later. Ships on `session.finalized` so a drop
+  /// is found by telemetry, not by audit.
+  final Map<String, int> _droppedByReason = {};
+
   SessionManager({
     void Function(EdgeEvent event)? emit,
     String Function()? newSessionId,
@@ -179,6 +185,11 @@ class SessionManager {
   void recordCrash() => _crashCount++;
   void recordHttpRequest() => _httpRequestCount++;
 
+  /// Count one item the SDK declined to send. [reason] is a short stable slug
+  /// (`off_canon`, …) — it rides the finalize bookend verbatim.
+  void recordDropped(String reason) =>
+      _droppedByReason[reason] = (_droppedByReason[reason] ?? 0) + 1;
+
   void _resetCounters() {
     _eventCount = 0;
     _metricCount = 0;
@@ -187,6 +198,7 @@ class SessionManager {
     _httpRequestCount = 0;
     _visitedScreens.clear();
     _screenJourney.clear();
+    _droppedByReason.clear();
   }
 
   /// Ordered route path (for `screen_journey`) + distinct set (for count).
@@ -211,6 +223,7 @@ class SessionManager {
           httpCount: _httpRequestCount,
           screenCount: _visitedScreens.length,
           journey: _screenJourney,
+          dropped: _droppedByReason,
         )));
   }
 
@@ -237,6 +250,9 @@ class SessionManager {
           httpCount: (r['httpCount'] as num?)?.toInt() ?? 0,
           screenCount: (r['screenCount'] as num?)?.toInt() ?? 0,
           journey: (r['journey'] as List?)?.cast<String>() ?? const [],
+          dropped: (r['dropped'] as Map?)
+                  ?.map((k, v) => MapEntry('$k', (v as num?)?.toInt() ?? 0)) ??
+              const {},
           recovered: true,
         )));
   }
@@ -251,6 +267,7 @@ class SessionManager {
     required int httpCount,
     required int screenCount,
     required List<String> journey,
+    required Map<String, int> dropped,
     bool recovered = false,
   }) {
     // Last 20 hops only, so a multi-hour session can't emit a giant attribute.
@@ -267,6 +284,13 @@ class SessionManager {
       'session.screen_count': screenCount.toString(),
       'session.http_request_count': httpCount.toString(),
       'session.screen_journey': capped.join('>'),
+      'session.dropped_item_count':
+          dropped.values.fold(0, (a, b) => a + b).toString(),
+      if (dropped.isNotEmpty)
+        'session.dropped_reasons': (dropped.entries.toList()
+              ..sort((a, b) => a.key.compareTo(b.key)))
+            .map((e) => '${e.key}=${e.value}')
+            .join(','),
       if (recovered) 'session.recovered': 'true',
     };
   }
@@ -290,6 +314,7 @@ class SessionManager {
         'httpCount': _httpRequestCount,
         'screenCount': _visitedScreens.length,
         'journey': _screenJourney,
+        'dropped': _droppedByReason,
       }),
     );
   }
