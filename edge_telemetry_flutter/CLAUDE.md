@@ -47,14 +47,39 @@ library entry point.
 
 ### The wire is a closed contract
 
-`lib/src/core/wire_canon.dart` holds the family canon: 12 event names, 4 metric names. **`Collector.add`
-silently drops any batched item whose name is off-canon** — adding an event means adding it to the canon
-first, or it never leaves the device. Envelope is `telemetry_batch`; POST goes to
+`lib/src/core/wire_canon.dart` holds the family canon: 16 event names, 4 metric names. **`Collector.add`
+drops any batched item whose name is off-canon** — adding an event means adding it to the canon
+first, or it never leaves the device. The drop is a hard drop and stays one; from v3 it is no longer
+silent — a `debugMode` log naming the item, plus a dropped-item counter on `session.finalized`.
+Envelope is `telemetry_batch`; POST goes to
 `<endpoint>/collector/telemetry` with `X-API-Key`.
 
 Attribute spelling is deliberately mixed and must not be "normalized": dotted for identity/domain keys
 (`session.id`, `http.url`), **unprefixed** on `app.crash` (`message`, `stacktrace`, `exception_type`,
 `cause`, `is_fatal`) because the backend extractors read those verbatim.
+
+### Six rules govern the canon
+
+There is no family canon register and no ratifying body — the allowlist is a union of whatever shipped
+first (#53, amended by #61):
+
+1. **Conform where a sibling already ships the name**, decide locally where none does, and never block
+   a release on ratification.
+2. **No renames of a v2 name, ever** — deprecate-in-place. A name may stop being emitted; it may never
+   be renamed or have its meaning changed under the same backend columns. `page_load` therefore means
+   app launch forever, and screen load minted a new name instead.
+3. **Attribute-first, by a *temporal* test**: a signal earns an event name only when no existing event
+   fires at the instant that signal is known. Otherwise it is attributes on that event.
+4. **Ceiling: 6 new event names, 0 new metric names** — derived from the item budget, not picked.
+5. **The change request is a co-signature** on the sibling's bag-first JSONB proposal, not a proposal
+   awaiting approval. Because the raw key is always stored, promoting it to a typed column later is a
+   backfill, so a ship date here and a column date there are independent.
+6. **The allowlist stays a hard drop; the drop becomes visible.** The drop is the only device-side
+   guard against an unbudgeted emitter. The *silence* was the bug — six emissions were dropped on
+   every device through all of v2 and found by audit, not by telemetry.
+
+Corollary, earned three times on this map: **a summary of a sibling is evidence about the summary.**
+Read the sibling's source or spec directly before building on a claim about it.
 
 ### Two rails, orthogonal to sampling
 
@@ -62,6 +87,15 @@ Crashes take the immediate rail (`EventPriority.immediate` → POSTed alone, sin
 persisted with a `crash_` prefix that exempts them from the queue cap). Everything else batches.
 Separately, the sampling roll happens **once per session**; crashes, session bookends, and
 `user.profile.update` bypass it. Priority and bypass are independent — check both when adding an event.
+
+### Tiers gate at the capture hook
+
+`essential` / `standard` / `diagnostic`. A tier is a collection level — an on/off plus a shed rank —
+and **never a sampling axis**; per-tier rates would make the once-per-session roll incoherent. Tiers
+gate **at the capture hook**, before the attribute map is built, never at the Collector, which would
+build the map and spend the CPU only to discard the item. The budget governor sheds **whole tiers** in
+shed-rank order — `diagnostic`, then `standard`, never `essential` — and never individual signals.
+`essential` is exactly v2's shipped sampling-bypass set: crash, session bookends, profile update.
 
 ### Session is lazy, never timed
 
@@ -99,11 +133,20 @@ three languages — change it in lockstep or not at all.
 - Public API changes stay backward compatible (deprecate, don't remove). `useJsonFormat`, `batchTimeout`,
   `maxBatchSize`, `eventBatchSize`, `withSpan`, `withNetworkSpan` are shipped no-ops kept for that reason —
   they go in v3.0.0.
+- **Deprecate-in-place — names are retained, emission stops or changes.** The cycle is an annotation on
+  **every** declaration naming the removal version (the clause that catches a missed field), a shipped
+  release, a changelog line, and a runtime warning wherever behaviour *changes* rather than disappears.
+  Every v3 deprecation names v4.0.0. Currently deprecated-in-place: `user.interaction`,
+  `frame_render_time`, `resource_timing`, `screen.duration`.
 - Terminology firewall on **new** public symbols and docs — an **anti-OpenTelemetry** rule, not an
   anti-tracing one (#56): banned are `instrumentation`/`instrument`, `OTLP`, `OpenTelemetry` and OTel
   class names (`tracer`, `SpanProcessor`, `SpanExporter`). `trace` and `span` are **permitted** where
   they name the W3C `traceparent` concept. Use `capture`, never `instrument`, for wrapping a
   consumer's client. Existing names are grandfathered; the wire (`eventName`/attr keys) is out of scope.
+- The `Capture` enum is **closed at the `essential` boundary on purpose** — there is no `crash`,
+  `session`, `error` or `profile` member, because an SDK reporting no crashes must never be
+  indistinguishable from one configured not to. **Do not complete it for symmetry.** Adding a member
+  is a decision about what a consumer may switch off, not a gap in an enumeration.
 - Debug output is `print()` guarded by `config.debugMode`; crash send/fail logs in `RetryTransport` are
   **intentionally always printed** — leave those un-guarded.
 - Custom profile attributes are auto-prefixed with `user.`.
