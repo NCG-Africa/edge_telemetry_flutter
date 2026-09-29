@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../core/http_seam_state.dart';
 import 'http_url.dart';
 import 'trace_injection.dart';
 
@@ -78,7 +79,7 @@ class TelemetryHttpOverrides extends HttpOverrides {
     Uri? selfUrl,
   }) {
     final previousOverrides = HttpOverrides.current;
-    HttpOverrides.global = TelemetryHttpOverrides(
+    final installed = TelemetryHttpOverrides(
       onRequestComplete: onRequestComplete,
       debugMode: debugMode,
       measurePhases: measurePhases,
@@ -86,6 +87,10 @@ class TelemetryHttpOverrides extends HttpOverrides {
       selfUrl: selfUrl,
       previousOverrides: previousOverrides,
     );
+    HttpOverrides.global = installed;
+    // The seam state compares against this exact instance — see
+    // [overridesSeamLive].
+    recordOverridesSeam(installed);
   }
 
   /// Remove global HTTP monitoring (restore previous overrides)
@@ -95,6 +100,7 @@ class TelemetryHttpOverrides extends HttpOverrides {
           HttpOverrides.current as TelemetryHttpOverrides;
       HttpOverrides.global = telemetryOverrides._previousOverrides;
     }
+    recordOverridesSeam(null);
   }
 }
 
@@ -819,19 +825,13 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
           '(${duration.inMilliseconds}ms + ${download.inMilliseconds}ms body)');
     }
 
-    // Content-length when the server gave one, else the bytes we decoded. The
-    // two were measured **9x apart on one response**, and the platform reports
-    // null on chunked encoding — i.e. on most modern JSON APIs — so the source
-    // rides along rather than being assumed.
-    // An unknown size is **omitted**, never a false zero: a body cancelled
-    // part-way or a detached socket leaves a partial byte count, which is not
-    // the response size and must not be sent as one.
+    // `dart:io` spells "no content-length" as -1; the shared rule speaks null.
     final declared = _baseResponse.contentLength;
-    final int? size = declared >= 0
-        ? declared
-        : _bodyComplete
-            ? _decodedBytes
-            : null;
+    final sized = resolveResponseSize(
+      declared: declared >= 0 ? declared : null,
+      counted: _decodedBytes,
+      complete: _bodyComplete,
+    );
 
     _onRequestComplete(HttpRequestTelemetry(
       url: url.toString(),
@@ -840,12 +840,8 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
       duration: duration,
       timestamp: callStart,
       downloadDuration: download,
-      responseSize: size,
-      responseSizeSource: size == null
-          ? null
-          : declared >= 0
-              ? kSizeFromContentLength
-              : kSizeFromDecodedBytes,
+      responseSize: sized.size,
+      responseSizeSource: sized.source,
       connectDuration: phases.connect,
       dnsDuration: phases.dns,
       queueDuration: phases.queue,
@@ -978,6 +974,32 @@ const String kSizeFromContentLength = 'content_length';
 /// bytes off the body stream.
 const String kSizeFromDecodedBytes = 'decoded_bytes';
 
+/// The one size-and-source rule, shared by both seams so they cannot drift.
+///
+/// Content-length when the server gave one, else the bytes we decoded. The two
+/// were measured **9x apart on one response**, and the platform reports no
+/// length at all on chunked encoding — i.e. on most modern JSON APIs — so the
+/// source rides along rather than being assumed.
+///
+/// An unknown size is **omitted**, never a false zero: a body cancelled
+/// part-way or a detached socket leaves a partial byte count, which is not the
+/// response size and must not be sent as one.
+({int? size, String? source}) resolveResponseSize({
+  required int? declared,
+  required int counted,
+  required bool complete,
+}) {
+  final size = declared ?? (complete ? counted : null);
+  return (
+    size: size,
+    source: size == null
+        ? null
+        : declared != null
+            ? kSizeFromContentLength
+            : kSizeFromDecodedBytes,
+  );
+}
+
 /// Data class for HTTP request telemetry.
 ///
 /// Every duration here is a *measured* span. Nothing is derived and nothing is
@@ -1031,6 +1053,12 @@ class HttpRequestTelemetry {
   /// and absence of the outcome key is itself the contract's "not traced".
   final Map<String, String> traceAttributes;
 
+  /// Which seam measured this request — [kSeam] or the wrapper's own. It rides
+  /// every row because the two seams reach different numbers: the wrapper sees
+  /// no connect, DNS, queue or reuse, so a backend averaging `http.connect_ms`
+  /// without partitioning on this would divide by the wrong denominator.
+  final String seam;
+
   const HttpRequestTelemetry({
     required this.url,
     required this.method,
@@ -1047,6 +1075,7 @@ class HttpRequestTelemetry {
     this.connectionReused,
     this.redirectCount,
     this.traceAttributes = const {},
+    this.seam = kSeam,
   });
 
   /// Convert to attributes map for telemetry.
@@ -1098,7 +1127,7 @@ class HttpRequestTelemetry {
       if (responseSizeSource != null)
         'http.response_size_source': responseSizeSource!,
       'http.success': isSuccess.toString(),
-      'http.seam': kSeam,
+      'http.seam': seam,
       // Absolute UTC, RFC3339 — the processor's `parseTime` returns a silent
       // NULL on anything else, so epoch millis would vanish without an error.
       'span.start_time': timestamp.toUtc().toIso8601String(),

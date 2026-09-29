@@ -145,6 +145,57 @@ only way the connect time and the reuse flag are reachable. The SDK threads your
 `connectionFactory` you set yourself. Under an HTTPS proxy the TLS handshake happens
 inside the platform's CONNECT tunnel, so TLS time is unreachable at any tier.
 
+#### Clients that bypass `HttpOverrides`
+
+`HttpOverrides.global` reaches every `dart:io` socket and nothing else. A client built
+on `cupertino_http` (NSURLSession) or `cronet_http` (Cronet) never touches one, so such
+an app is not *thinly* covered — it is **totally invisible**, and because the same seam
+carries `traceparent`, every one of its requests is also a severed distributed trace.
+
+Hand the client over once, where you build it:
+
+```dart
+final client = EdgeTelemetry.instance.captureClient(
+  CupertinoClient.defaultSessionConfiguration(),
+);
+```
+
+**Client in, same type out.** A client that is already captured, a call made before
+`initialize()`, and a build with `Capture.http` switched off all hand you back the
+client you passed — so wrapping twice is one capture, not two rows.
+
+Handing over a plain `http.Client()` is safe too: that is an `IOClient`, its sockets
+already pass the `dart:io` override, and it comes back unwrapped rather than measured
+through both seams. No request is ever captured twice.
+
+Rows from this seam carry `http.seam: http_client` and **no** `http.connect_ms`,
+`http.dns_ms`, `http.queue_ms` or `http.connection_reused` — the platform client below
+the wrapper owns the connection pool, so those are structurally out of reach here.
+
+gRPC, HTTP/2 and Dio's `http2_adapter` stay out of scope: they bypass `package:http`
+as well, which is a protocol gap rather than a wrapper gap.
+
+#### `sdk.http_seam_state`
+
+Every item carries which seams are **live** — never how much of your traffic they see,
+which the SDK cannot know:
+
+| Value | Meaning |
+|---|---|
+| `overrides` | The `dart:io` global override is ours. No client wrapped. |
+| `wrapper` | The global is **not** ours (you replaced it), but a client was wrapped. |
+| `both` | Both seams live. |
+| `blind` | Neither. Provable, and the honest answer when the override was replaced and nothing was wrapped. |
+
+It is read fresh on every item rather than fixed at startup — you can replace
+`HttpOverrides.global` at any moment and nothing tells the SDK — so one session can
+report more than one value.
+
+One case has no client-side signature at all: capture healthy, and every request going
+through a bypassing client nobody wrapped. It is deliberately not papered over here —
+it is an alert on the backend, on sessions that finalize with
+`session.http_request_count == 0` while the seam state says a seam was live.
+
 ### 🚨 Enhanced Crash & Error Reporting (Zero Setup Required)
 ```dart
 // Any unhandled error anywhere in your app:
@@ -615,6 +666,9 @@ print('Session: ${EdgeTelemetry.instance.currentSessionInfo}');
 **HTTP requests not being tracked:**
 - Ensure EdgeTelemetry is initialized before any HTTP calls
 - Don't set custom `HttpOverrides.global` after initialization
+- Using `cupertino_http` / `cronet_http`? They bypass `HttpOverrides` entirely — pass
+  the client through `EdgeTelemetry.instance.captureClient(...)`. Check
+  `sdk.http_seam_state` on any item to see which seams are live
 - A response whose body is never read is never reported — `dart:io` requires the body
   be drained or the connection stalls, so drain it (`package:http` and Dio already do)
 

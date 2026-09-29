@@ -160,6 +160,20 @@ captured it, because absence alone conflates "never measurable" with "measurable
 missing".
 _Avoid_: interceptor, adapter, hook (a capture hook is a different thing)
 
+**Seam state**:
+Which seams are **live**, on every item as `sdk.http_seam_state` in four values —
+`overrides`, `wrapper`, `both`, `blind`. It never says how much of the app's traffic
+they see, which the SDK cannot know. `blind` is provable; the case that is not — every
+request going through a bypassing client nobody wrapped — is a backend alert on
+zero-request sessions, not a client-side guess.
+_Avoid_: coverage, health, instrumentation state
+
+**Captured client**:
+A `package:http` client handed to `captureClient` and returned as a client. The same
+type in and out is what lets an already-captured client, a pre-init call, a disabled
+capture and an `IOClient` the override already sees all come back unchanged.
+_Avoid_: instrumented client, wrapped client, proxy client
+
 **Fused connect**:
 DNS + TCP + TLS as one number (`http.connect_ms`). Fused because splitting DNS means
 resolving by hand, and resolving by hand means connecting to one address instead of
