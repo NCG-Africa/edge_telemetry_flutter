@@ -24,6 +24,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Records every payload that would go on the wire.
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
+
+  /// Wire items, unwrapped from their `telemetry_batch` envelope. Since #81
+  /// both rails envelope — the immediate crash as a one-item batch.
+  List<Map<String, dynamic>> get items => [
+        for (final p in sent)
+          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
+      ];
   Future<bool> call(Map<String, dynamic> payload) async {
     sent.add(payload);
     return true;
@@ -198,8 +205,12 @@ void main() {
       pipeline.sendNow({'type': 'error', 'error': 'boom'});
       await Future<void>(() {});
 
+      // #81: the immediate rail envelopes too — a one-item telemetry_batch,
+      // because the collector 400s a bare item (that is why no crash arrived).
       expect(sender.sent, hasLength(1));
-      expect(sender.sent.single['type'], 'error'); // bare, not wrapped
+      expect(sender.sent.single['type'], 'telemetry_batch');
+      expect(sender.sent.single['batch_size'], 1);
+      expect(sender.items.single['type'], 'error');
     });
   });
 
@@ -234,8 +245,9 @@ void main() {
       collector.add(EdgeEvent.error(StateError('boom')));
       await Future<void>(() {});
       expect(sender.sent, hasLength(2)); // crash still sent (immediate+bypass)
-      expect(sender.sent[1]['type'], 'event'); // immediate app.crash
-      expect(sender.sent[1]['eventName'], 'app.crash');
+      expect(sender.sent[1]['type'], 'telemetry_batch'); // enveloped (#81)
+      expect(sender.items[1]['type'], 'event'); // immediate app.crash
+      expect(sender.items[1]['eventName'], 'app.crash');
     });
 
     test('sampleRate rolled once/session → stored as session.sampled',

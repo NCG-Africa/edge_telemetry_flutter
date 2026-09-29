@@ -205,6 +205,21 @@ one roll over the whole session. If a session blows through its item budget the 
 sheds a *whole tier* (`diagnostic`, then `standard`, never `essential`) and reports
 every shed on `session.dropped_item_count` / `session.dropped_reasons`.
 
+### Delivery
+
+Every POST is gzipped. If the collector rejects a compressed body with a 400, the SDK
+re-POSTs it once uncompressed and — only if that succeeds — stays uncompressed for the
+rest of the launch. There is no flag to set and no version to negotiate; the cost of a
+collector that cannot decompress is one wasted POST per launch.
+
+A 4xx is dropped, never retried and never queued: a payload the collector refuses will
+be refused every time. Anything else is retried on the `[0, 2s, 8s, 30s]` backoff and
+then stored on disk, FIFO, drained five files at a time after each successful send.
+Crashes drain first and have their own 50-file cap; a file that has failed five
+delivery attempts is dropped. Every drop is counted on
+`session.dropped_item_count` / `session.dropped_reasons` (`http_400`,
+`queue_overflow`, `queue_attempts_exhausted`) — the SDK never discards silently.
+
 ### There is no crash off-switch
 
 `Capture` has no `crash`, `session`, `errors` or `profile` member, and that gap is

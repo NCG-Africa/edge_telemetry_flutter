@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'offline_queue.dart';
+import 'wire_canon.dart';
 
 /// Low-level POST primitive. Returns true on a 2xx response. Injectable so tests
 /// can drive the transport without real network I/O. A `false` return is treated
@@ -28,11 +29,27 @@ const List<Duration> kDefaultBackoff = [
 /// Absorbs the v1.5.2 `JsonHttpClient` (the POST) and `CrashRetryManager`
 /// (persist + drain). One persistence/backoff system, not two.
 class RetryTransport {
+  /// Process-wide compression state. Static on purpose: "at most one wasted POST
+  /// per launch" is a property of the launch, not of a transport instance.
+  static bool _compress = true;
+  static bool _probeSpent = false;
+
+  /// Reset the launch-scoped gzip probe (tests only).
+  @visibleForTesting
+  static void resetGzipProbe() {
+    _compress = true;
+    _probeSpent = false;
+  }
+
   final String endpoint;
   final String? apiKey;
   final OfflineQueue queue;
   final bool debugMode;
   final List<Duration> backoff;
+
+  /// Counts a payload the transport refused to retry, by short stable reason
+  /// slug (`http_400`, …) — the same counter the off-canon drop uses.
+  final void Function(String reason)? onDrop;
 
   final HttpClient _httpClient;
   final Sender? _sender;
@@ -47,6 +64,7 @@ class RetryTransport {
     this.apiKey,
     this.debugMode = false,
     this.backoff = kDefaultBackoff,
+    this.onDrop,
     HttpClient? httpClient,
     Sender? sender,
   })  : _httpClient = httpClient ?? HttpClient(),
@@ -77,6 +95,8 @@ class RetryTransport {
         await drainQueue();
         return true;
       }
+      // 4xx: never retried, never queued.
+      if (_clientError(status)) return _drop(status);
       if (status == 0) break; // offline — don't burn backoff, queue now
     }
     await queue.persist(batch);
@@ -85,11 +105,15 @@ class RetryTransport {
 
   /// Send a crash immediately, bypassing the batch. On failure, persist to the
   /// offline queue so a crash that kills the app still arrives on next launch.
-  Future<void> sendImmediate(Map<String, dynamic> crashData) async {
-    final ok = _ok(await _status(crashData));
-    if (ok) {
+  /// [crashBatch] is an assembled one-item `telemetry_batch` envelope — the
+  /// queue stores bytes verbatim, so what is persisted here must already be a
+  /// payload the collector will accept whenever it is drained.
+  Future<void> sendImmediate(Map<String, dynamic> crashBatch) async {
+    final status = await _status(crashBatch);
+    final item = (crashBatch['events'] as List?)?.firstOrNull;
+    if (_ok(status)) {
       // Error-report send logs are intentionally always printed (see CLAUDE.md).
-      final attrs = crashData['attributes'];
+      final attrs = item is Map ? item['attributes'] : null;
       print('✅ Error report sent successfully');
       if (attrs is Map) {
         print('   📊 Error: ${attrs['message']}');
@@ -101,22 +125,47 @@ class RetryTransport {
           print('   🔄 Session: ${attrs['session.id']}');
         }
       }
-      print('   ⏰ Timestamp: ${crashData['timestamp']}');
+      print('   ⏰ Timestamp: ${crashBatch['timestamp']}');
       await drainQueue();
+    } else if (_clientError(status)) {
+      // A payload the collector rejects outright will never be accepted; storing
+      // it only buys an unbounded re-POST on every later success.
+      print('❌ Error report rejected (HTTP $status), dropped');
+      _drop(status);
     } else {
       print('❌ Failed to send error report, storing offline');
-      final filename = await queue.persist(crashData, isCrash: true);
+      final filename = await queue.persist(crashBatch, isCrash: true);
       if (filename != null) {
         print('💾 Error report stored for retry: $filename');
       }
     }
   }
 
-  /// Drain queued payloads through the same POST primitive.
-  Future<void> drainQueue() =>
-      queue.drain((data) async => _ok(await _status(data)));
+  /// Drain queued payloads through the same POST primitive. A payload stored
+  /// before the immediate rail was enveloped is re-wrapped on the way out, which
+  /// is what makes the crash backlog accumulated since v2.0.0 deliverable.
+  ///
+  /// A 4xx counts as *done with this file*: it is dropped, not retried.
+  Future<void> drainQueue() => queue.drain((stored) async {
+        final status = await _status(rewrapIfBare(stored));
+        if (_clientError(status)) {
+          _drop(status);
+          return true; // stop retrying it — delete
+        }
+        return _ok(status);
+      });
 
   bool _ok(int status) => status >= 200 && status < 300;
+
+  /// 4xx: the collector understood the request and refuses it. Retrying or
+  /// queueing it re-POSTs the same rejection forever (the v2 amplification).
+  bool _clientError(int status) => status >= 400 && status < 500;
+
+  bool _drop(int status) {
+    onDrop?.call('http_$status');
+    if (debugMode) print('🚫 Dropped payload — HTTP $status, not retryable');
+    return false;
+  }
 
   /// One send attempt → HTTP status. Injected [Sender] wins (tests): `true`→200,
   /// `false`→500 (a reachable failure). Real HTTP returns the status, or 0 when
@@ -127,19 +176,46 @@ class RetryTransport {
     return _httpPost(data);
   }
 
+  /// POST [data], gzipped unless the launch has already downgraded.
+  ///
+  /// The downgrade is self-verifying and costs at most one wasted POST per
+  /// launch: a 400 on a compressed body *might* mean the collector can't
+  /// decompress, so re-POST the same bytes uncompressed exactly once. If that
+  /// succeeds, the 400 was about the encoding and compression stays off for the
+  /// launch; if it fails too, the payload was simply bad and the probe is spent
+  /// either way. No config flag and no version endpoint — the probe *is* the
+  /// capability check.
   Future<int> _httpPost(Map<String, dynamic> data) async {
+    final body = utf8.encode(json.encode(data));
+
+    var status = await _post(body, gzip: _compress);
+    if (status == 400 && _compress && !_probeSpent) {
+      _probeSpent = true;
+      final plain = await _post(body, gzip: false);
+      if (_ok(plain)) {
+        _compress = false;
+        if (debugMode) print('🗜️ gzip not accepted — sending uncompressed');
+      }
+      status = plain;
+    }
+
+    if (_ok(status)) {
+      print('✅ Sent telemetry data successfully');
+    } else {
+      print('❌ Failed: HTTP $status');
+    }
+    return status;
+  }
+
+  Future<int> _post(List<int> body, {required bool gzip}) async {
     try {
       final request = await _httpClient.postUrl(_url);
       request.headers.set('Content-Type', 'application/json');
       if (apiKey != null) request.headers.set('X-API-Key', apiKey!);
-      request.write(json.encode(data));
+      if (gzip) request.headers.set('Content-Encoding', 'gzip');
+      request.add(gzip ? GZipCodec().encode(body) : body);
       final response = await request.close();
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        print('✅ Sent telemetry data successfully');
-      } else {
-        print('❌ Failed: HTTP ${response.statusCode}');
-      }
+      await response.drain<void>();
       return response.statusCode;
     } catch (e) {
       print('❌ Error: $e');

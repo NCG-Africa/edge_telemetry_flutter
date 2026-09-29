@@ -33,6 +33,13 @@ const _v2SilentDrops = <String, String>{
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
+
+  /// Wire items, unwrapped from their `telemetry_batch` envelope. Since #81
+  /// both rails envelope — the immediate crash as a one-item batch.
+  List<Map<String, dynamic>> get items => [
+        for (final p in sent)
+          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
+      ];
   Future<bool> call(Map<String, dynamic> payload) async {
     sent.add(payload);
     return true;
@@ -89,9 +96,10 @@ void main() {
     return (collector, session, sender);
   }
 
-  /// The bookend as it lands on the wire (immediate rail → bare event).
+  /// The bookend as it lands on the wire. Bookends ride the immediate rail, so
+  /// since #81 they arrive inside a one-item `telemetry_batch` envelope.
   Map<String, dynamic> finalizeOnWire(_RecordingSender s) =>
-      s.sent.lastWhere((p) => p['eventName'] == 'session.finalized');
+      s.items.lastWhere((p) => p['eventName'] == 'session.finalized');
 
   test('the canon holds exactly 16 events and 4 metrics', () {
     expect(kCanonEvents, hasLength(16));
@@ -176,7 +184,7 @@ void main() {
     session.beforeEvent(); // finalizes session_2
     await Future<void>(() {});
 
-    final finals = sender.sent
+    final finals = sender.items
         .where((p) => p['eventName'] == 'session.finalized')
         .map((p) => (p['attributes'] as Map)['session.dropped_item_count'])
         .toList();
@@ -234,7 +242,7 @@ void main() {
 
     await runZoned(() async {
       final (collector, _, ignored) = await wire(debugMode: true);
-      expect(ignored.sent.map((p) => p['eventName']),
+      expect(ignored.items.map((p) => p['eventName']),
           everyElement(startsWith('session.')));
       collector.add(const EdgeEvent.event('performance.memory_pressure'));
       collector.add(const EdgeEvent.metric('network.quality_score', 4));
@@ -253,7 +261,7 @@ void main() {
       final (collector, _, ignored) = await wire(); // debugMode off
       collector.add(const EdgeEvent.event('performance.memory_pressure'));
       expect(
-          ignored.sent.map((p) => p['eventName']),
+          ignored.items.map((p) => p['eventName']),
           everyElement(
               startsWith('session.'))); // still a hard drop, logged or not
     }, zoneSpecification: spy);

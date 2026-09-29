@@ -3,6 +3,7 @@
 import 'dart:async' show Timer;
 
 import 'retry_transport.dart';
+import 'wire_canon.dart';
 
 /// Buffers batched events and dispatches both the batched and immediate paths
 /// through the one [RetryTransport].
@@ -42,9 +43,11 @@ class Pipeline {
     }
   }
 
-  /// Send a single payload immediately, bypassing the batch (crash rail).
-  void sendNow(Map<String, dynamic> payload) {
-    transport.sendImmediate(payload);
+  /// Send a single wire item immediately, bypassing the batch (crash rail).
+  /// Enveloped as a one-item `telemetry_batch` — the collector rejects a bare
+  /// item with a 400, which is why no crash was ever delivered in v2.
+  void sendNow(Map<String, dynamic> item) {
+    transport.sendImmediate(telemetryBatch([item]));
   }
 
   /// Force-send any buffered events (call on shutdown).
@@ -54,13 +57,7 @@ class Pipeline {
 
   void _flush() {
     if (_buffer.isEmpty) return;
-    final batch = {
-      'type': 'telemetry_batch',
-      'timestamp': DateTime.now().toIso8601String(),
-      'batch_size': _buffer.length,
-      'events': List<Map<String, dynamic>>.from(_buffer),
-    };
-    transport.send(batch);
+    transport.send(telemetryBatch(List<Map<String, dynamic>>.from(_buffer)));
     if (debugMode) print('📤 Sent batch of ${_buffer.length} events');
     _buffer.clear();
     _timer?.cancel();

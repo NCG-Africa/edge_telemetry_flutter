@@ -18,7 +18,8 @@ One `telemetry_batch` envelope — a timestamped array of wire items POSTed as a
 _Avoid_: payload, bundle
 
 **Wire item**:
-A single `event` or `metric` object inside a batch, or POSTed alone on the immediate rail.
+A single `event` or `metric` object inside a batch. Every item rides one — the immediate
+rail sends a one-item batch, never a bare item.
 _Avoid_: record, message
 
 **Event**:
@@ -76,7 +77,8 @@ _Avoid_: force-send, priority
 
 **Offline queue**:
 The on-disk backlog — one JSON file per undeliverable payload, drained FIFO on the next
-successful send or on startup. Crash files are exempt from its drop-oldest cap.
+successful send or on startup, five files per cycle, crashes first. Crash files have
+their own drop-oldest cap, not an exemption; every file has an attempt ceiling.
 _Avoid_: cache, outbox, spool
 
 ### Collection

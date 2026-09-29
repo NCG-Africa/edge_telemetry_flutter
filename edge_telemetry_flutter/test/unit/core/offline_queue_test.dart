@@ -1,8 +1,9 @@
 // test/unit/core/offline_queue_test.dart
 //
 // Reliability-rail seams (#23): file-per-batch persist, lexical FIFO drain,
-// verbatim bytes, ~cap drop-oldest, and the crash-exempt policy. Runs against a
-// real temp dir via a faked PathProviderPlatform — no mocking of the queue.
+// verbatim bytes, and drop-oldest caps. #81 replaces the crash *exemption* with
+// a generous crash cap plus a per-file attempt ceiling, and paces the drain.
+// Runs against a real temp dir via a faked PathProviderPlatform — no mocking.
 
 import 'dart:io';
 
@@ -100,20 +101,79 @@ void main() {
     expect(surviving, [3, 4, 5]); // oldest three dropped
   });
 
-  test('crashes are exempt from the cap', () async {
-    final q = OfflineQueue(maxQueueSize: 2);
+  test('the two prefixes are capped independently', () async {
+    final q = OfflineQueue(maxQueueSize: 2, maxCrashFiles: 3);
     for (var i = 0; i < 5; i++) {
       await q.persist({'c': i}, isCrash: true);
     }
-    // A couple of normal batches alongside the crashes.
-    await q.persist({'b': 0});
-    await q.persist({'b': 1});
-    await q.persist({'b': 2}); // trips the cap → drops oldest batch
+    for (var i = 0; i < 4; i++) {
+      await q.persist({'b': i});
+    }
 
     final files = await queuedFiles();
-    final crashes = files.where((f) => f.startsWith('crash_'));
-    final batches = files.where((f) => f.startsWith('batch_'));
-    expect(crashes, hasLength(5)); // all crashes kept
-    expect(batches, hasLength(2)); // batches capped at 2
+    expect(files.where((f) => f.startsWith('crash_')), hasLength(3));
+    expect(files.where((f) => f.startsWith('batch_')), hasLength(2));
+  });
+
+  test('crashes lose the cap exemption: drop-oldest, counted', () async {
+    final drops = <String>[];
+    final q = OfflineQueue(maxCrashFiles: 2, onDrop: drops.add);
+    for (var i = 0; i < 5; i++) {
+      await q.persist({'c': i}, isCrash: true);
+    }
+
+    final kept = <int>[];
+    await q.drain((p) async {
+      kept.add(p['c'] as int);
+      return true;
+    });
+
+    expect(kept, [3, 4]); // oldest three dropped
+    expect(drops, ['queue_overflow', 'queue_overflow', 'queue_overflow']);
+  });
+
+  test('a file is dropped and counted once its attempts are exhausted',
+      () async {
+    final drops = <String>[];
+    final q = OfflineQueue(onDrop: drops.add);
+    await q.persist({'c': 0}, isCrash: true);
+
+    var attempts = 0;
+    for (var cycle = 0; cycle < OfflineQueue.maxAttempts + 1; cycle++) {
+      await q.drain((_) async {
+        attempts++;
+        return false; // collector keeps refusing
+      });
+    }
+
+    expect(attempts, OfflineQueue.maxAttempts);
+    expect(await queuedFiles(), isEmpty);
+    expect(drops, ['queue_attempts_exhausted']);
+  });
+
+  test('drain is paced at drainBatchSize files per cycle', () async {
+    final q = OfflineQueue();
+    for (var i = 0; i < 12; i++) {
+      await q.persist({'n': i});
+    }
+
+    expect(await q.drain((_) async => true), OfflineQueue.drainBatchSize);
+    expect(await queuedFiles(), hasLength(12 - OfflineQueue.drainBatchSize));
+  });
+
+  test('crashes drain ahead of an older batch backlog', () async {
+    final q = OfflineQueue();
+    for (var i = 0; i < 6; i++) {
+      await q.persist({'b': i}); // queued first — older
+    }
+    await q.persist({'c': 0}, isCrash: true);
+
+    final seen = <Map<String, dynamic>>[];
+    await q.drain((p) async {
+      seen.add(p);
+      return true;
+    });
+
+    expect(seen.first, {'c': 0});
   });
 }

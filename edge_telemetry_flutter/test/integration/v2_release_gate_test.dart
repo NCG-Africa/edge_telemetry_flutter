@@ -31,6 +31,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
+
+  /// Wire items, unwrapped from their `telemetry_batch` envelope. Since #81
+  /// both rails envelope — the immediate crash as a one-item batch.
+  List<Map<String, dynamic>> get items => [
+        for (final p in sent)
+          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
+      ];
   Future<bool> call(Map<String, dynamic> payload) async {
     sent.add(payload);
     return true;
@@ -187,8 +194,8 @@ void main() {
     // Exactly one payload on the wire — the crash — while the event still
     // buffers. Crashes ride the immediate rail as a bare event (not wrapped in a
     // telemetry_batch envelope; that's the batched rail).
-    expect(sender.sent, hasLength(1));
-    final crash = sender.sent.single;
+    expect(sender.items, hasLength(1));
+    final crash = sender.items.single;
     expect(crash['eventName'], 'app.crash');
     final a = crash['attributes'] as Map;
     // Unprefixed payload keys the rum_crash_events extractors read verbatim.
@@ -216,8 +223,8 @@ void main() {
     telemetry.trackError(StateError('kept')); // bypass → survives
     await Future<void>(() {});
 
-    expect(sender.sent, hasLength(1));
-    expect(sender.sent.single['eventName'], 'app.crash'); // immediate rail
+    expect(sender.items, hasLength(1));
+    expect(sender.items.single['eventName'], 'app.crash'); // immediate rail
     wiring.disposeAll();
   });
 

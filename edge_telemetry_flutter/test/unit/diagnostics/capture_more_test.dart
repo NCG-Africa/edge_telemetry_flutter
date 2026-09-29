@@ -20,6 +20,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
+
+  /// Wire items, unwrapped from their `telemetry_batch` envelope. Since #81
+  /// both rails envelope — the immediate crash as a one-item batch.
+  List<Map<String, dynamic>> get items => [
+        for (final p in sent)
+          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
+      ];
   Future<bool> call(Map<String, dynamic> payload) async {
     sent.add(payload);
     return true;
@@ -81,7 +88,7 @@ void main() {
       await Future<void>(() {});
 
       // app.crash rides the immediate rail: bare event, not a batch envelope.
-      final crashAttrs = sender.sent.single['attributes'] as Map;
+      final crashAttrs = sender.items.single['attributes'] as Map;
       expect(crashAttrs.containsKey('crash.breadcrumbs'), isTrue);
       final decoded =
           jsonDecode(crashAttrs['crash.breadcrumbs'] as String) as List;
@@ -99,7 +106,7 @@ void main() {
       final (collector, sender) = await _wire(breadcrumbs: BreadcrumbManager());
       collector.add(EdgeEvent.error(StateError('boom')));
       await Future<void>(() {});
-      final attrs = sender.sent.single['attributes'] as Map;
+      final attrs = sender.items.single['attributes'] as Map;
       expect(attrs.containsKey('crash.breadcrumbs'), isFalse);
     });
   });
