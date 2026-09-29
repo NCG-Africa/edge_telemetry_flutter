@@ -202,10 +202,14 @@ class TelemetryWiring {
     }
     // Built before the nav hook that drives it, and started before it too:
     // the very first route push must find a hook with a sink already bound.
+    //
+    // `Capture.navigation` is in the condition because a screen entry is a
+    // navigation: with the observer off there is nothing to time, and a hook
+    // that started, bound the in-flight listener and then emitted nothing
+    // would be indistinguishable from an app whose screens never load.
     ScreenLoadHook? screenLoadHook;
-    if (gate.allows(Capture.screenLoad)) {
-      screenLoadHook =
-          ScreenLoadHook(session: session, gate: gate, trace: trace);
+    if (gate.allows(Capture.screenLoad) && gate.allows(Capture.navigation)) {
+      screenLoadHook = ScreenLoadHook(session: session, trace: trace);
       disposers.add(screenLoadHook.start(collector));
     }
     if (gate.allows(Capture.navigation)) {

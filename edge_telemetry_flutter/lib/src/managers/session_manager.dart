@@ -80,6 +80,12 @@ class SessionManager {
   /// finalize bookend instead, at **zero extra items**.
   DateTime? _currentScreenStart;
 
+  /// Whether that visit ever painted. Same rule as the observer's dwell: a
+  /// screen nobody saw reports no time, because the frame still on the glass
+  /// belongs to the screen before it. Set by the screen-load hook's first
+  /// post-frame callback.
+  bool _currentScreenVisible = false;
+
   /// Items the SDK built but never sent, by reason. One counter, several
   /// clients: the off-canon allowlist gate today (#79), tier shedding / the
   /// action cap / the error caps later. Ships on `session.finalized` so a drop
@@ -236,6 +242,7 @@ class SessionManager {
     _screenJourney.clear();
     _currentScreenId = null;
     _currentScreenStart = null;
+    _currentScreenVisible = false;
     _droppedByReason.clear();
     _cardinalityCapped = 0;
   }
@@ -266,7 +273,11 @@ class SessionManager {
     _screenJourney.add(screenName);
     _currentScreenId = secureHex16();
     _currentScreenStart = _clock();
+    _currentScreenVisible = false;
   }
+
+  /// The current screen visit reached its first frame.
+  void markCurrentScreenVisible() => _currentScreenVisible = true;
 
   /// The current screen visit's id, or null before the first navigation.
   String? get currentScreenId => _currentScreenId;
@@ -295,7 +306,7 @@ class SessionManager {
           journey: _screenJourney,
           dropped: _droppedByReason,
           cardinalityCapped: _cardinalityCapped,
-          lastScreenStart: _currentScreenStart,
+          lastScreenStart: _currentScreenVisible ? _currentScreenStart : null,
         )));
   }
 
@@ -326,7 +337,9 @@ class SessionManager {
                   ?.map((k, v) => MapEntry('$k', (v as num?)?.toInt() ?? 0)) ??
               const {},
           cardinalityCapped: (r['capped'] as num?)?.toInt() ?? 0,
-          lastScreenStart: DateTime.tryParse(r['screenStart'] as String? ?? ''),
+          lastScreenStart: r['screenVisible'] == true
+              ? DateTime.tryParse(r['screenStart'] as String? ?? '')
+              : null,
           recovered: true,
         )));
   }
@@ -399,6 +412,7 @@ class SessionManager {
         'journey': _screenJourney,
         if (_currentScreenStart != null)
           'screenStart': _currentScreenStart!.toIso8601String(),
+        'screenVisible': _currentScreenVisible,
         'dropped': _droppedByReason,
         'capped': _cardinalityCapped,
       }),

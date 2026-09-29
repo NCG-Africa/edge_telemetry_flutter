@@ -191,9 +191,11 @@ void main() {
       await sm.recoverAndStart();
 
       sm.recordScreen('/a');
+      sm.markCurrentScreenVisible(); // the screen-load hook's first frame
       sm.beforeEvent(); // the navigation event the Collector passes through
       clock = clock.add(const Duration(seconds: 4));
       sm.recordScreen('/b'); // /a's dwell folded onto its navigation event
+      sm.markCurrentScreenVisible();
       sm.beforeEvent();
       clock = clock.add(const Duration(seconds: 7));
       sm.beforeEvent(); // last activity on /b
@@ -214,6 +216,7 @@ void main() {
       final sm = build();
       await sm.recoverAndStart();
       sm.recordScreen('/only');
+      sm.markCurrentScreenVisible();
       clock = clock.add(const Duration(seconds: 3));
       sm.handlePause(); // persists lastActivity + the screen start
 
@@ -224,6 +227,27 @@ void main() {
       final a = attrsOf(named('session.finalized').single);
       expect(a['session.recovered'], 'true');
       expect(a['session.last_screen_duration_ms'], '3000');
+    });
+
+    // #88: the same never-visible rule the observer applies to dwell. The frame
+    // still on the glass belongs to the screen before this one.
+    test('a final screen that never painted reports no dwell', () async {
+      final sm = build();
+      await sm.recoverAndStart();
+
+      sm.recordScreen('/a');
+      sm.markCurrentScreenVisible();
+      sm.beforeEvent();
+      clock = clock.add(const Duration(seconds: 5));
+      sm.recordScreen(
+          '/never_painted'); // pushed, killed before its first frame
+      sm.beforeEvent();
+
+      clock = clock.add(const Duration(minutes: 31));
+      sm.beforeEvent(); // rotate → finalize
+
+      final a = attrsOf(named('session.finalized').single);
+      expect(a.containsKey('session.last_screen_duration_ms'), isFalse);
     });
   });
 }

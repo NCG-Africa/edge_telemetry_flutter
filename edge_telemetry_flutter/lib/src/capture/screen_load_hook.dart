@@ -28,8 +28,6 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
-import '../core/capture_gate.dart';
-import '../core/config/collection_tier.dart';
 import '../core/edge_event.dart';
 import '../core/screen_inflight.dart';
 import '../managers/session_manager.dart';
@@ -69,10 +67,6 @@ class ScreenLoadHook implements CaptureHook {
 
   final SessionManager session;
 
-  /// Tier gate. Checked at [enter], **before** any attribute map or timer
-  /// exists — gating at the Collector would pay for the whole load.
-  final CaptureGate? gate;
-
   /// Mints the frozen child span the terminal event carries. Null in
   /// state-only tests, in which case the event is simply untraced.
   final TraceManager? trace;
@@ -85,7 +79,6 @@ class ScreenLoadHook implements CaptureHook {
 
   ScreenLoadHook({
     required this.session,
-    this.gate,
     this.trace,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
@@ -112,12 +105,16 @@ class ScreenLoadHook implements CaptureHook {
   void enter(String screenName, {Map<String, String> routeContext = const {}}) {
     _terminate(kScreenLoadAbandoned);
 
-    if (gate != null && !gate!.allows(Capture.screenLoad)) {
+    // No tier check here: the gate is asked once, at construction, and this
+    // hook does not exist when `Capture.screenLoad` is off. A second check
+    // would be an unreachable branch pretending to be a policy.
+    final screenId = session.currentScreenId;
+    if (screenId == null || _sink == null) {
+      // Nothing will be timed, so nothing may keep claiming the screen we just
+      // left — a request entering the seam now belongs to no screen at all.
       setCurrentScreen(null);
       return;
     }
-    final screenId = session.currentScreenId;
-    if (screenId == null || _sink == null) return;
 
     setCurrentScreen(screenId);
     final load = _ScreenLoad(
@@ -144,6 +141,10 @@ class ScreenLoadHook implements CaptureHook {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!identical(_open, load)) return;
       load.firstFrame = _clock();
+      // The same fact the observer needs for dwell, told to the one holder
+      // that outlives every screen: the session, which owes the final
+      // screen's dwell on its finalize bookend.
+      session.markCurrentScreenVisible();
       _armQuietWindow(load);
     });
     // `addPostFrameCallback` does not schedule a frame — it only books a seat
@@ -190,6 +191,12 @@ class ScreenLoadHook implements CaptureHook {
     if (load.firstFrame == null) return;
     if (inFlightForScreen(load.screenId) > 0) return;
     load.quietTimer?.cancel();
+    // **The instant the quiet started is the settled instant.** Terminating
+    // 500 ms later and measuring to *there* would add the window to every
+    // number, biasing every screen the same way against the query-time Apdex
+    // threshold — the window is how we know the screen settled, not part of
+    // how long it took.
+    load.quietSince = _clock();
     load.quietTimer =
         Timer(kScreenQuietWindow, () => _terminate(kScreenLoadSettled));
   }
@@ -209,9 +216,14 @@ class ScreenLoadHook implements CaptureHook {
     final sink = _sink;
     if (sink == null) return;
 
-    final settledMs = outcome == kScreenLoadSettled
-        ? _clock().difference(load.start).inMilliseconds
-        : null;
+    // A reported settle happened now; an inferred one happened when the quiet
+    // began.
+    final settledAt = outcome != kScreenLoadSettled
+        ? null
+        : reported
+            ? _clock()
+            : load.quietSince;
+    final settledMs = settledAt?.difference(load.start).inMilliseconds;
 
     sink.add(EdgeEvent.event(
       'screen.load',
@@ -264,6 +276,10 @@ class _ScreenLoad {
   final FrozenTrace? frozen;
 
   DateTime? firstFrame;
+
+  /// When the current quiet window began — the settled instant if it holds.
+  DateTime? quietSince;
+
   Timer? quietTimer;
   Timer? deadlineTimer;
 

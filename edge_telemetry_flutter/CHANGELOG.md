@@ -235,7 +235,10 @@
   screen's. Dwell is also no longer emitted for a screen that **was never
   visible** — a route pushed and superseded inside the same frame never painted,
   and a row saying a user spent 0 ms somewhere they never were is worse than no
-  row.
+  row. The same rule applies to the bookend dwell. `didRemove` — a route plucked
+  out of the middle of the stack — now reports nothing at all: it was not the
+  visible screen and the user did not leave it, so v2's
+  `screen.exit_method: removed` had no navigation to fold onto.
 - **The identity-hashed route-name fallback is deleted.** An unnamed route was
   named `screen_<Type>_<hashCode>`, which minted a fresh value on every visit,
   so every screen-keyed dashboard carried cardinality equal to total navigations
@@ -244,8 +247,14 @@
   repeats groups nothing. Parameterised names (`/orders/8412`) are
   **documented, not sanitized** — the SDK cannot tell a segment you meant as a
   name from one you meant as an id, and guessing would silently rename screens.
-  `screen.name` joins `http.url` on the per-session distinct-value cap, which is
-  the guard.
+  `screen.name`, `navigation.to` and `navigation.from` all join `http.url` on the
+  per-session distinct-value cap, which is the guard — all three carry the same
+  route string, so guarding one would guard one row type out of two.
+  `session.screen_journey` is deliberately left off: it is a joined composite, so
+  a cap would sentinel it on the second navigation. This is a **fourth** change
+  to a v2 value's meaning beyond §8's three carve-outs, and it is deliberate for
+  the same class of reason: the old value was wrong (a grouping key that never
+  repeats groups nothing), not merely different.
 
 - **Every HTTP duration now comes off a monotonic `Stopwatch`** rather than two
   wall-clock reads. A request spanning an NTP correction or a user clock change

@@ -231,8 +231,9 @@ carry cardinality equal to your total navigations. Visit identity is `screen.id`
 segment you meant as a name from one you meant as an id, and guessing would
 silently rename your screens. Name such routes yourself
 (`RouteSettings(name: '/orders/:id')`) if you want them grouped. The guard if you
-don't is the per-session cardinality cap — past 50 distinct values the key
-becomes `__over_cardinality__` and `session.cardinality_capped_count` says so.
+don't is the per-session cardinality cap on `screen.name`, `navigation.to` and
+`navigation.from` — past 50 distinct values the key becomes
+`__over_cardinality__` and `session.cardinality_capped_count` says so.
 
 ### ⏱️ Screen Load (Zero Setup Required)
 
@@ -265,6 +266,12 @@ sees:
 // After your content is actually on screen.
 EdgeTelemetry.instance.reportScreenSettled();
 ```
+
+Call it as soon as your content is up. The inference does not wait for you: if
+your last step lands more than 500 ms after the quiet window opened, the
+`inferred` event has already shipped and the call is a no-op. `settled_ms`
+measures to the instant the screen went quiet, **not** to the end of the
+window — otherwise every screen would read 500 ms slower than it loaded.
 
 Render-complete and time-to-interactive are **not** collected, and won't be:
 Flutter composites one frame from one widget tree (there is no later paint to

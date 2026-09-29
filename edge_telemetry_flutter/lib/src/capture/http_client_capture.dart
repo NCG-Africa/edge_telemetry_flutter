@@ -92,8 +92,16 @@ class CapturedClient extends http.BaseClient {
 
     // The screen this request belongs to, claimed at the call instant for the
     // same reason the trace context is: the screen showing when it finishes is
-    // not the screen that asked. Released on every completion path below.
+    // not the screen that asked.
     final screenId = beginScreenRequest();
+
+    // One release per claim, by construction rather than by hand — the same
+    // shape the `dart:io` seam uses. Every row this request can produce goes
+    // through this one closure, so a third completion path cannot forget.
+    void emit(HttpRequestTelemetry t) {
+      endScreenRequest(screenId);
+      _onRequestComplete(t);
+    }
 
     final callStart = DateTime.now();
     final clock = Stopwatch()..start();
@@ -116,8 +124,7 @@ class CapturedClient extends http.BaseClient {
       // every path through this seam. Guessing the socket's fate would make the
       // row claim a thing it cannot know, and a server span joined on this
       // `trace.id` would be orphaned by a wrong "not traced".
-      endScreenRequest(screenId);
-      _onRequestComplete(HttpRequestTelemetry(
+      emit(HttpRequestTelemetry(
         url: request.url.toString(),
         method: request.method,
         statusCode: 0,
@@ -162,8 +169,7 @@ class CapturedClient extends http.BaseClient {
               '${response.statusCode} (${atHeaders.inMilliseconds}ms + '
               '${download.inMilliseconds}ms body) [$kSeamHttpClient]');
         }
-        endScreenRequest(screenId);
-        _onRequestComplete(HttpRequestTelemetry(
+        emit(HttpRequestTelemetry(
           url: request.url.toString(),
           method: request.method,
           statusCode: response.statusCode,

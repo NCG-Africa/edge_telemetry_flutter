@@ -41,13 +41,18 @@ void main() {
   late EdgeNavigationObserver observer;
   late DisposeHandle disposeHook;
 
+  /// The hook's clock. `tester.pump(d)` drives fake_async's timers but not
+  /// `DateTime.now`, so durations are asserted against this instead.
+  late DateTime now;
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     resetScreenInflight();
     session = SessionManager();
     await session.startSession('s1');
     sink = _FakeSink();
-    hook = ScreenLoadHook(session: session);
+    now = DateTime(2026, 1, 1, 9, 0, 0);
+    hook = ScreenLoadHook(session: session, clock: () => now);
     disposeHook = hook.start(sink);
     final nav = NavCaptureHook(
       session: session,
@@ -93,6 +98,21 @@ void main() {
       expect(a['screen.name'], '/a');
       expect(a['screen.load.first_frame_ms'], isNotNull);
       expect(a['screen.load.settled_ms'], isNotNull);
+    });
+
+    testWidgets('settled_ms excludes the quiet window', (tester) async {
+      observer.didPush(_route('/a'), null);
+      now = now.add(const Duration(milliseconds: 120));
+      await tester.pump(); // first frame at +120ms, quiet starts here
+
+      now = now.add(kScreenQuietWindow);
+      await tester.pump(kScreenQuietWindow);
+
+      final a = onlyLoad();
+      // 120, not 620: the window is how we know it settled, not part of how
+      // long it took — otherwise every screen reads 500ms slow against Apdex.
+      expect(a['screen.load.settled_ms'], '120');
+      expect(a['screen.load.first_frame_ms'], '120');
     });
 
     testWidgets('abandoned: the user navigates away first', (tester) async {
