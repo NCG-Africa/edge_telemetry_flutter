@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../capture/capture_hook.dart' show EventSink;
 import '../core/edge_event.dart';
+import 'identity_format.dart';
 
 /// Timer-free lazy session model (spec #15 §2 / ticket #24).
 ///
@@ -66,6 +67,9 @@ class SessionManager {
   int _httpRequestCount = 0;
   final Set<String> _visitedScreens = {};
   final List<String> _screenJourney = [];
+
+  /// The current screen *visit*, not the route — see [recordScreen].
+  String? _currentScreenId;
 
   /// Items the SDK built but never sent, by reason. One counter, several
   /// clients: the off-canon allowlist gate today (#79), tier shedding / the
@@ -204,14 +208,39 @@ class SessionManager {
     _httpRequestCount = 0;
     _visitedScreens.clear();
     _screenJourney.clear();
+    _currentScreenId = null;
     _droppedByReason.clear();
   }
 
-  /// Ordered route path (for `screen_journey`) + distinct set (for count).
+  /// Ordered route path (for `screen_journey`) + distinct set (for count), and
+  /// the mint site for `screen.id`.
+  ///
+  /// A fresh id on **every entry**, so a back-navigation to an already-visited
+  /// route is a new visit with a new id. Chosen over reconstructing visits from
+  /// the navigation sequence because offline batches arrive hours late and out
+  /// of order, which makes arrival order silently wrong.
+  ///
+  /// 16-hex and deliberately not family-prefixed: the id is scoped by
+  /// `session.id`, which already rides every item, so it needs no device-global
+  /// uniqueness — 16 bytes rather than ~45 on a key that appears everywhere.
+  /// It lives here and not on `TraceManager` because session scope *is* its
+  /// lifetime: `_resetCounters` already clears it on rotation, for free. After
+  /// this there is no code path from a screen entry to the trace manager.
+  ///
+  /// A screen visit is **deliberately not a span**, tempting as its start/end
+  /// shape is: an `http.request` inside a tap inside a screen would then have
+  /// two candidate parents, and either the screen becomes the root —
+  /// contradicting `rum.action.id` as the sole join key — or the span tree
+  /// grows a level the backend's view does not model. `screen.id` is an
+  /// ordinary correlating attribute, outside the tree.
   void recordScreen(String screenName) {
     _visitedScreens.add(screenName);
     _screenJourney.add(screenName);
+    _currentScreenId = secureHex16();
   }
+
+  /// The current screen visit's id, or null before the first navigation.
+  String? get currentScreenId => _currentScreenId;
 
   // ==================== FINALIZE / JOURNEY SUMMARY ====================
 
@@ -342,6 +371,9 @@ class SessionManager {
       'session.http_request_count': _httpRequestCount.toString(),
       'session.screen_count': _visitedScreens.length.toString(),
       'session.visited_screens': _visitedScreens.join(','),
+      // Per-item, not batch-scoped: it changes within a batch, so the hoist
+      // must never lift it (`isHoistedContextKey` leaves it alone by design).
+      if (_currentScreenId != null) 'screen.id': _currentScreenId!,
       'session.is_first_session': _isFirstSession().toString(),
       'session.total_sessions': _getTotalSessions().toString(),
       if (_sampled != null) 'session.sampled': _sampled!,

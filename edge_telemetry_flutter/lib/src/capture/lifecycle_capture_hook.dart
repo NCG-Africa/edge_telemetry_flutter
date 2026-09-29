@@ -7,6 +7,7 @@ import '../core/config/collection_tier.dart';
 import '../core/edge_event.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/session_manager.dart';
+import '../managers/trace_manager.dart';
 import 'capture_hook.dart';
 
 /// Bridges `AppLifecycleState` to the session model (spec #15 §2.2) and emits
@@ -14,11 +15,20 @@ import 'capture_hook.dart';
 ///
 /// - `paused`: emit the lifecycle event, **flush** the Pipeline (nothing lost to
 ///   a subsequent kill), then [SessionManager.handlePause] (mark, don't
-///   finalize).
+///   finalize) and [TraceManager.clear].
 /// - `resumed`: [SessionManager.handleResume] first (rotate if idle past the
 ///   window) so the lifecycle event lands on the correct session.
 class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
   final SessionManager session;
+
+  /// Cleared on `paused` beside the session mark. Load-bearing rather than
+  /// belt-and-braces: Dart has no elapsed-realtime analogue and `Stopwatch`
+  /// across device suspend is unverified, so the root's wall-clock TTL cannot
+  /// be trusted to age out a root the user backgrounded. This hook is always
+  /// on — it drives the session model, not an optional monitor — which is what
+  /// makes the clear hold without a new dispose handle. Null in state-only
+  /// tests.
+  final TraceManager? trace;
 
   /// Flushes the Pipeline buffer (wired to `pipeline.flush`).
   final void Function() flush;
@@ -35,6 +45,7 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
   LifecycleCaptureHook(
       {required this.session,
       required this.flush,
+      this.trace,
       this.breadcrumbs,
       this.gate});
 
@@ -51,6 +62,7 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
       _emit(state);
       flush();
       session.handlePause();
+      trace?.clear();
     } else if (state == AppLifecycleState.resumed) {
       session.handleResume();
       _emit(state);

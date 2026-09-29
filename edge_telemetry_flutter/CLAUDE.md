@@ -42,7 +42,7 @@ EdgeTelemetry (lib/src/facade/)   ← the entire public API; singleton; owns Tel
 
 `lib/edge_telemetry_flutter.dart` is **exports only** — the barrel god-object is gone. Capture hooks
 (`capture/`) feed the Collector and each returns a dispose handle. Managers (`managers/`) own session,
-context, identity, profile, breadcrumbs. `lib/main.dart` is a demo app shipped in the package, not the
+context, trace, identity, profile, breadcrumbs. `lib/main.dart` is a demo app shipped in the package, not the
 library entry point.
 
 ### The wire is a closed contract
@@ -111,6 +111,26 @@ gate **at the capture hook**, before the attribute map is built, never at the Co
 build the map and spend the CPU only to discard the item. The budget governor sheds **whole tiers** in
 shed-rank order — `diagnostic`, then `standard`, never `essential` — and never individual signals.
 `essential` is exactly v2's shipped sampling-bypass set: crash, session bookends, profile update.
+
+### Trace context is ambient, and expiry is somebody's read
+
+`TraceManager` holds the one open root and merges into `ContextManager.snapshot()` as a second
+delegate, so **a capture hook that never touches trace context cannot forget it** — the structural
+fix for the bug class that silently dropped seven emissions. Ambient is **exactly three keys**
+(`trace.id`, `rum.action.id`, `trace.root_type`); `span.id`/`parent.span.id` are minted per
+referenceable item by the single `startChild()` call and are never ambient.
+
+Expiry (2 s idle, 10 s cap, session mismatch) runs in `TraceManager`'s **read accessors, not the
+Collector** — the freeze happens inside the request override and never passes through
+`Collector.add` at all. So the snapshot read is side-effecting; that is safe because expiry is
+monotonic and idempotent, and unavoidable under the no-timer rule. Clear-on-`paused` is load-bearing
+(Dart has no elapsed-realtime analogue). Construction order is strict: **session → trace → context**.
+
+`EdgeEvent.ownsTraceContext` is the **fourth** orthogonal axis (beside priority, sampling bypass and
+session counting): it makes the Collector strip those three ambient keys before merging the item's
+own frozen copy, because *absence cannot beat presence in a spread*. `screen.id` is `SessionManager`'s
+(session-scoped, minted in `recordScreen`) and a screen visit is **deliberately not a span** — it
+would give an in-tap request two candidate parents.
 
 ### Session is lazy, never timed
 

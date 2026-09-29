@@ -1,7 +1,8 @@
 // lib/src/core/edge_event.dart
 
-/// Send priority for an [EdgeEvent] — one of two orthogonal axes (the other is
-/// [EdgeEvent.bypassSampling]).
+/// Send priority for an [EdgeEvent] — one of four orthogonal axes (the others
+/// are [EdgeEvent.bypassSampling], [EdgeEvent.countsToSession] and
+/// [EdgeEvent.ownsTraceContext]).
 ///
 /// - [batched]: buffered by the Pipeline and sent in a `type:"batch"` envelope.
 /// - [immediate]: sent straight away, bypassing the batch (crash rail).
@@ -49,11 +50,26 @@ class EdgeEvent {
   /// capture (nav/perf/network) and errors do not.
   final bool countsToSession;
 
+  /// The fourth orthogonal axis, joining priority, sampling bypass and session
+  /// counting: this item carries its **own** trace context, frozen at the
+  /// moment it describes, so the Collector strips the ambient trace keys
+  /// (`kAmbientTraceAttributes`) out of the snapshot before merging the item's
+  /// attributes over the top.
+  ///
+  /// Set it on anything emitted materially later than the moment it describes —
+  /// a request, a screen load, a task start — including when the freeze found
+  /// *no* open root. That empty case is the whole reason the axis exists: an
+  /// absent key cannot beat a present one in a spread, so without the strip a
+  /// legally-unattributed request would inherit whatever tap happened while it
+  /// was in flight.
+  final bool ownsTraceContext;
+
   const EdgeEvent.event(
     this.name, {
     this.attributes = const {},
     this.countsToSession = false,
     this.bypassSampling = false,
+    this.ownsTraceContext = false,
   })  : type = 'event',
         value = null,
         error = null,
@@ -65,6 +81,7 @@ class EdgeEvent {
     this.value, {
     this.attributes = const {},
     this.countsToSession = false,
+    this.ownsTraceContext = false,
   })  : type = 'metric',
         error = null,
         stackTrace = null,
@@ -110,6 +127,9 @@ class EdgeEvent {
 
   const EdgeEvent._crash(this.attributes)
       : type = 'event',
+        // A crash mints no span and freezes nothing — it inherits the ambient
+        // keys, which is exactly the attribution the action id already gives.
+        ownsTraceContext = false,
         name = 'app.crash',
         value = null,
         error = null,
@@ -125,6 +145,7 @@ class EdgeEvent {
   /// journey summary is pre-built by [SessionManager]).
   const EdgeEvent.session(this.name, this.attributes)
       : type = 'event',
+        ownsTraceContext = false,
         value = null,
         error = null,
         stackTrace = null,

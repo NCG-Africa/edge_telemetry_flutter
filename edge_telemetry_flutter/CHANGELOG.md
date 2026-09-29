@@ -4,6 +4,24 @@
 
 ### Added
 
+- **The correlation spine: trace context now rides the context snapshot.** An
+  open trace root (one of `launch`, `interaction`, `request`, `navigation`) puts
+  exactly three keys — `trace.id`, `rum.action.id`, `trace.root_type` — on every
+  item enriched while it is open, so crashes, frame aggregates and device
+  readings are attributed without any capture site touching trace context. A
+  referenceable item instead makes one call that freezes its own copy and mints
+  its child `span.id` / `parent.span.id`; the event marks itself as owning that
+  context and the ambient keys are stripped rather than spread underneath it, so
+  a request that started before the user touched the screen can never be
+  attributed to the tap that followed it. A request's own `span.id` is the
+  request id — there is no `request_id` and no `error_id`.
+- **`screen.id`** — 16 hex characters, minted on every screen entry, so a
+  back-navigation to the same route is a new, identifiable visit rather than an
+  ambiguous replay of an earlier one. Session-scoped and reset on rotation.
+- The root is lazily expired (2 s idle, 10 s cap) and cleared on session
+  rotation and on `AppLifecycleState.paused` — no timer, in keeping with the
+  rest of the SDK. A trace never spans a session.
+
 - **Batch-level context hoist, behind an internal flip that ships off.** About
   81% of every v2 item is repeated context. The `telemetry_batch` envelope can
   now carry one flat dotted `context` block — static device/app/SDK identity,

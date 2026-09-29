@@ -10,10 +10,33 @@ import 'dart:math';
 const _hex = '0123456789abcdef';
 final _secureRandom = Random.secure();
 
-/// 16 lowercase hex chars = 64 bits of entropy from [Random.secure].
-String secureHex16() => String.fromCharCodes(
-      Iterable.generate(16, (_) => _hex.codeUnitAt(_secureRandom.nextInt(16))),
+/// [chars] lowercase hex characters from the **one process-lifetime**
+/// [Random.secure] above — never a fresh handle per call, which would take a
+/// fresh entropy draw on a hot path.
+///
+/// Width is structural rather than formatted: one nibble is emitted per
+/// character straight off the table, so there is no number to zero-pad and no
+/// way to produce a short id. That matters because a trace field is not
+/// forgiving — `edge_db`'s CHECK demands lowercase **non-zero** hex of an exact
+/// width, and the Go processor truncates without validating, so a short or
+/// all-zero id dead-letters the *whole event*, not just its trace. Hence the
+/// explicit all-zero guard: astronomically unlikely, unrecoverable if hit.
+String secureHex(int chars) {
+  while (true) {
+    final id = String.fromCharCodes(
+      Iterable.generate(
+          chars, (_) => _hex.codeUnitAt(_secureRandom.nextInt(16))),
     );
+    if (id.codeUnits.any((c) => c != 0x30)) return id;
+  }
+}
+
+/// 16 lowercase hex chars = 64 bits of entropy. The identity random part, the
+/// W3C span id and `screen.id` are all this width.
+String secureHex16() => secureHex(16);
+
+/// 32 lowercase hex chars = the W3C trace id width.
+String secureHex32() => secureHex(32);
 
 /// The lowercased real-OS token baked into the device/session ID platform leg
 /// (`ios`/`android` on device). One source so every leg agrees.
