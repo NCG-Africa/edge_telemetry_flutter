@@ -334,7 +334,9 @@ terminal:
 | `span.duration_ms` | time on task — the same span duration key HTTP uses |
 | `task.abandon_source` | `session_end` or `launch_recovery`, abandoned only |
 
-A second `startTask` under the same name supersedes the first. Trace context is
+A second `startTask` under the same name supersedes the first. Keep task names a
+small fixed set — build one from an order id and it is sentinelled past 50
+distinct values in a session, the same guard `screen.name` gets. Trace context is
 frozen at the **start**, so the terminal is attributed to the action that began
 the journey rather than to whatever tap happens to be open minutes later — and a
 task mints no root of its own, so requests inside it keep exactly one parent.

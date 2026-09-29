@@ -45,6 +45,10 @@
   edges alone are wrong in both directions on a *foreground crash*, the case the
   record exists for.
 
+  `task.name` joins `kCappedSdkKeys`, so a name built from an order id is
+  sentinelled at 50 distinct values per session rather than shipping a
+  cardinality bomb on a key the redaction hook cannot reach.
+
   **Apdex ships zero events, zero attributes, zero bytes.** The client never
   bands; the threshold is query-time and per-target, so it moves without a client
   release. Coverage for this category is **conditional**, in those words — the

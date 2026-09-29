@@ -394,8 +394,17 @@ class EdgeTelemetry {
   /// double-counting. There is no automatic source for this one.
   void startTask(String name) {
     _ensureInitialized();
-    _wiring!.session
-        .startTask(name, _wiring!.trace.startChild()?.attributes ?? const {});
+    final session = _wiring!.session;
+    // Two statements, not one expression, because Dart would otherwise evaluate
+    // the freeze as an argument — i.e. *before* `startTask` runs its own idle
+    // check. If this call is the first activity past the 30-minute window it
+    // rotates the session, and a trace never spans a session: freezing first
+    // would carry the dead session's `trace.id` onto a terminal that lands in
+    // the new one. Rotating first makes `startChild()` find the stale root
+    // already cleared, so the task is honestly unattributed instead.
+    session.beforeEvent();
+    final frozen = _wiring!.trace.startChild();
+    session.startTask(name, frozen?.attributes ?? const {});
   }
 
   /// Close a journey started by [startTask] as `completed`. Unknown or
@@ -403,7 +412,7 @@ class EdgeTelemetry {
   /// there is no unclosed-call failure mode to leak.
   void completeTask(String name) {
     _ensureInitialized();
-    _wiring!.session.endTask(name, kTaskCompleted);
+    _wiring!.session.endTask(name, TaskOutcome.completed);
   }
 
   /// Close a journey started by [startTask] as `failed` — the user reached an
@@ -417,7 +426,7 @@ class EdgeTelemetry {
   /// session idle window is the cap.
   void failTask(String name) {
     _ensureInitialized();
-    _wiring!.session.endTask(name, kTaskFailed);
+    _wiring!.session.endTask(name, TaskOutcome.failed);
   }
 
   /// Capture a `package:http` client that `HttpOverrides` cannot see.
