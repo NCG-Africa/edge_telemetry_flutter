@@ -25,7 +25,9 @@ import 'clock_skew.dart';
 /// `user.interaction` and `screen.duration` stay on the list because a canon
 /// name is never removed. Whether either is still emitted — and the deprecation
 /// annotations, changelog line and removal version that go with stopping — is
-/// owned by their own tickets, not by this list.
+/// owned by their own tickets, not by this list. `screen.duration` stopped being
+/// emitted in v3 (#88, removal v4.0.0): the same measurement rides `navigation`
+/// as `screen.previous_duration_ms`, so a navigation is one item, not two.
 const Set<String> kCanonEvents = {
   'session.started',
   'session.finalized',

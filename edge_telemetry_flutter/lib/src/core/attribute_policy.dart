@@ -31,8 +31,22 @@ const String kCardinalitySentinel = '__over_cardinality__';
 /// every future emitter had to remember to exempt its new key, and the one
 /// that forgot would fail silently. `http.url` is on the list because a REST
 /// app really does mint unbounded paths, which is the whole reason path ids
-/// are templated first.
-const Set<String> kCappedSdkKeys = {'http.url'};
+/// are templated first. `screen.name` is on it for the same reason and is the
+/// **only** guard on a parameterised route name (`/orders/8412`): those are
+/// documented rather than sanitized, because the SDK cannot tell a path
+/// segment the developer meant as a name from one they meant as an id, and
+/// guessing would silently rename screens.
+/// `navigation.to` / `navigation.from` carry the same route string as
+/// `screen.name`, so the guard has to sit on all three or it guards one row
+/// type out of two. `session.screen_journey` is deliberately *not* on the list:
+/// it is a joined composite, so nearly every value is distinct and a cap would
+/// sentinel it on the second navigation.
+const Set<String> kCappedSdkKeys = {
+  'http.url',
+  'screen.name',
+  'navigation.to',
+  'navigation.from',
+};
 
 /// Runs over an item's **own** attributes — never the ~30-key context
 /// snapshot, which would be 30 consumer callbacks per item on the UI isolate

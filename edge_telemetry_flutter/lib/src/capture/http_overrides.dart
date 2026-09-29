@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../core/http_seam_state.dart';
+import '../core/screen_inflight.dart';
 import 'http_url.dart';
 import 'trace_injection.dart';
 
@@ -460,6 +461,21 @@ class TelemetryHttpClient implements HttpClient {
     // injected. The causal parent is the action that called the API, not
     // whatever tap landed during a TLS handshake.
     final freeze = injector?.freeze() ?? (carrier: null, expired: false);
+
+    // The same instant, for the same reason: the screen this request belongs
+    // to is the one that was on screen when the call was made, not the one
+    // showing when it finishes. Claimed here so the screen-load hook can
+    // infer "settled" from the count reaching zero.
+    final screenId = beginScreenRequest();
+
+    // One release per claim, on every completion path. Wrapping the callback
+    // is what makes that true by construction — every row this request can
+    // produce, from every wrapper below, goes through this one closure.
+    void complete(HttpRequestTelemetry t) {
+      endScreenRequest(screenId);
+      _onRequestComplete(t);
+    }
+
     final callStart = DateTime.now();
     final clock = Stopwatch()..start();
     final HttpClientRequest request;
@@ -473,7 +489,7 @@ class TelemetryHttpClient implements HttpClient {
       //
       // It carries the frozen ids but **no outcome**: no header was ever
       // written, and absence is the contract's own member for "not traced".
-      _onRequestComplete(_failed(url, method, callStart, clock, error,
+      complete(_failed(url, method, callStart, clock, error,
           traceAttributes: injector?.stamp(freeze) ?? const {}));
       rethrow;
     }
@@ -485,7 +501,7 @@ class TelemetryHttpClient implements HttpClient {
       clock: clock,
       openMs: clock.elapsedMilliseconds,
       connects: _connects,
-      onRequestComplete: _onRequestComplete,
+      onRequestComplete: complete,
       debugMode: debugMode,
       injector: injector,
       freeze: freeze,

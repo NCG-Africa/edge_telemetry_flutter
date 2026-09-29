@@ -347,6 +347,25 @@ class EdgeTelemetry {
     _wiring!.trace.nameCurrent(name);
   }
 
+  /// Declare the current screen finished loading — **the override, not the
+  /// mechanism**.
+  ///
+  /// Screen load settles by inference: first frame reached, nothing this
+  /// screen started still in flight, and 500 ms of quiet. That default is
+  /// inverted from the industry manual-first one on evidence rather than
+  /// taste — a manual API is silently missing wherever consumers do not call
+  /// it, and measurement says they do not.
+  ///
+  /// Call this when the inference cannot see your last step: a screen whose
+  /// content arrives over a websocket, from a local database, or from a
+  /// cache the SDK never observes. It wins over the inference wherever both
+  /// could fire, and stamps `screen.load.source: reported` so a dashboard
+  /// mixing the two never reads a guess as a measurement.
+  ///
+  /// A no-op before [initialize], with `Capture.screenLoad` off, or when no
+  /// screen load is open (the screen already reached a terminal).
+  void reportScreenSettled() => _wiring?.screenLoadHook?.reportSettled();
+
   /// Capture a `package:http` client that `HttpOverrides` cannot see.
   ///
   /// `HttpOverrides.global` reaches every `dart:io` socket and nothing else, so

@@ -218,7 +218,65 @@ Navigator.pop(context);                    // ✅ Automatically tracked
 // - Screen transitions and timing
 // - User journey mapping
 // - Session screen counts
+// - Dwell time on the screen you just left, on the same `navigation` event
 ```
+
+Screen names come from `RouteSettings.name`. An unnamed route falls back to its
+route **type** (`unnamed_MaterialPageRoute<void>`) — never an identity hash, which
+would mint a fresh name on every visit and make every screen-keyed dashboard
+carry cardinality equal to your total navigations. Visit identity is `screen.id`.
+
+**Parameterised names are documented, not sanitized.** If you push
+`/orders/8412`, that is the screen name you get: the SDK cannot tell a path
+segment you meant as a name from one you meant as an id, and guessing would
+silently rename your screens. Name such routes yourself
+(`RouteSettings(name: '/orders/:id')`) if you want them grouped. The guard if you
+don't is the per-session cardinality cap on `screen.name`, `navigation.to` and
+`navigation.from` — past 50 distinct values the key becomes
+`__over_cardinality__` and `session.cardinality_capped_count` says so.
+
+### ⏱️ Screen Load (Zero Setup Required)
+
+One `screen.load` event per screen entry, at the first terminal it reaches:
+
+| `screen.load.outcome` | Means | Carries `settled_ms`? |
+|---|---|---|
+| `settled` | First frame reached, nothing this screen requested still in flight, 500 ms of quiet | ✅ |
+| `abandoned` | The user navigated away first | ❌ |
+| `deadline_exceeded` | Still loading after 10 s | ❌ |
+| `backgrounded` | The app was backgrounded first | ❌ |
+
+`screen.load.first_frame_ms` is the first post-frame callback after the route
+push — the navigation transition is deliberately excluded, since a transition
+duration you chose is not a fact about how slow your screen is. Non-settled
+outcomes carry no duration of their own: "how long until the user gave up" does
+not belong in the same column as "how long the screen took".
+
+There is **no slow/fast flag on the wire** — banding is a query-time comparison
+against your Apdex threshold, so it moves without a client release.
+
+`settled` is **inferred by default**, which is the opposite of the manual-first
+norm, on purpose: a manual API is silently missing wherever it isn't called.
+`screen.load.source` is on every event (`inferred` or `reported`) so an inferred
+number can never be read as a measured one. Override the inference when your last
+step is invisible to it — a websocket, a local database, a cache the SDK never
+sees:
+
+```dart
+// After your content is actually on screen.
+EdgeTelemetry.instance.reportScreenSettled();
+```
+
+Call it as soon as your content is up. The inference does not wait for you: if
+your last step lands more than 500 ms after the quiet window opened, the
+`inferred` event has already shipped and the call is a no-op. `settled_ms`
+measures to the instant the screen went quiet, **not** to the end of the
+window — otherwise every screen would read 500 ms slower than it loaded.
+
+Render-complete and time-to-interactive are **not** collected, and won't be:
+Flutter composites one frame from one widget tree (there is no later paint to
+name), and a Flutter route's gesture arena is live on frame one (so TTI would be
+first frame under a second name).
 
 ### 👆 User Actions (Zero Setup Required)
 ```dart
