@@ -4,6 +4,19 @@
 
 ### Added
 
+- **Batch-level context hoist, behind an internal flip that ships off.** About
+  81% of every v2 item is repeated context. The `telemetry_batch` envelope can
+  now carry one flat dotted `context` block — static device/app/SDK identity,
+  `user.id`, session identity, and the two batch-scoped live values
+  (`network.type`, `device.platform_brightness`) — instead of a copy per item,
+  taking a typical item from 1,467 B to 308 B. A session or user change forces a
+  flush, so one batch is structurally one session and one user; the mutable
+  session counters leave the wire on batched items and ride only the two session
+  bookends. **Nothing changes for consumers in this release:** the flip is a
+  compile-time constant, never a config field, and it stays off until the
+  processor-side merge lands — an unmerged processor drops the unknown block and
+  every session arrives with an empty `session.id`, which is corruption rather
+  than a dead letter.
 - **Four new canon event names** — `ui.interaction`, `frame.summary`,
   `screen.load`, `task.complete`. The wire allowlist now holds 16 event names
   and 4 metric names; emitters land in their own releases.

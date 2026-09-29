@@ -36,6 +36,11 @@ class Collector implements EventSink {
   /// sheds a whole tier at the capture hooks.
   final CaptureGate? gate;
 
+  /// The batch-context hoist flip (#82). Injected so the wire seam is testable;
+  /// it defaults to the compile-time [kHoistBatchContext] and is **never** a
+  /// config field — see that constant for the silent-failure mode.
+  final bool hoistBatchContext;
+
   Collector({
     required this.context,
     required this.session,
@@ -43,6 +48,7 @@ class Collector implements EventSink {
     this.breadcrumbs,
     this.debugMode = false,
     this.gate,
+    this.hoistBatchContext = kHoistBatchContext,
   });
 
   /// Sample gate on the sampling axis (orthogonal to send-priority). Bypass
@@ -144,9 +150,32 @@ class Collector implements EventSink {
     // Two send rails: crashes (and any immediate event) bypass the batch; every
     // batched event/metric buffers in the Pipeline.
     if (event.priority == EventPriority.immediate) {
+      // The immediate rail is never hoisted — it is already its own one-item
+      // batch, and the `session.*` bookends riding it are exactly where the
+      // mutable session counters must still land.
       pipeline.sendNow(wireItem);
     } else {
-      pipeline.enqueue(wireItem);
+      pipeline.enqueue(wireItem, context: _hoist(enriched));
     }
+  }
+
+  /// Split the batch-level context out of [enriched] **in place** (the same map
+  /// object the wire item holds), returning the hoisted block. Mutable session
+  /// counters are removed outright: they re-measure per snapshot, so they can
+  /// be neither batch-scoped nor worth a copy per item.
+  ///
+  /// The two halves are disjoint by construction, so the server-side merge of
+  /// block + item bag is byte-identical to the bag this item would have carried
+  /// un-hoisted, minus those counters.
+  Map<String, String> _hoist(Map<String, String> enriched) {
+    if (!hoistBatchContext) return const {};
+    final hoisted = <String, String>{};
+    enriched.removeWhere((key, value) {
+      if (kMutableSessionCounters.contains(key)) return true;
+      if (!isHoistedContextKey(key)) return false;
+      hoisted[key] = value;
+      return true;
+    });
+    return hoisted;
   }
 }
