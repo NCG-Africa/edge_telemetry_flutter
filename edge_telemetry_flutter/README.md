@@ -218,7 +218,9 @@ then stored on disk, FIFO, drained five files at a time after each successful se
 Crashes drain first and have their own 50-file cap; a file that has failed five
 delivery attempts is dropped. Every drop is counted on
 `session.dropped_item_count` / `session.dropped_reasons` (`http_400`,
-`queue_overflow`, `queue_attempts_exhausted`) — the SDK never discards silently.
+`queue_overflow`, `queue_attempts_exhausted`, `queue_corrupt`) — the SDK never
+discards silently. A drain cycle that finds the device offline is abandoned
+untouched, so no stored payload spends an attempt on the weather.
 
 ### There is no crash off-switch
 

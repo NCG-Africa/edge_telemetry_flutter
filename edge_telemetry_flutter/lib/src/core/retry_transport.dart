@@ -96,7 +96,7 @@ class RetryTransport {
         return true;
       }
       // 4xx: never retried, never queued.
-      if (_clientError(status)) return _drop(status);
+      if (_clientError(status)) return _countDrop(status);
       if (status == 0) break; // offline — don't burn backoff, queue now
     }
     await queue.persist(batch);
@@ -131,7 +131,7 @@ class RetryTransport {
       // A payload the collector rejects outright will never be accepted; storing
       // it only buys an unbounded re-POST on every later success.
       print('❌ Error report rejected (HTTP $status), dropped');
-      _drop(status);
+      _countDrop(status);
     } else {
       print('❌ Failed to send error report, storing offline');
       final filename = await queue.persist(crashBatch, isCrash: true);
@@ -145,14 +145,17 @@ class RetryTransport {
   /// before the immediate rail was enveloped is re-wrapped on the way out, which
   /// is what makes the crash backlog accumulated since v2.0.0 deliverable.
   ///
-  /// A 4xx counts as *done with this file*: it is dropped, not retried.
+  /// A 4xx counts as *done with this file*: it is dropped, not retried. An
+  /// offline result teaches nothing about the payload, so it abandons the cycle
+  /// rather than spending every queued file's attempt allowance on the weather.
   Future<void> drainQueue() => queue.drain((stored) async {
         final status = await _status(rewrapIfBare(stored));
+        if (_ok(status)) return DrainResult.done;
         if (_clientError(status)) {
-          _drop(status);
-          return true; // stop retrying it — delete
+          _countDrop(status);
+          return DrainResult.done; // refused outright — stop retrying it
         }
-        return _ok(status);
+        return status == 0 ? DrainResult.offline : DrainResult.failed;
       });
 
   bool _ok(int status) => status >= 200 && status < 300;
@@ -161,7 +164,9 @@ class RetryTransport {
   /// queueing it re-POSTs the same rejection forever (the v2 amplification).
   bool _clientError(int status) => status >= 400 && status < 500;
 
-  bool _drop(int status) {
+  /// Record a payload the transport refused to retry. Returns false so the
+  /// batch path can `return _countDrop(status)` — a drop is always a failed send.
+  bool _countDrop(int status) {
     onDrop?.call('http_$status');
     if (debugMode) print('🚫 Dropped payload — HTTP $status, not retryable');
     return false;
@@ -190,6 +195,12 @@ class RetryTransport {
 
     var status = await _post(body, gzip: _compress);
     if (status == 400 && _compress && !_probeSpent) {
+      // ponytail: one probe per launch, even when the plain retry also fails.
+      // A 400 on both means the payload was bad, not the encoding — so gzip
+      // stays on. The residual: if that first 400 is a bad payload *and* the
+      // collector also cannot decompress, the launch drops everything and
+      // re-probes on the next one. Spend a second probe on a later 400 if that
+      // shows up in the field; the issue's ceiling is one wasted POST.
       _probeSpent = true;
       final plain = await _post(body, gzip: false);
       if (_ok(plain)) {

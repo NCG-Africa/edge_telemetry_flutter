@@ -41,7 +41,9 @@ class _NoopQueue extends OfflineQueue {
           {bool isCrash = false}) async =>
       null;
   @override
-  Future<int> drain(Future<bool> Function(Map<String, dynamic>) s) async => 0;
+  Future<int> drain(
+          Future<DrainResult> Function(Map<String, dynamic>) s) async =>
+      0;
 }
 
 Future<(Collector, _RecordingSender)> _wire(

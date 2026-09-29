@@ -72,10 +72,11 @@ class _FakeQueue extends OfflineQueue {
   }
 
   @override
-  Future<int> drain(Future<bool> Function(Map<String, dynamic>) send) async {
+  Future<int> drain(
+      Future<DrainResult> Function(Map<String, dynamic>) send) async {
     var sent = 0;
     for (final p in List.of(stored)) {
-      if (await send(p)) {
+      if (await send(p) == DrainResult.done) {
         stored.remove(p);
         sent++;
       }

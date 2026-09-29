@@ -5,6 +5,20 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+/// What one drain attempt concluded about one stored payload.
+enum DrainResult {
+  /// Delivered, or refused outright — either way the file is finished.
+  done,
+
+  /// The collector was reachable and did not take it. Counts as an attempt.
+  failed,
+
+  /// Unreachable. Nothing was learned about this payload, so it must not burn
+  /// an attempt — five offline launches would otherwise delete a crash the
+  /// collector never saw.
+  offline,
+}
+
 /// FIFO on-disk queue for telemetry that failed to send.
 ///
 /// One file per payload under `<app documents>/edge_telemetry_queue/`. Draining
@@ -84,7 +98,7 @@ class OfflineQueue {
       final seq = (_seq++).toString().padLeft(6, '0');
       final filename = '$prefix${timestamp}_${seq}_a0.json';
       await File('${_dir!.path}/$filename').writeAsString(jsonEncode(payload));
-      await _enforceCap(isCrash ? _crashPrefix : _batchPrefix);
+      await _enforceCap(prefix);
       if (_debugMode) print('💾 Persisted payload to offline queue: $filename');
       return filename;
     } catch (e) {
@@ -94,10 +108,12 @@ class OfflineQueue {
   }
 
   /// Drain the queue FIFO, at most [drainBatchSize] files per call. For each
-  /// stored payload, call [send]; delete the file when it returns true.
-  /// A false return bumps the file's attempt counter and drops it at
-  /// [maxAttempts]. Returns the number of payloads successfully sent.
-  Future<int> drain(Future<bool> Function(Map<String, dynamic>) send) async {
+  /// stored payload, call [send]: [DrainResult.done] deletes the file,
+  /// [DrainResult.failed] bumps its attempt counter (dropping it at
+  /// [maxAttempts]), and [DrainResult.offline] abandons the cycle untouched.
+  /// Returns the number of payloads the cycle finished.
+  Future<int> drain(
+      Future<DrainResult> Function(Map<String, dynamic>) send) async {
     if (_dir == null) await initialize();
     if (_dir == null) return 0;
 
@@ -118,14 +134,18 @@ class OfflineQueue {
         onDrop?.call('queue_corrupt');
         continue;
       }
-      if (await send(payload)) {
-        await file.delete();
-        sent++;
-      } else {
-        await _bumpAttempt(file);
+      switch (await send(payload)) {
+        case DrainResult.done:
+          await file.delete();
+          sent++;
+        case DrainResult.failed:
+          await _bumpAttempt(file);
+        case DrainResult.offline:
+          return sent; // nothing learned — leave the rest of the cycle alone
       }
     }
-    if (_debugMode && sent > 0) print('📤 Drained $sent payload(s) from queue');
+    // "Cleared", not "sent": a 4xx finishes a file by dropping it.
+    if (_debugMode && sent > 0) print('📤 Cleared $sent payload(s) from queue');
     return sent;
   }
 
@@ -134,7 +154,7 @@ class OfflineQueue {
   /// POSTs is still byte-identical to the original send.
   Future<void> _bumpAttempt(File file) async {
     try {
-      final name = file.uri.pathSegments.last;
+      final name = _name(file);
       final m = RegExp(r'^(.*)_a(\d+)\.json$').firstMatch(name);
       if (m == null) return; // pre-v3 filename — leave it, it still drains
       final attempts = int.parse(m.group(2)!) + 1;
@@ -158,10 +178,12 @@ class OfflineQueue {
         .toList();
   }
 
-  bool _isCrash(File f) => f.uri.pathSegments.last.startsWith(_crashPrefix);
+  String _name(File f) => f.uri.pathSegments.last;
+
+  bool _isCrash(File f) => _name(f).startsWith(_crashPrefix);
 
   bool _isQueueFile(File f) {
-    final name = f.uri.pathSegments.last;
+    final name = _name(f);
     return name.endsWith('.json') &&
         (name.startsWith(_batchPrefix) || name.startsWith(_crashPrefix));
   }
@@ -173,7 +195,7 @@ class OfflineQueue {
     final cap = prefix == _crashPrefix ? maxCrashFiles : maxQueueSize;
     try {
       final files = (await _queueFiles())
-          .where((f) => f.uri.pathSegments.last.startsWith(prefix))
+          .where((f) => _name(f).startsWith(prefix))
           .toList();
       if (files.length <= cap) return;
       files.sort((a, b) => a.path.compareTo(b.path));

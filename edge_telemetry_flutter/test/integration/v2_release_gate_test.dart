@@ -52,7 +52,9 @@ class _NoopQueue extends OfflineQueue {
           {bool isCrash = false}) async =>
       null;
   @override
-  Future<int> drain(Future<bool> Function(Map<String, dynamic>) s) async => 0;
+  Future<int> drain(
+          Future<DrainResult> Function(Map<String, dynamic>) s) async =>
+      0;
 }
 
 const _config = TelemetryConfig(
@@ -192,8 +194,8 @@ void main() {
     await Future<void>(() {});
 
     // Exactly one payload on the wire — the crash — while the event still
-    // buffers. Crashes ride the immediate rail as a bare event (not wrapped in a
-    // telemetry_batch envelope; that's the batched rail).
+    // buffers. Crashes ride the immediate rail, which since #81 sends its own
+    // one-item `telemetry_batch` rather than a bare item.
     expect(sender.items, hasLength(1));
     final crash = sender.items.single;
     expect(crash['eventName'], 'app.crash');

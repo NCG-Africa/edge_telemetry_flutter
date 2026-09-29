@@ -68,7 +68,7 @@ void main() {
     final drained = <int>[];
     final count = await q.drain((p) async {
       drained.add(p['n'] as int);
-      return true; // 2xx
+      return DrainResult.done; // 2xx
     });
 
     expect(count, 3);
@@ -80,7 +80,7 @@ void main() {
     final q = OfflineQueue();
     await q.persist({'n': 0});
 
-    final count = await q.drain((_) async => false);
+    final count = await q.drain((_) async => DrainResult.failed);
     expect(count, 0);
     expect(await queuedFiles(), hasLength(1));
   });
@@ -94,7 +94,7 @@ void main() {
     final surviving = <int>[];
     await q.drain((p) async {
       surviving.add(p['n'] as int);
-      return true;
+      return DrainResult.done;
     });
 
     expect(surviving, hasLength(3));
@@ -125,7 +125,7 @@ void main() {
     final kept = <int>[];
     await q.drain((p) async {
       kept.add(p['c'] as int);
-      return true;
+      return DrainResult.done;
     });
 
     expect(kept, [3, 4]); // oldest three dropped
@@ -142,7 +142,7 @@ void main() {
     for (var cycle = 0; cycle < OfflineQueue.maxAttempts + 1; cycle++) {
       await q.drain((_) async {
         attempts++;
-        return false; // collector keeps refusing
+        return DrainResult.failed; // collector keeps refusing
       });
     }
 
@@ -151,13 +151,36 @@ void main() {
     expect(drops, ['queue_attempts_exhausted']);
   });
 
+  test('an offline cycle spends no attempts and leaves the queue untouched',
+      () async {
+    final drops = <String>[];
+    final q = OfflineQueue(onDrop: drops.add);
+    for (var i = 0; i < 3; i++) {
+      await q.persist({'c': i}, isCrash: true);
+    }
+
+    var calls = 0;
+    for (var cycle = 0; cycle < OfflineQueue.maxAttempts + 2; cycle++) {
+      await q.drain((_) async {
+        calls++;
+        return DrainResult.offline; // no network — nothing learned
+      });
+    }
+
+    expect(
+        calls, OfflineQueue.maxAttempts + 2); // one probe per cycle, then stop
+    expect(await queuedFiles(), hasLength(3)); // nothing dropped
+    expect(drops, isEmpty);
+  });
+
   test('drain is paced at drainBatchSize files per cycle', () async {
     final q = OfflineQueue();
     for (var i = 0; i < 12; i++) {
       await q.persist({'n': i});
     }
 
-    expect(await q.drain((_) async => true), OfflineQueue.drainBatchSize);
+    expect(await q.drain((_) async => DrainResult.done),
+        OfflineQueue.drainBatchSize);
     expect(await queuedFiles(), hasLength(12 - OfflineQueue.drainBatchSize));
   });
 
@@ -171,7 +194,7 @@ void main() {
     final seen = <Map<String, dynamic>>[];
     await q.drain((p) async {
       seen.add(p);
-      return true;
+      return DrainResult.done;
     });
 
     expect(seen.first, {'c': 0});

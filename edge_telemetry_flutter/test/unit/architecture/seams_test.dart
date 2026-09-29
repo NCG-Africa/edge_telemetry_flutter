@@ -61,10 +61,11 @@ class _FakeQueue extends OfflineQueue {
   }
 
   @override
-  Future<int> drain(Future<bool> Function(Map<String, dynamic>) send) async {
+  Future<int> drain(
+      Future<DrainResult> Function(Map<String, dynamic>) send) async {
     var count = 0;
     for (final payload in List.of(pending)) {
-      if (await send(payload)) {
+      if (await send(payload) == DrainResult.done) {
         drainOrder.add(payload);
         pending.remove(payload);
         count++;

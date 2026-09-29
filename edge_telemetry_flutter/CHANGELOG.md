@@ -43,7 +43,10 @@
   re-POST.
 - **Crash payloads lose their queue exemption.** They now have their own
   generous cap (50 files, drop-oldest) plus a five-attempt per-file ceiling,
-  with both kinds of drop counted (`queue_overflow`, `queue_attempts_exhausted`).
+  with every drop counted (`queue_overflow`, `queue_attempts_exhausted`, and
+  `queue_corrupt` for an unreadable file). An attempt is spent only when the
+  collector was reachable — a drain cycle that finds the device offline is
+  abandoned untouched, so a week with no network cannot delete a crash.
   "A crash is never dropped" is exactly what made the re-POST amplification
   unbounded. Crashes drain ahead of batches, and a drain cycle is paced at five
   files on the existing successful-send trigger — no new timer.
