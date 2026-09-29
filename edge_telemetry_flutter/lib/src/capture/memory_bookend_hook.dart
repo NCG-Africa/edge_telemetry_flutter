@@ -30,6 +30,19 @@ import 'capture_hook.dart';
 /// process whose memory has nothing to do with it. Reading at `paused` is the
 /// last instant the number is real, and on iOS it is the number jetsam decides
 /// on. Once per session: a pause/resume round trip is not a new session.
+///
+// ponytail: the closing read fires at the FIRST pause of a session, and a
+// session rotated in the foreground (the 30-minute idle rule) closes with no
+// item at all — the `Collector` stamps session identity at `add`, so a read
+// started after the rotation would land on the new session and misattribute
+// the old one's memory. Ceiling: one item, not two, for a long multi-pause
+// session and for a foreground rotation. The upgrade path is a session id
+// carried on the item itself rather than merged from the snapshot; do it when
+// a consumer asks for end-of-session memory specifically.
+///
+/// `Capture.health` is asked once, at construction in `TelemetryWiring` — this
+/// hook is not re-gated per emission, so the budget governor cannot shed it
+/// mid-session. Two items a session is not what a governor is for.
 class MemoryBookendHook implements CaptureHook {
   /// The one native seam. Only `memory.used_bytes` / `memory.source` are read
   /// from its map here — the five fault-bundle keys it also returns are
@@ -66,8 +79,9 @@ class MemoryBookendHook implements CaptureHook {
   }
 
   /// Closing bookend, at most once per session. Bound to the lifecycle hook's
-  /// `paused` branch, and deliberately **before** its flush, so the item leaves
-  /// with that batch instead of waiting for a resume that may never come.
+  /// `paused` branch — but the read is a channel round trip, so it lands after
+  /// that hook's own flush has already gone. Hence [flush] here: the one item
+  /// the pause exists to capture must not wait for a resume that may never come.
   void onPaused() {
     if (_closed) return;
     _closed = true;

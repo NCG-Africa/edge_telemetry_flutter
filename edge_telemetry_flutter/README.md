@@ -441,6 +441,12 @@ consumer. v3 ships two signals instead, and neither of them polls:
   launch, in a different process, and this launch's battery level is not that
   crash's battery level.
 
+On iOS the first health read switches on `UIDevice.isBatteryMonitoringEnabled`
+— the only way to read a battery level there. It happens on first read rather
+than at plugin registration, so turning `Capture.health` off means the SDK never
+touches that host-app singleton at all; it is never switched back off, because
+your app may have wanted it on.
+
 `device.thermal_state` is a **normalised string** — `nominal`, `fair`, `serious`,
 `critical` — never the platform ordinal. Android has seven thermal statuses and
 iOS four, and they disagree on what the same integer means (Android's `2` is

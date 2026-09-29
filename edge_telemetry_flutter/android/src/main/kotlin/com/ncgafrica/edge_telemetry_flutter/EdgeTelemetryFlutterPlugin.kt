@@ -236,8 +236,8 @@ class EdgeTelemetryFlutterPlugin : FlutterPlugin, MethodCallHandler {
    * means — Android's 2 is MODERATE, iOS's 2 is serious. Shipping the ordinal
    * would author a vocabulary defect rather than inherit one. The four names are
    * iOS's, because they are the smaller vocabulary and every Android status maps
-   * into them; everything past SEVERE is already the state where the OS throttles
-   * and then kills, so it folds to `critical`.
+   * into them; SEVERE and everything beyond it is already the state where the OS
+   * throttles and then kills, so the whole tail folds to `critical`.
    */
   private fun thermalName(status: Int): String = when (status) {
     PowerManager.THERMAL_STATUS_NONE -> "nominal"

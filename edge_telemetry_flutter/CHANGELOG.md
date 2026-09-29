@@ -18,6 +18,10 @@
   doing the same per frame would breach the frame budget in a chatty app. iOS
   attaches none: MetricKit delivers a crash on the next launch, in a different
   process, and this launch's state is not that crash's state.
+- On iOS, `UIDevice.isBatteryMonitoringEnabled` is switched on by the **first
+  health read**, not at plugin registration, so a consumer with
+  `Capture.health` off never has that host-app singleton touched. It is never
+  switched back off — a host app may have wanted it on for itself.
 - **`device.thermal_state` is a normalised string** — `nominal` / `fair` /
   `serious` / `critical`, never the platform ordinal. Android has seven thermal
   statuses and iOS four, and they disagree on what the same integer means

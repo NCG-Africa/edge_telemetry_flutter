@@ -39,12 +39,6 @@ public class EdgeTelemetryFlutterPlugin: NSObject, FlutterPlugin, MXMetricManage
     let instance = EdgeTelemetryFlutterPlugin()
     registrar.addMethodCallDelegate(instance, channel: channel)
     MXMetricManager.shared.add(instance)
-    // The only way to read a battery level on iOS, and it has to be on before
-    // the first read or `batteryLevel` answers -1 forever. It is a mutation of
-    // a singleton the host app also owns, so it is done once, at registration,
-    // and never toggled back off — turning it off would break a host app that
-    // switched it on for itself.
-    UIDevice.current.isBatteryMonitoringEnabled = true
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -80,7 +74,15 @@ public class EdgeTelemetryFlutterPlugin: NSObject, FlutterPlugin, MXMetricManage
     var out: [String: String] = [:]
     let device = UIDevice.current
 
-    let level = device.batteryLevel  // -1 while unknown or monitoring is off
+    // Battery monitoring is the only way to read a level on iOS, and it is a
+    // mutation of a singleton the HOST APP also owns — so it is switched on
+    // here, on the first read, and not at plugin registration: a consumer who
+    // turned `Capture.health` off never calls this, and their UIDevice is left
+    // exactly as they left it. Never switched back off, because a host app may
+    // have wanted it on for itself.
+    if !device.isBatteryMonitoringEnabled { device.isBatteryMonitoringEnabled = true }
+
+    let level = device.batteryLevel  // -1 until monitoring has a reading
     if level >= 0 { out["device.battery_level"] = String(Int((level * 100).rounded())) }
     switch device.batteryState {
     case .charging, .full: out["device.battery_charging"] = "true"

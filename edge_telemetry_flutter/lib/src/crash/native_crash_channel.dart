@@ -96,11 +96,16 @@ class NativeCrashChannel {
   ///
   /// **An unavailable key is omitted, never sentinelled.** No `-1`, no
   /// `"unknown"`: a battery level of `-1` is a number a dashboard will happily
-  /// average. Orientation on iOS is omitted while the device is face-up or the
-  /// orientation is not yet known, thermal state is omitted below Android 10,
-  /// and a missing plugin means an **empty map** rather than a throw — so a
-  /// platform with no registered handler degrades to no health signal, not to a
-  /// failed init.
+  /// average. Known omissions, none of them errors: `device.thermal_state`
+  /// below Android 10, `device.battery_charging` below Android 6,
+  /// `device.orientation` on iOS while the device is flat or the orientation is
+  /// not yet known, and every battery key on an iOS simulator.
+  ///
+  /// **Every failure degrades to an empty map, never a throw.** A missing
+  /// plugin is the expected case on an unsupported platform, and a
+  /// [PlatformException] from a native read that went wrong is not worth
+  /// surfacing as an app-visible async error — this is the health signal, and
+  /// its failure mode is having no health signal.
   Future<Map<String, String>> readDeviceState() async {
     try {
       final raw =
@@ -108,6 +113,8 @@ class NativeCrashChannel {
       if (raw == null) return const {};
       return raw.map((k, v) => MapEntry(k, '$v'));
     } on MissingPluginException {
+      return const {};
+    } on PlatformException {
       return const {};
     }
   }

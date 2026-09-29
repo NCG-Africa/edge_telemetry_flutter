@@ -68,7 +68,11 @@ whenever the block changes — one batch is structurally one session and one use
 
 Attribute spelling is deliberately mixed and must not be "normalized": dotted for identity/domain keys
 (`session.id`, `http.url`), **unprefixed** on `app.crash` (`message`, `stacktrace`, `exception_type`,
-`cause`, `is_fatal`) because the backend extractors read those verbatim.
+`cause`, `is_fatal`) because the backend extractors read those verbatim. The fatal-only fault
+bundle (#91) is the one addition there and it is **dotted** (`device.battery_level`,
+`device.battery_charging`, `device.power_save_mode`, `device.thermal_state`,
+`device.orientation`), beside the already-dotted `crash.source` — new keys the extractors do not
+read get the family's ordinary spelling, not the legacy one.
 
 ### Six rules govern the canon
 
@@ -80,11 +84,14 @@ first (#53, amended by #61):
 2. **No renames of a v2 name, ever** — deprecate-in-place. A name may stop being emitted; it may never
    be renamed or have its meaning changed under the same backend columns. `page_load` therefore means
    app launch forever, and screen load minted a new name instead.
-   **Three v3 carve-outs, all in §8 and all deliberate** (#85): `http.duration_ms` re-bases,
-   `http.success` narrows to 2xx, and `http.url` loses its query. The rule bends only where the v2
-   meaning was *wrong* rather than merely different — a duration that measured neither connect nor
-   download, a success that disagreed with the sibling SDK, and a key shipping PII — and the URL
-   change carries an in-band `http.url_redacted` flag. Record the errata; do not generalise this.
+   **Four v3 carve-outs, all deliberate** — three in §8 (#85): `http.duration_ms` re-bases,
+   `http.success` narrows to 2xx, and `http.url` loses its query; and one in §10 (#91):
+   `memory_usage` re-bases from resident set to the platform's own quantity (`phys_footprint` /
+   total PSS). The rule bends only where the v2 meaning was *wrong* rather than merely different —
+   a duration that measured neither connect nor download, a success that disagreed with the sibling
+   SDK, a key shipping PII, and a memory figure that was the wrong number on **both** platforms and
+   not comparable between them. Each bend that changes a value under an unchanged column carries an
+   in-band flag: `http.url_redacted`, and `memory.source`. Record the errata; do not generalise this.
 3. **Attribute-first, by a *temporal* test**: a signal earns an event name only when no existing event
    fires at the instant that signal is known. Otherwise it is attributes on that event.
 4. **Ceiling: 6 new event names, 0 new metric names** — derived from the item budget, not picked.

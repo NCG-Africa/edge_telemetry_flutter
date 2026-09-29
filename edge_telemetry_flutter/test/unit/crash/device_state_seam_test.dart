@@ -67,6 +67,13 @@ void main() {
     expect(state.values, isNot(contains('unknown')));
   });
 
+  test('a native read that throws degrades to empty, not to an app error',
+      () async {
+    messenger.setMockMethodCallHandler(
+        channel, (call) async => throw PlatformException(code: 'READ_FAILED'));
+    expect(await NativeCrashChannel().readDeviceState(), isEmpty);
+  });
+
   test('the thermal vocabulary is the normalised string, not an ordinal',
       () async {
     // Android's 2 is MODERATE and iOS's 2 is serious — the ordinal means two
