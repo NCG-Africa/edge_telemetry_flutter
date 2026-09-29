@@ -445,6 +445,13 @@ print('Session: ${EdgeTelemetry.instance.currentSessionInfo}');
 **Events not appearing in backend:**
 - Check `debugMode: true` for console logs
 - Verify endpoint URL and network connectivity
+- **Custom metric names are dropped.** `trackMetric()` takes any name, but only
+  the four canon metric names reach the wire (`frame_render_time`,
+  `memory_usage`, `long_task`, `resource_timing`). `trackEvent()` is safe — it
+  always ships as `custom_event` with your name as an attribute. Every drop
+  prints under `debugMode: true` and is counted on the session's closing event
+  as `session.dropped_item_count` / `session.dropped_reasons`, so you can see
+  the loss on your dashboard without attaching a debugger.
 
 ## 🎯 Why EdgeTelemetry?
 

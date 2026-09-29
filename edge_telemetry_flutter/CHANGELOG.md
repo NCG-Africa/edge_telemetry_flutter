@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Four new canon event names** — `ui.interaction`, `frame.summary`,
+  `screen.load`, `task.complete`. The wire allowlist now holds 16 event names
+  and 4 metric names; emitters land in their own releases.
+- **The allowlist drop is visible.** Off-canon items are still dropped on the
+  device (the allowlist is the one guard against an unbudgeted emitter), but the
+  drop now prints under `debugMode: true` and increments a session-scoped
+  counter that ships on the session's closing event as
+  `session.dropped_item_count` and `session.dropped_reasons` (e.g.
+  `off_canon=7`). Seven of v2.0.0's own internal emissions were dropped on every
+  device for the whole release and were found by audit rather than by telemetry;
+  this is the fix for the silence, not for the drop.
+
 ## [2.0.0] - 2026-07-13
 
 **The wire changed — your code mostly didn't.** This is the atomic v2.0.0:
