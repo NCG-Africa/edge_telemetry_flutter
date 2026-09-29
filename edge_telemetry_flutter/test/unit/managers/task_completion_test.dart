@@ -48,7 +48,7 @@ class _NoopQueue extends OfflineQueue {
 /// The facade's `completeTask` in one line, so the tests read like the API
 /// consumers actually call rather than like the manager's two-argument close.
 extension on SessionManager {
-  void endTaskCompleted(String name) => endTask(name, kTaskCompleted);
+  void endTaskCompleted(String name) => endTask(name, TaskOutcome.completed);
 }
 
 void main() {
@@ -96,7 +96,7 @@ void main() {
 
       final e = tasks().single;
       expect(e.attributes['task.name'], 'transfer');
-      expect(e.attributes['task.outcome'], kTaskCompleted);
+      expect(e.attributes['task.outcome'], TaskOutcome.completed.name);
       // Time on task rides the *existing* span duration key.
       expect(e.attributes['span.duration_ms'],
           const Duration(minutes: 3).inMilliseconds.toString());
@@ -113,9 +113,10 @@ void main() {
       final sm = build();
       await sm.recoverAndStart();
       sm.startTask('transfer');
-      sm.endTask('transfer', kTaskFailed);
+      sm.endTask('transfer', TaskOutcome.failed);
 
-      expect(tasks().single.attributes['task.outcome'], kTaskFailed);
+      expect(
+          tasks().single.attributes['task.outcome'], TaskOutcome.failed.name);
       expect(tasks().single.attributes['task.abandon_source'], isNull);
     });
 
@@ -161,7 +162,7 @@ void main() {
       sm.startTask('transfer');
       sm.endTaskCompleted('transfer');
       sm.endTaskCompleted('transfer');
-      sm.endTask('transfer', kTaskFailed);
+      sm.endTask('transfer', TaskOutcome.failed);
       expect(tasks(), hasLength(1));
     });
   });
@@ -238,7 +239,8 @@ void main() {
       expect(tasks(), isEmpty);
 
       sm.endTaskCompleted('transfer');
-      expect(tasks().single.attributes['task.outcome'], kTaskCompleted);
+      expect(tasks().single.attributes['task.outcome'],
+          TaskOutcome.completed.name);
     });
 
     test('backgrounding is not a trigger — reading the OTP is step 2',
@@ -254,7 +256,8 @@ void main() {
       expect(tasks(), isEmpty);
 
       sm.endTaskCompleted('transfer');
-      expect(tasks().single.attributes['task.outcome'], kTaskCompleted);
+      expect(tasks().single.attributes['task.outcome'],
+          TaskOutcome.completed.name);
     });
 
     test('the idle rotation abandons, measured to last activity not wall-clock',
@@ -270,8 +273,9 @@ void main() {
       sm.beforeEvent();
 
       final e = tasks().single;
-      expect(e.attributes['task.outcome'], kTaskAbandoned);
-      expect(e.attributes['task.abandon_source'], kTaskAbandonSessionEnd);
+      expect(e.attributes['task.outcome'], TaskOutcome.abandoned.name);
+      expect(e.attributes['task.abandon_source'],
+          TaskAbandonSource.sessionEnd.wire);
       expect(e.attributes['session.id'], 'session_1');
       // start (09:00) → last activity (09:02), not → finalize (09:42).
       expect(e.attributes['span.duration_ms'],
@@ -306,9 +310,33 @@ void main() {
       expect(tasks(), isEmpty);
 
       sm.endTaskCompleted('transfer');
-      expect(tasks().single.attributes['task.outcome'], kTaskCompleted);
+      expect(tasks().single.attributes['task.outcome'],
+          TaskOutcome.completed.name);
       expect(tasks().single.attributes['span.duration_ms'],
           const Duration(minutes: 2).inMilliseconds.toString());
+    });
+
+    test('a rotation at the start drops the dying session\'s trace context',
+        () async {
+      final sm = build();
+      await sm.recoverAndStart(); // session_1 @ 09:00
+      final trace = TraceManager(session: sm, clock: () => clock);
+      trace.mint(TraceRootType.interaction);
+
+      // 40 minutes idle, then the facade's order: rotate, *then* freeze. The
+      // stale root belongs to session_1, so `startChild` finds it cleared.
+      clock = clock.add(const Duration(minutes: 40));
+      sm.beforeEvent();
+      final frozen = trace.startChild();
+      expect(frozen, isNull, reason: 'a trace never spans a session');
+      sm.startTask('transfer', frozen?.attributes ?? const {});
+      sm.endTaskCompleted('transfer');
+
+      // Unattributed rather than attributed to the session that ended.
+      final e = tasks().single;
+      for (final k in kAmbientTraceAttributes) {
+        expect(e.attributes.containsKey(k), isFalse);
+      }
     });
 
     test('there is no task TTL of its own — only the session idle window',
@@ -325,6 +353,34 @@ void main() {
       }
       expect(tasks(), isEmpty);
     });
+  });
+
+  test('a startTask re-entered from the abandon emit does not blow up',
+      () async {
+    late SessionManager sm;
+    var reentered = false;
+    sm = SessionManager(
+      emit: (e) {
+        emitted.add(e);
+        // A consumer callback on the wire path that declares a new task while
+        // the finalize is still iterating the open ones.
+        if (e.name == 'task.complete' && !reentered) {
+          reentered = true;
+          sm.startTask('reentrant');
+        }
+      },
+      newSessionId: () => 'session_${++ids}',
+      clock: () => clock,
+      idleTimeout: idle,
+    );
+    await sm.recoverAndStart();
+    sm.startTask('a');
+    sm.startTask('b');
+
+    clock = clock.add(const Duration(minutes: 40));
+    expect(sm.beforeEvent, returnsNormally);
+    expect(tasks().where((e) => e.attributes['task.outcome'] == 'abandoned'),
+        hasLength(2));
   });
 
   group('kill recovery', () {
@@ -350,10 +406,11 @@ void main() {
 
       final e = tasks().single;
       expect(e.attributes['task.name'], 'transfer');
-      expect(e.attributes['task.outcome'], kTaskAbandoned);
+      expect(e.attributes['task.outcome'], TaskOutcome.abandoned.name);
       // The gap is stated, not hidden: at this instant native crashes have not
       // been drained, so a crash and an OS kill are indistinguishable.
-      expect(e.attributes['task.abandon_source'], kTaskAbandonLaunchRecovery);
+      expect(e.attributes['task.abandon_source'],
+          TaskAbandonSource.launchRecovery.wire);
       // Attribution intact — the ids frozen in the process that died.
       expect(e.attributes['session.id'], 'session_1');
       expect(e.attributes['trace.id'], 'a' * 32);
@@ -438,8 +495,8 @@ void main() {
     final attrs = (item['attributes'] as Map).cast<String, String>();
 
     expect(attrs['task.name'], 'transfer');
-    expect(attrs['task.outcome'], kTaskAbandoned);
-    expect(attrs['task.abandon_source'], kTaskAbandonLaunchRecovery);
+    expect(attrs['task.outcome'], TaskOutcome.abandoned.name);
+    expect(attrs['task.abandon_source'], TaskAbandonSource.launchRecovery.wire);
     // Joins to the session that ended, not the one that just started — the
     // whole reason the id rides the item's own bag.
     expect(attrs['session.id'], 'session_dead');
@@ -450,5 +507,22 @@ void main() {
         const Duration(minutes: 5).inMilliseconds.toString());
     // The SDK context still rides it, so the row is not an orphan.
     expect(attrs['device.id'], 'd_1');
+
+    // The closing leg over the same seam: it takes its session id from the
+    // snapshot, so it joins the session that is actually live.
+    session.startTask('checkout');
+    clock = clock.add(const Duration(minutes: 2));
+    session.endTask('checkout', TaskOutcome.completed);
+    pipeline.flush();
+
+    final done =
+        sender.items.lastWhere((i) => i['eventName'] == 'task.complete');
+    final doneAttrs = (done['attributes'] as Map).cast<String, String>();
+    expect(doneAttrs['task.name'], 'checkout');
+    expect(doneAttrs['task.outcome'], TaskOutcome.completed.name);
+    expect(doneAttrs['session.id'], 'session_live');
+    expect(doneAttrs.containsKey('task.abandon_source'), isFalse);
+    expect(doneAttrs['span.duration_ms'],
+        const Duration(minutes: 2).inMilliseconds.toString());
   });
 }

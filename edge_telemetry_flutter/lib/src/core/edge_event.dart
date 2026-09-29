@@ -9,30 +9,34 @@
 enum EventPriority { batched, immediate }
 
 /// `task.outcome` — three values, and a declared task reaches exactly one.
-/// There is no fourth: the two other obvious abandonment triggers are actively
-/// harmful, and the motivating example proves it. Navigation-away would abandon
-/// every task in the four-route transfer flow used to justify tasks existing,
-/// and backgrounding would report the single most common mobile-banking flow as
-/// a failure, because reading the OTP is step 2 of the happy path.
-const String kTaskCompleted = 'completed';
-const String kTaskFailed = 'failed';
-const String kTaskAbandoned = 'abandoned';
+///
+/// An enum rather than three string constants: `endTask` otherwise took two bare
+/// `String`s, and swapping the task name for the outcome would have compiled. The
+/// wire spelling is the member name, so there is nothing to keep in step.
+enum TaskOutcome { completed, failed, abandoned }
 
 /// `task.abandon_source` — **the gap, stated rather than hidden.**
 ///
-/// [kTaskAbandonSessionEnd] is an in-process finalize: the session rotated on
-/// the 30-minute idle rule with the task still open. There is no task TTL of
-/// its own — the session idle window *is* the cap.
+/// [sessionEnd] is an in-process finalize: the session rotated on the 30-minute
+/// idle rule with the task still open. There is no task TTL of its own — the
+/// session idle window *is* the cap.
 ///
-/// [kTaskAbandonLaunchRecovery] is the backdated finalize of a session whose
-/// process ended without one. It **cannot say whether a crash caused the
-/// abandonment**: the recovery finalize is emitted from
-/// `SessionManager.recoverAndStart`, and `drainNativeCrashes()` runs after it
-/// in `initialize()`. Joining the two is the backend's, on `session.id` — this
-/// key exists so a consumer reads "we do not know" off the row instead of
-/// inferring it from a crash-free denominator.
-const String kTaskAbandonSessionEnd = 'session_end';
-const String kTaskAbandonLaunchRecovery = 'launch_recovery';
+/// [launchRecovery] is the backdated finalize of a session whose process ended
+/// without one. It **cannot say whether a crash caused the abandonment**: the
+/// recovery finalize is emitted from `SessionManager.recoverAndStart`, and
+/// `drainNativeCrashes()` runs after it in `initialize()`. Joining the two is the
+/// backend's, on `session.id` — this value exists so a consumer reads "we do not
+/// know" off the row instead of inferring it from a crash-free denominator.
+enum TaskAbandonSource {
+  sessionEnd('session_end'),
+  launchRecovery('launch_recovery');
+
+  const TaskAbandonSource(this.wire);
+
+  /// The snake_case wire value — the member name is camelCase, and the wire is
+  /// not renamed to suit Dart.
+  final String wire;
+}
 
 /// Internal, pre-enrichment event model handed from a capture hook or a facade
 /// API call into the [Collector].
@@ -151,6 +155,13 @@ class EdgeEvent {
   /// [abandonSource] rides the abandoned outcome only. There is no slow/fast
   /// or Apdex band on the wire — banding is a query-time comparison against a
   /// per-target threshold, so it moves without a client release.
+  ///
+  /// **Subject to sampling, deliberately.** A sampled-out session drops its whole
+  /// event stream coherently, and a declared task is developer-declared signal
+  /// like `custom_event` — not part of the `essential` bypass set, which is
+  /// v2's shipped set verbatim (crash, session bookends, profile update) and is
+  /// not extended by this ticket. The `session.finalized` bookend still ships,
+  /// which is the same asymmetry every sampled-out session already has.
   /// [sessionId] is set on the two **abandoned** legs and left to the context
   /// snapshot on the two closing ones. That is not two shapes for one event —
   /// it is one rule, that the row names the session whose ending it reports: a
@@ -162,20 +173,20 @@ class EdgeEvent {
   /// that the close itself may trigger.
   factory EdgeEvent.task({
     required String name,
-    required String outcome,
+    required TaskOutcome outcome,
     required Duration duration,
     String? sessionId,
-    String? abandonSource,
+    TaskAbandonSource? abandonSource,
     Map<String, String> traceAttributes = const {},
   }) =>
       EdgeEvent.event(
         'task.complete',
         attributes: {
           'task.name': name,
-          'task.outcome': outcome,
+          'task.outcome': outcome.name,
           'span.duration_ms': duration.inMilliseconds.toString(),
           if (sessionId != null) 'session.id': sessionId,
-          if (abandonSource != null) 'task.abandon_source': abandonSource,
+          if (abandonSource != null) 'task.abandon_source': abandonSource.wire,
           ...traceAttributes,
         },
         // The whole point of the freeze: a task runs for minutes, so by the
