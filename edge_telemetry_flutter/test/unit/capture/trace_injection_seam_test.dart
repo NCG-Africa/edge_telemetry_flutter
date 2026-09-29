@@ -84,16 +84,18 @@ void main() {
     late List<HttpHeaders> received;
     late SessionManager session;
     late TraceManager trace;
+    late DateTime now;
     HttpOverrides? saved;
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
       records = [];
       received = [];
+      now = DateTime.utc(2026, 9, 29, 12);
       var rotations = 0;
       session = SessionManager(newSessionId: () => 'rotated_${++rotations}');
       await session.startSession('session_1');
-      trace = TraceManager(session: session);
+      trace = TraceManager(session: session, clock: () => now);
       // flutter_test installs its own overrides (a mock client for image
       // loading). Drop them, or every socket here is faked.
       saved = HttpOverrides.current;
@@ -297,6 +299,131 @@ void main() {
       // Measured off the local-port join, not inferred from a fast connect.
       expect(records[0].connectionReused, isFalse);
       expect(records[1].connectionReused, isTrue);
+    });
+
+    test('a request with a body is injected, not thrown at', () async {
+      // dart:io sends the header section on the first body write and freezes
+      // the map with it. Injecting at close() therefore raises
+      // `HttpException: HTTP headers are not mutable` out of the consumer's own
+      // close() on every POST — an SDK breaking the host app's requests.
+      final server = await serve();
+      addTearDown(() => server.close(force: true));
+      install(allowlist: const ['127.0.0.1']);
+      trace.mint(TraceRootType.interaction);
+
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final request =
+          await client.postUrl(Uri.parse('http://127.0.0.1:${server.port}/o'));
+      request.headers.contentType = ContentType.json;
+      request.write('{"qty":1}');
+      final response = await request.close();
+      await response.drain<void>();
+
+      final attrs = records.single.toAttributes();
+      expect(attrs['traceparent.outcome'], kOutcomeInjectedAttributed);
+      expect(
+          header(0), formatTraceparent(attrs['trace.id']!, attrs['span.id']!));
+    });
+
+    test('a root that aged out reports expired, not unattributed', () async {
+      final server = await serve();
+      addTearDown(() => server.close(force: true));
+      install(allowlist: const ['127.0.0.1']);
+      trace.mint(TraceRootType.interaction);
+      // Past the 2 s idle window: context existed and is no longer valid, which
+      // is a different fact from "nothing was in progress".
+      now = now.add(const Duration(seconds: 3));
+
+      await fetch(Uri.parse('http://127.0.0.1:${server.port}/x'));
+
+      final attrs = records.single.toAttributes();
+      expect(attrs['traceparent.outcome'], kOutcomeInjectedExpired);
+      expect(attrs['trace.root_type'], 'request');
+
+      // The request *after* the expired one is simply unattributed — the flag
+      // is scoped to one expiry evaluation, not to the session.
+      records.clear();
+      received.clear();
+      await fetch(Uri.parse('http://127.0.0.1:${server.port}/y'));
+      expect(records.single.toAttributes()['traceparent.outcome'],
+          kOutcomeInjectedUnattributed);
+    });
+
+    test("an off-allowlist row cannot publish a stale session's trace",
+        () async {
+      // The invariant dies just as quietly on the rung nobody watches: a frozen
+      // S1 carrier stamped onto a row whose session.id says S2.
+      final server = await serve();
+      addTearDown(() => server.close(force: true));
+      install(); // dark
+      trace.mint(TraceRootType.interaction);
+      final s1Trace = trace.current()['trace.id'];
+
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final request =
+          await client.getUrl(Uri.parse('http://127.0.0.1:${server.port}/x'));
+      await session.startSession('session_2');
+      await (await request.close()).drain<void>();
+
+      final attrs = records.single.toAttributes();
+      expect(attrs['traceparent.outcome'], kOutcomeSkippedOffAllowlist);
+      expect(attrs['trace.id'], isNot(s1Trace));
+      expect(attrs['trace.root_type'], 'request');
+    });
+
+    test('span.duration_ms is children-only; a root sends none', () async {
+      final server = await serve();
+      addTearDown(() => server.close(force: true));
+      install(allowlist: const ['127.0.0.1']);
+
+      // No root: the request re-roots itself, so it derives its duration
+      // server-side and sends none of its own.
+      await fetch(Uri.parse('http://127.0.0.1:${server.port}/a'));
+      final asRoot = records.single.toAttributes();
+      expect(asRoot.containsKey('span.duration_ms'), isFalse);
+      expect(asRoot['span.start_time'], isNotNull);
+      // The measurement is not lost.
+      expect(asRoot['http.duration_ms'], isNotNull);
+
+      records.clear();
+      trace.mint(TraceRootType.interaction);
+      await fetch(Uri.parse('http://127.0.0.1:${server.port}/b'));
+      expect(records.single.toAttributes()['span.duration_ms'], isNotNull);
+    });
+
+    test('an adopted request with no local root is still typed', () async {
+      final server = await serve();
+      addTearDown(() => server.close(force: true));
+      install(allowlist: const ['127.0.0.1']);
+      final theirs = formatTraceparent('c' * 32, 'd' * 16);
+
+      await fetch(
+        Uri.parse('http://127.0.0.1:${server.port}/x'),
+        before: (r) => r.headers.set(kTraceparentHeader, theirs),
+      );
+
+      final attrs = records.single.toAttributes();
+      expect(attrs['traceparent.outcome'], kOutcomeAdopted);
+      // Root type rides every row; with nothing local in progress the request
+      // is its own root, and the root identity rule gives it the action id.
+      expect(attrs['trace.root_type'], 'request');
+      expect(attrs['rum.action.id'], 'd' * 16);
+    });
+
+    test('a request that never opened carries ids but no outcome', () async {
+      install(allowlist: const ['127.0.0.1']);
+      trace.mint(TraceRootType.interaction);
+
+      // Port 1 on loopback refuses: no socket, so nothing was propagated, and
+      // absence is the contract's member for "not traced".
+      await expectLater(
+          fetch(Uri.parse('http://127.0.0.1:1/x')), throwsA(isA<Object>()));
+
+      final attrs = records.single.toAttributes();
+      expect(attrs.containsKey('traceparent.outcome'), isFalse);
+      expect(attrs['trace.id'], isNotNull);
     });
 
     test('KNOWN LIMITATION: a redirect carries the header off the allowlist',

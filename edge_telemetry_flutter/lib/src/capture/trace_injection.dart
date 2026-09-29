@@ -10,7 +10,6 @@
 // the `dart:io` wrapper does both halves from the one answer, which is what
 // makes the wire and the row agree by construction.
 
-import '../managers/identity_format.dart';
 import '../managers/trace_manager.dart';
 
 /// The one propagation header. **W3C `traceparent` only** — no `tracestate`,
@@ -116,6 +115,13 @@ bool hostAllowed(String host, List<String> allowlist) {
   return false;
 }
 
+/// What one request froze at its call instant: the carrier, and whether the
+/// freeze found a root that had **aged out** rather than no root at all.
+///
+/// Both halves must be captured at the freeze, not read back at inject — which
+/// is the whole rule — so they travel as one value rather than two fields.
+typedef TraceFreeze = ({FrozenTrace? carrier, bool expired});
+
 /// One request's answer: the trace keys its event carries, and the header to
 /// send (null = send none).
 ///
@@ -158,9 +164,21 @@ class TraceInjector {
   /// send time would silently reparent requests onto unrelated taps and produce
   /// data that looks entirely healthy.
   ///
-  /// Null is the legal unattributed case, which is why the event carrying this
-  /// must set `EdgeEvent.ownsTraceContext`.
-  FrozenTrace? freeze() => trace.startChild();
+  /// A null carrier is the legal unattributed case, which is why the event
+  /// carrying this must set `EdgeEvent.ownsTraceContext`.
+  TraceFreeze freeze() {
+    final carrier = trace.startChild();
+    return (carrier: carrier, expired: carrier == null && trace.rootExpired);
+  }
+
+  /// The trace keys for a request that never reached a socket — a refused
+  /// connection, a DNS failure, no network.
+  ///
+  /// It carries ids so the row is still correlatable, and **no outcome key**:
+  /// no header was ever written, and absence is the contract's own member for
+  /// "not traced".
+  Map<String, String> stamp(TraceFreeze freeze) =>
+      _carrierFor(freeze).attributes;
 
   /// The ladder, evaluated once at `close()` — the last instant before bytes
   /// leave, and the only instant at which the consumer's own headers are
@@ -172,14 +190,21 @@ class TraceInjector {
   TraceDecision resolve({
     required Uri url,
     required String? inbound,
-    required FrozenTrace? frozen,
+    required TraceFreeze freeze,
   }) {
+    // The frozen context is validated **before** the ladder, not inside one
+    // rung of it: a stale carrier must not reach the wire down *any* path, or
+    // an off-allowlist row publishes S1's `trace.id` beside S2's `session.id`
+    // — the same quiet death of the invariant, on a rung nobody was watching.
+    final expired = _isExpired(freeze);
+    final carrier = expired ? null : freeze.carrier;
+
     // Rung 1. Off-allowlist: ids are stamped locally so the request is still
     // correlatable inside the session, and nothing is propagated.
     if (!hostAllowed(url.host, allowlist)) {
       return TraceDecision(
         {
-          ...(frozen ?? _requestRoot()).attributes,
+          ...(carrier ?? trace.startRequestRoot()).attributes,
           'traceparent.outcome': kOutcomeSkippedOffAllowlist,
         },
         null,
@@ -194,10 +219,10 @@ class TraceInjector {
       return TraceDecision({
         'trace.id': adopted.traceId,
         'span.id': adopted.spanId,
-        if (frozen != null) ...{
-          'rum.action.id': frozen.actionId,
-          'trace.root_type': frozen.rootType.name,
-        },
+        // Root type rides every row, so a request adopted with nothing local in
+        // progress is what it is: its own root, of type `request`.
+        'rum.action.id': carrier?.actionId ?? adopted.spanId,
+        'trace.root_type': (carrier?.rootType ?? TraceRootType.request).name,
         'traceparent.outcome': kOutcomeAdopted,
       }, null);
     }
@@ -206,35 +231,27 @@ class TraceInjector {
     // session id is compared against the live one — one string compare on a
     // path already comparing hosts. "Mostly true" is a worse property for a
     // backend join than false.
-    final FrozenTrace carrier;
-    final String outcome;
-    if (frozen == null) {
-      carrier = _requestRoot();
-      outcome = kOutcomeInjectedUnattributed;
-    } else if (frozen.sessionId != trace.session.currentSessionId) {
-      carrier = _requestRoot();
-      outcome = kOutcomeInjectedExpired;
-    } else {
-      carrier = frozen;
-      outcome = kOutcomeInjectedAttributed;
-    }
+    final sent = carrier ?? trace.startRequestRoot();
+    final outcome = carrier != null
+        ? kOutcomeInjectedAttributed
+        : expired
+            ? kOutcomeInjectedExpired
+            : kOutcomeInjectedUnattributed;
     return TraceDecision(
-      {...carrier.attributes, 'traceparent.outcome': outcome},
-      formatTraceparent(carrier.traceId, carrier.spanId),
+      {...sent.attributes, 'traceparent.outcome': outcome},
+      formatTraceparent(sent.traceId, sent.spanId),
     );
   }
 
-  /// A parentless `request` root: the request is its own root, so it mints a
-  /// trace and a span and carries no `parent.span.id`.
-  ///
-  /// Deliberately **not** minted through [TraceManager.mint] — this root is not
-  /// ambient (nothing else should hang off it) and it is not a user action, so
-  /// it must not bump `session.action_count`.
-  FrozenTrace _requestRoot() => FrozenTrace(
-        traceId: secureHex32(),
-        spanId: secureHex16(),
-        parentSpanId: null,
-        rootType: TraceRootType.request,
-        sessionId: trace.session.currentSessionId,
-      );
+  /// Context existed at the freeze and is no longer valid — the root aged out
+  /// under the 2 s / 10 s windows, or the session rotated underneath a request
+  /// still in flight. The same semantic class, so it mints no new value.
+  bool _isExpired(TraceFreeze freeze) =>
+      freeze.expired ||
+      (freeze.carrier != null && !trace.sessionMatches(freeze.carrier!));
+
+  FrozenTrace _carrierFor(TraceFreeze freeze) =>
+      _isExpired(freeze) || freeze.carrier == null
+          ? trace.startRequestRoot()
+          : freeze.carrier!;
 }

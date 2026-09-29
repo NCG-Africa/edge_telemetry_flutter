@@ -8,7 +8,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import '../managers/trace_manager.dart';
 import 'http_url.dart';
 import 'trace_injection.dart';
 
@@ -454,9 +453,9 @@ class TelemetryHttpClient implements HttpClient {
     // before `close()` — two supersede opportunities before a single byte is
     // injected. The causal parent is the action that called the API, not
     // whatever tap landed during a TLS handshake.
-    final frozen = injector?.freeze();
+    final freeze = injector?.freeze() ?? (carrier: null, expired: false);
     final callStart = DateTime.now();
-    final elapsed = Stopwatch()..start();
+    final clock = Stopwatch()..start();
     final HttpClientRequest request;
     try {
       request = await open();
@@ -468,8 +467,8 @@ class TelemetryHttpClient implements HttpClient {
       //
       // It carries the frozen ids but **no outcome**: no header was ever
       // written, and absence is the contract's own member for "not traced".
-      _onRequestComplete(_failed(url, method, callStart, elapsed, error,
-          const HttpPhases(), frozen?.attributes ?? const {}));
+      _onRequestComplete(_failed(url, method, callStart, clock, error,
+          traceAttributes: injector?.stamp(freeze) ?? const {}));
       rethrow;
     }
     return TelemetryHttpClientRequest(
@@ -477,13 +476,13 @@ class TelemetryHttpClient implements HttpClient {
       method: method,
       url: url,
       callStart: callStart,
-      elapsed: elapsed,
-      openMs: elapsed.elapsedMilliseconds,
+      clock: clock,
+      openMs: clock.elapsedMilliseconds,
       connects: _connects,
       onRequestComplete: _onRequestComplete,
       debugMode: debugMode,
       injector: injector,
-      frozen: frozen,
+      freeze: freeze,
     );
   }
 }
@@ -515,15 +514,19 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
   final DateTime callStart;
 
   /// The one monotonic clock for this request, started beside [callStart].
-  final Stopwatch elapsed;
+  final Stopwatch clock;
 
   /// How long `openUrl` took: queue wait plus connect, when this request made
   /// the connection; queue wait alone when it reused one.
   final int openMs;
 
-  /// The propagation half, and the carrier it froze at the call instant.
+  /// The propagation half, and what it froze at the call instant.
   final TraceInjector? injector;
-  final FrozenTrace? frozen;
+  final TraceFreeze freeze;
+
+  /// Resolved once, at [_injectOnce].
+  Map<String, String> _traceAttributes = const {};
+  bool _injected = false;
 
   final Map<int, HttpConnectRecord> _connects;
 
@@ -536,13 +539,13 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
     required this.method,
     required this.url,
     required this.callStart,
-    required this.elapsed,
+    required this.clock,
     required this.openMs,
     required Map<int, HttpConnectRecord> connects,
     required Function(HttpRequestTelemetry) onRequestComplete,
     this.debugMode = false,
     this.injector,
-    this.frozen,
+    this.freeze = (carrier: null, expired: false),
   })  : _baseRequest = baseRequest,
         _connects = connects,
         _onRequestComplete = onRequestComplete;
@@ -600,19 +603,7 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
     }
 
     final phases = _resolvePhases();
-
-    // Inject here and nowhere else: `close()` is the last instant before bytes
-    // leave and the only one at which the consumer's own headers are visible.
-    // One call answers both halves — the header and the event's trace keys —
-    // from the same frozen copy, so the wire and the row cannot disagree.
-    final trace = injector?.resolve(
-      url: url,
-      inbound: _inboundTraceparent(),
-      frozen: frozen,
-    );
-    final traceAttributes = trace?.attributes ?? const <String, String>{};
-    final header = trace?.header;
-    if (header != null) headers.set(kTraceparentHeader, header);
+    _injectOnce();
 
     try {
       final response = await _baseRequest.close();
@@ -621,10 +612,10 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
         method: method,
         url: url,
         callStart: callStart,
-        elapsed: elapsed,
-        elapsedAtHeaders: elapsed.elapsed,
+        clock: clock,
+        elapsedAtHeaders: clock.elapsed,
         phases: phases,
-        traceAttributes: traceAttributes,
+        traceAttributes: _traceAttributes,
         onRequestComplete: _onRequestComplete,
         debugMode: debugMode,
       );
@@ -632,9 +623,46 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
       // A failed request still measures what it reached: the re-based clock
       // runs from before the call, so a connect failure now reports the
       // connect time it actually spent instead of a near-zero.
-      _onRequestComplete(_failed(
-          url, method, callStart, elapsed, error, phases, traceAttributes));
+      _onRequestComplete(_failed(url, method, callStart, clock, error,
+          phases: phases, traceAttributes: _traceAttributes));
       rethrow;
+    }
+  }
+
+  /// Resolve the ladder and write the header — **at the last instant the
+  /// header map is still mutable**, which is the first body byte, not `close()`.
+  ///
+  /// `dart:io` sends the header section on the first write and freezes the map
+  /// with it, so injecting at `close()` throws `HttpException: HTTP headers are
+  /// not mutable` out of the consumer's own `close()` on every request with a
+  /// body. An SDK that makes the host app's POSTs throw is the exact class of
+  /// harm the redirect leak was declined to avoid.
+  ///
+  /// It still runs after the consumer has set their own headers — they set them
+  /// before writing a body — so the adopt rung is unaffected.
+  void _injectOnce() {
+    if (_injected) return;
+    _injected = true;
+    final resolver = injector;
+    if (resolver == null) return;
+
+    final decision = resolver.resolve(
+      url: url,
+      inbound: _inboundTraceparent(),
+      freeze: freeze,
+    );
+    _traceAttributes = decision.attributes;
+    final header = decision.header;
+    if (header == null) return;
+    try {
+      headers.set(kTraceparentHeader, header);
+    } catch (_) {
+      // Unreachable through this wrapper, and swallowed rather than thrown:
+      // the SDK must never be why a consumer's request fails. The ids stay on
+      // the row, the outcome key comes off — nothing was propagated, and
+      // absence is the contract's member for that.
+      _traceAttributes = Map<String, String>.from(decision.attributes)
+        ..remove('traceparent.outcome');
     }
   }
 
@@ -653,31 +681,50 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
   HttpConnectionInfo? get connectionInfo => _baseRequest.connectionInfo;
 
   @override
-  void add(List<int> data) => _baseRequest.add(data);
+  void add(List<int> data) {
+    _injectOnce();
+    _baseRequest.add(data);
+  }
 
   @override
   void addError(Object error, [StackTrace? stackTrace]) =>
       _baseRequest.addError(error, stackTrace);
 
   @override
-  Future<void> addStream(Stream<List<int>> stream) =>
-      _baseRequest.addStream(stream);
+  Future<void> addStream(Stream<List<int>> stream) {
+    _injectOnce();
+    return _baseRequest.addStream(stream);
+  }
 
   @override
-  Future<void> flush() => _baseRequest.flush();
+  Future<void> flush() {
+    _injectOnce();
+    return _baseRequest.flush();
+  }
 
   @override
-  void write(Object? object) => _baseRequest.write(object);
+  void write(Object? object) {
+    _injectOnce();
+    _baseRequest.write(object);
+  }
 
   @override
-  void writeAll(Iterable<Object?> objects, [String separator = ""]) =>
-      _baseRequest.writeAll(objects, separator);
+  void writeAll(Iterable<Object?> objects, [String separator = ""]) {
+    _injectOnce();
+    _baseRequest.writeAll(objects, separator);
+  }
 
   @override
-  void writeCharCode(int charCode) => _baseRequest.writeCharCode(charCode);
+  void writeCharCode(int charCode) {
+    _injectOnce();
+    _baseRequest.writeCharCode(charCode);
+  }
 
   @override
-  void writeln([Object? object = ""]) => _baseRequest.writeln(object);
+  void writeln([Object? object = ""]) {
+    _injectOnce();
+    _baseRequest.writeln(object);
+  }
 
   @override
   Encoding get encoding => _baseRequest.encoding;
@@ -698,16 +745,16 @@ HttpRequestTelemetry _failed(
   Uri url,
   String method,
   DateTime callStart,
-  Stopwatch elapsed,
-  Object error, [
+  Stopwatch clock,
+  Object error, {
   HttpPhases phases = const HttpPhases(),
   Map<String, String> traceAttributes = const {},
-]) =>
+}) =>
     HttpRequestTelemetry(
       url: url.toString(),
       method: method,
       statusCode: 0,
-      duration: elapsed.elapsed,
+      duration: clock.elapsed,
       timestamp: callStart,
       error: error.toString(),
       traceAttributes: traceAttributes,
@@ -735,7 +782,7 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
   final String method;
   final Uri url;
   final DateTime callStart;
-  final Stopwatch elapsed;
+  final Stopwatch clock;
   final Duration elapsedAtHeaders;
   final HttpPhases phases;
   final Map<String, String> traceAttributes;
@@ -751,7 +798,7 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
     required this.method,
     required this.url,
     required this.callStart,
-    required this.elapsed,
+    required this.clock,
     required this.elapsedAtHeaders,
     required this.phases,
     required Function(HttpRequestTelemetry) onRequestComplete,
@@ -765,7 +812,7 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
     _emitted = true;
 
     final duration = elapsedAtHeaders;
-    final download = elapsed.elapsed - elapsedAtHeaders;
+    final download = clock.elapsed - elapsedAtHeaders;
 
     if (debugMode) {
       print('🌐 HTTP ${method.toUpperCase()} $url - $statusCode '
@@ -1055,9 +1102,13 @@ class HttpRequestTelemetry {
       // Absolute UTC, RFC3339 — the processor's `parseTime` returns a silent
       // NULL on anything else, so epoch millis would vanish without an error.
       'span.start_time': timestamp.toUtc().toIso8601String(),
-      'span.duration_ms': (duration + (downloadDuration ?? Duration.zero))
-          .inMilliseconds
-          .toString(),
+      // Children only — a root derives its duration server-side from its
+      // children, so a re-rooted (or adopted, root-shaped) request sends none.
+      // The measurement is not lost: `http.duration_ms` carries it either way.
+      if (traceAttributes.containsKey('parent.span.id'))
+        'span.duration_ms': (duration + (downloadDuration ?? Duration.zero))
+            .inMilliseconds
+            .toString(),
       ...traceAttributes,
     };
   }

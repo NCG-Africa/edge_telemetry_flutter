@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import 'clock_skew.dart';
 import 'offline_queue.dart';
 import 'wire_canon.dart';
 
@@ -227,8 +228,10 @@ class RetryTransport {
       request.add(gzip ? GZipCodec().encode(body) : body);
       final response = await request.close();
       await response.drain<void>();
-      // Free server time on a response we already have. Recorded, not applied.
-      recordClockSkew(response.headers.date);
+      // Free server time on a response we already have. Recorded, not applied,
+      // and only from a POST the collector accepted — a 4xx can come from an
+      // edge that never reached it, so its `Date` is a different clock.
+      if (_ok(response.statusCode)) recordClockSkew(response.headers.date);
       return response.statusCode;
     } catch (e) {
       print('❌ Error: $e');

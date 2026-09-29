@@ -55,8 +55,10 @@
   **synchronous call instant**, before the connection is attempted (a cold
   connect measured 509 ms), and the header and the `http.request` describing it
   are built from that one frozen copy, so the wire and the row cannot disagree.
-  `http.request` gains the frozen trace keys plus `span.start_time` and
-  `span.duration_ms`.
+  `http.request` gains the frozen trace keys plus `span.start_time`, and
+  `span.duration_ms` on the rows that are spans under an action — a request that
+  re-rooted itself is a root, and a root's duration is derived server-side from
+  its children.
 - **`traceparent.outcome` on `http.request`, five values, and absence means
   "not traced".** `skipped_off_allowlist` (host not listed — ids still stamped
   locally, no header sent), `adopted` (you had set your own `traceparent`; it is
