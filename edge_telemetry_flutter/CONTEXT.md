@@ -131,6 +131,28 @@ The per-session item counter that sheds **whole tiers** on breach — `diagnosti
 dropped-item counter as `tier_shed`.
 _Avoid_: throttle, rate limiter, sampler
 
+**Action**:
+One completed gesture — tap, long-press or swipe — as classified from the global
+pointer route. It opens a trace root at pointer-up, has **no duration and no
+outcome** (duration is a backend view over the root's children; outcome belongs to a
+signal with a terminal moment), and emits exactly one `ui.interaction`.
+_Avoid_: interaction (the event name, not the concept), gesture (the raw pointer
+sequence), user journey step
+
+**Naming call** (`trackAction`):
+The one public action API. It **names the open root and emits nothing** — a helper
+that emitted its own event gave adopting apps two events for one tap. Takes a name and
+no attribute map, because an open map on a gesture-rate path routes around the
+cardinality and PII controls.
+_Avoid_: startAction, beginTransaction, trackInteraction
+
+**Action cap**:
+The per-session ceiling of 200 emitted `ui.interaction` events, enforced in the
+Collector beside the allowlist. It **sheds events, never roots**: attribution survives
+it and only the behavioural record thins, which is why `session.action_count` counts
+roots minted rather than events emitted.
+_Avoid_: rate limit, throttle, action sampling
+
 ### Session
 
 **Session**:

@@ -11,6 +11,17 @@ import 'edge_event.dart';
 import 'pipeline.dart';
 import 'wire_canon.dart';
 
+/// Per-session ceiling on emitted `ui.interaction` events (#57 D8). Auto-
+/// capture runs at one to three gestures per second on a busy screen, which
+/// overruns the item budget on a typical session; the sibling can decline to
+/// sample because it never declared a ceiling.
+///
+/// **It sheds events, never roots.** `TraceManager.mint` still opens a root
+/// past the cap, so every later request, crash and frame aggregate keeps its
+/// attribution and only the behavioural record thins — and
+/// `session.action_count`, taken at the mint, still reports every action.
+const int kActionEventCap = 200;
+
 /// The single per-event gatekeeper. Every [EdgeEvent] — from a capture hook or a
 /// facade API call — passes through here: sample gate, context merge, session
 /// counters, then routing to the [Pipeline] (batched) or the immediate rail.
@@ -40,6 +51,11 @@ class Collector implements EventSink {
   /// it defaults to the compile-time [kHoistBatchContext] and is **never** a
   /// config field — see that constant for the silent-failure mode.
   final bool hoistBatchContext;
+
+  /// `ui.interaction` events admitted this session, against [kActionEventCap].
+  /// Reset by [resetActionCap] on rotation — the cap is per session, like the
+  /// governor's budget.
+  int _actionEvents = 0;
 
   Collector({
     required this.context,
@@ -91,6 +107,20 @@ class Collector implements EventSink {
     }
 
     if (!_shouldSample(event)) return;
+
+    // The per-session action cap: the same species of drop as the allowlist —
+    // taken on the item's name, before enrichment, counted on the wire — but
+    // *after* the sample gate, unlike the allowlist. A sampled-out session
+    // emits no `ui.interaction` at all, so counting its gestures against the
+    // cap would report a ceiling breach that never happened.
+    if (event.name == 'ui.interaction' && ++_actionEvents > kActionEventCap) {
+      session.recordDropped('action_cap');
+      if (debugMode) {
+        print('🚫 Dropped ui.interaction — past the per-session cap of '
+            '$kActionEventCap events (the root was still minted)');
+      }
+      return;
+    }
 
     // Counters bump before enrichment so the event's own session counts
     // include itself (matches v1.5.2 recordEvent-before-enrich ordering).
@@ -168,6 +198,11 @@ class Collector implements EventSink {
       pipeline.enqueue(wireItem, context: _splitContextFrom(enriched));
     }
   }
+
+  /// Start a fresh action-cap allowance. Bound to `SessionManager
+  /// .onSessionStart` beside the governor's budget reset — both ceilings are
+  /// per session.
+  void resetActionCap() => _actionEvents = 0;
 
   /// Split the batch-level context out of [enriched] **in place** — the same map
   /// object the wire item already holds — and return the hoisted block. Mutable

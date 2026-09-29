@@ -23,6 +23,7 @@ import 'package:edge_telemetry_flutter/src/facade/telemetry_wiring.dart';
 import 'package:edge_telemetry_flutter/src/managers/breadcrumb_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/context_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
+import 'package:edge_telemetry_flutter/src/managers/trace_manager.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -262,6 +263,7 @@ void main() {
         config: _config.copyWith(tier: CollectionTier.essential),
         session: session,
         context: ContextManager(sessionManager: session, global: const {}),
+        trace: TraceManager(session: session),
         breadcrumbs: BreadcrumbManager(),
       ).then((wiring) {
         expect(HttpOverrides.current, isNull);
@@ -420,6 +422,7 @@ void main() {
         session: session,
         context: ContextManager(
             sessionManager: session, global: const {'device.id': 'd'}),
+        trace: TraceManager(session: session),
         breadcrumbs: BreadcrumbManager(),
         crashReporting: const CrashReporting(),
         queue: _NoopQueue(),

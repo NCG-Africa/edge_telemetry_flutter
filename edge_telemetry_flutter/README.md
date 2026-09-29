@@ -144,6 +144,32 @@ Navigator.pop(context);                    // ✅ Automatically tracked
 // - Session screen counts
 ```
 
+### 👆 User Actions (Zero Setup Required)
+```dart
+ElevatedButton(
+  onPressed: () {
+    // Optional: name the action the user just performed. It names the tap
+    // EdgeTelemetry already captured — it does not emit an event of its own.
+    EdgeTelemetry.instance.trackAction('transfer');
+    _submit();
+  },
+  child: const Text('Send'),
+)
+
+// Every completed tap, long-press and swipe is captured from a global pointer
+// route — no widget changes — and each one opens the action every request,
+// crash and frame that follows is attributed to. Captured:
+// - ui.type (tap / long_press / swipe) and ui.direction on a swipe
+// - ui.screen, and ui.target + ui.name_source when trackAction named it
+// - session.action_count on the session summary
+//
+// A scroll coming to a stop is not an action and mints nothing. Swipe events
+// are diagnostic-tier (off by default); the action itself is still recorded.
+// Call trackAction synchronously from the handler — after an `await` it still
+// names the action but misses that one event. It takes no attributes map (use
+// trackEvent), and an action has no duration and no outcome to close.
+```
+
 ## 🎛️ Configuration Options
 
 Collection is **two fields**: a `tier` dial and a `captureOverrides` map that works in

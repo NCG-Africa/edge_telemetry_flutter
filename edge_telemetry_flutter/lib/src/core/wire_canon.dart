@@ -141,6 +141,7 @@ const Set<String> kMutableSessionCounters = {
   'session.error_count',
   'session.crash_count',
   'session.http_request_count',
+  'session.action_count',
   'session.screen_count',
   'session.visited_screens',
 };
