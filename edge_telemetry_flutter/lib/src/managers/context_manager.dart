@@ -2,6 +2,7 @@
 
 import 'dart:ui';
 
+import '../capture/http_overrides.dart';
 import 'session_manager.dart';
 import 'trace_manager.dart';
 
@@ -54,11 +55,17 @@ class ContextManager {
   ///
   /// The geo/tenant strip (`location`/`tenant_id`/`geo`) lives in `Collector`,
   /// downstream of where event attributes merge in — see `Collector.add`.
+  ///
+  /// `sdk.http_seam_state` is read here rather than latched at install for the
+  /// same reason: a consumer can sever the `dart:io` seam at any instant by
+  /// assigning `HttpOverrides.global` after init, and nothing notifies us. A
+  /// cached value would keep claiming a seam that died an hour ago.
   Map<String, String> snapshot() => {
         ..._global,
         ...sessionManager.getSessionAttributes(),
         ...?trace?.current(),
         'network.type': networkType,
+        'sdk.http_seam_state': httpSeamState(),
         ..._deviceContext(),
       };
 

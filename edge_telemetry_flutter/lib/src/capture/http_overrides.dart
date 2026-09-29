@@ -17,6 +17,56 @@ import 'trace_injection.dart';
 /// from which keys happen to be present.
 const String kSeam = 'http_overrides';
 
+// ==================== THE SEAM STATE (#87) ====================
+//
+// `sdk.http_seam_state` — session-constant, `sdk.`-prefixed so it hoists with
+// the rest of identity, and on **every** item rather than only HTTP rows,
+// because the case worth knowing about is the session with no HTTP rows at all.
+//
+// It reports which seams are **live**, and pointedly not how much of the app's
+// traffic they see. The SDK cannot know that: a `package:http` client the
+// consumer never handed us is indistinguishable from one that exists but is
+// never used. Four values, one of them provable:
+//
+// - [kSeamStateOverrides] — the `dart:io` global is ours; no client wrapped.
+// - [kSeamStateWrapper]   — the global is **not** ours; at least one wrapped.
+// - [kSeamStateBoth]      — both live.
+// - [kSeamStateBlind]     — neither. Provable client-side, and the only honest
+//   thing to say when a consumer set their own `HttpOverrides.global` after
+//   init and wrapped nothing.
+//
+// The undetectable case — capture healthy, and every request going through a
+// `cupertino_http`/`cronet_http` client nobody wrapped — is **not** papered
+// over here. It has no client-side signature at all; it is named in the family
+// change-request packet as a backend alert on sessions that finalize with
+// `session.http_request_count == 0` while the seam state says a seam was live.
+
+const String kSeamStateOverrides = 'overrides';
+const String kSeamStateWrapper = 'wrapper';
+const String kSeamStateBoth = 'both';
+const String kSeamStateBlind = 'blind';
+
+/// Set once the facade has wrapped a client, and never unset for the process:
+/// a wrapped client outlives the hook that made it, so "was one made" is the
+/// honest question, not "is one still open".
+bool _clientWrapped = false;
+
+/// Record that the wrapper seam is live. Called by the facade's one wrap call.
+void markClientWrapped() => _clientWrapped = true;
+
+/// Evaluated **at snapshot**, never cached. The `dart:io` half can be severed
+/// at any instant by a consumer assigning `HttpOverrides.global` after init —
+/// a state nothing notifies us of — so a value latched at install would keep
+/// claiming a seam that has been dead for the rest of the session.
+String httpSeamState() {
+  final overrides = HttpOverrides.current is TelemetryHttpOverrides;
+  if (overrides) return _clientWrapped ? kSeamStateBoth : kSeamStateOverrides;
+  return _clientWrapped ? kSeamStateWrapper : kSeamStateBlind;
+}
+
+/// Test-only: forget the wrapper half between cases.
+void resetHttpSeamState() => _clientWrapped = false;
+
 /// HTTP overrides that automatically monitor all network requests
 ///
 /// Wraps the default HttpClient to inject telemetry tracking
@@ -1031,6 +1081,12 @@ class HttpRequestTelemetry {
   /// and absence of the outcome key is itself the contract's "not traced".
   final Map<String, String> traceAttributes;
 
+  /// Which seam measured this request — [kSeam] or the wrapper's own. It rides
+  /// every row because the two seams reach different numbers: the wrapper sees
+  /// no connect, DNS, queue or reuse, so a backend averaging `http.connect_ms`
+  /// without partitioning on this would divide by the wrong denominator.
+  final String seam;
+
   const HttpRequestTelemetry({
     required this.url,
     required this.method,
@@ -1047,6 +1103,7 @@ class HttpRequestTelemetry {
     this.connectionReused,
     this.redirectCount,
     this.traceAttributes = const {},
+    this.seam = kSeam,
   });
 
   /// Convert to attributes map for telemetry.
@@ -1098,7 +1155,7 @@ class HttpRequestTelemetry {
       if (responseSizeSource != null)
         'http.response_size_source': responseSizeSource!,
       'http.success': isSuccess.toString(),
-      'http.seam': kSeam,
+      'http.seam': seam,
       // Absolute UTC, RFC3339 — the processor's `parseTime` returns a silent
       // NULL on anything else, so epoch millis would vanish without an error.
       'span.start_time': timestamp.toUtc().toIso8601String(),

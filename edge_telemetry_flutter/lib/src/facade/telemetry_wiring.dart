@@ -56,6 +56,11 @@ class TelemetryWiring {
   final AttributePolicy policy;
 
   final List<DisposeHandle> _disposers;
+
+  /// Held so the facade's one `captureClient` call has somewhere to go. Null
+  /// when `Capture.http` is off — which is exactly the disabled-capture case
+  /// that must return the consumer's client unchanged.
+  final HttpCaptureHook? httpHook;
   final NavCaptureHook? navHook;
   final NetworkCaptureHook? networkHook;
 
@@ -74,6 +79,7 @@ class TelemetryWiring {
     CaptureGate? gate,
     AttributePolicy? policy,
     NativeCrashChannel? nativeCrash,
+    this.httpHook,
     this.navHook,
     this.networkHook,
   })  : _disposers = disposers,
@@ -169,8 +175,9 @@ class TelemetryWiring {
     if (gate.allows(Capture.frames) || gate.allows(Capture.health)) {
       disposers.add(PerfCaptureHook().start(collector));
     }
+    HttpCaptureHook? httpHook;
     if (gate.allows(Capture.http)) {
-      disposers.add(HttpCaptureHook(
+      httpHook = HttpCaptureHook(
         debugMode: config.debugMode,
         breadcrumbs: breadcrumbs,
         gate: gate,
@@ -183,7 +190,8 @@ class TelemetryWiring {
         // built before the hook installs the override) is kept as well — belt
         // and braces, because the failure mode is unbounded amplification.
         selfUrl: transport.resolvedUrl,
-      ).start(collector));
+      );
+      disposers.add(httpHook.start(collector));
     }
     if (gate.allows(Capture.navigation)) {
       navHook = NavCaptureHook(
@@ -227,6 +235,7 @@ class TelemetryWiring {
       disposers: disposers,
       gate: gate,
       policy: policy,
+      httpHook: httpHook,
       navHook: navHook,
       networkHook: networkHook,
     );
