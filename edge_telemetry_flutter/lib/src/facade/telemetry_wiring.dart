@@ -156,6 +156,7 @@ class TelemetryWiring {
     disposers.add(
       LifecycleCaptureHook(
         session: session,
+        trace: context.trace,
         flush: pipeline.flush,
         breadcrumbs: breadcrumbs,
         gate: gate,

@@ -26,6 +26,7 @@ import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
 import '../managers/identity_format.dart';
 import '../managers/session_manager.dart';
+import '../managers/trace_manager.dart';
 import '../managers/user_id_manager.dart';
 import '../reports/simple_report_generator.dart';
 import '../storage/memory_report_storage.dart';
@@ -175,9 +176,17 @@ class EdgeTelemetry {
       _globalAttributes.addAll(config.globalAttributes);
       _globalAttributes['user.id'] = _currentUserId!;
 
+      // Construction order is strict and is the one thing that can go wrong
+      // silently: SessionManager → TraceManager → ContextManager. The trace
+      // manager reads the live session id, and the context manager merges both
+      // as delegates, so building them out of order gives the snapshot a
+      // half-built graph rather than an error.
+      final trace = TraceManager(session: _sessionManager!);
+
       final breadcrumbs = BreadcrumbManager(debugMode: config.debugMode);
       final context = ContextManager(
         sessionManager: _sessionManager!,
+        trace: trace,
         global: _globalAttributes,
         captureAccessibilityContext:
             config.capturesEnabled(Capture.accessibilityContext),
@@ -194,6 +203,13 @@ class EdgeTelemetry {
 
       await _sessionManager!.recoverAndStart();
       _currentSessionId = _sessionManager!.currentSessionId;
+
+      // The launch root, minted after the session exists so it is born inside
+      // it (a root whose session id no longer matches the live one is expired
+      // by definition). From here every item enriched in the cold-start window
+      // — the native crash drain immediately below included — inherits
+      // attribution without touching trace context.
+      trace.mint(TraceRootType.launch);
 
       // Unconditional in v3: there is no off-switch for crash capture, so an
       // SDK reporting no crashes can never be a configuration.

@@ -112,10 +112,20 @@ class Collector implements EventSink {
     // (batched, metric, crash) sends this map, and it merges caller-supplied
     // `event.attributes` — so location/tenant_id/geo are removed here, after the
     // merge, whether they came from a global or an event attribute (mapping §1).
-    final enriched = <String, String>{
-      ...context.snapshot(),
-      ...event.attributes,
-    }..removeWhere((k, _) => kForbiddenAttributes.contains(k));
+    final enriched = <String, String>{...context.snapshot()};
+
+    // The fourth axis. An item that froze its own trace context at the moment
+    // it describes must not have the *current* ambient keys spread underneath
+    // it: a request frozen before any root was live legally carries none, and
+    // an absent key cannot beat a present one. Strip first, then merge the
+    // item's own attributes over the top.
+    if (event.ownsTraceContext) {
+      enriched.removeWhere((k, _) => kAmbientTraceAttributes.contains(k));
+    }
+
+    enriched
+      ..addAll(event.attributes)
+      ..removeWhere((k, _) => kForbiddenAttributes.contains(k));
 
     // Crash-scoped breadcrumb attach (spec #15 §5.5): the ring rides only on
     // `app.crash`, JSON-encoded (attributes are String-valued on the wire).

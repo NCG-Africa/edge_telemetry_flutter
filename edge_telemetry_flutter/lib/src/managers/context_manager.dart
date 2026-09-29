@@ -3,6 +3,7 @@
 import 'dart:ui';
 
 import 'session_manager.dart';
+import 'trace_manager.dart';
 
 /// Single source of truth for the mutable global context bag: `device.*`,
 /// `app.*`, `user.id`, live `session.*`, and `network.type`.
@@ -12,6 +13,14 @@ import 'session_manager.dart';
 /// instant, minus per-event extras (breadcrumbs) which the [Collector] attaches.
 class ContextManager {
   final SessionManager sessionManager;
+
+  /// The second delegate: the open trace root's ambient keys. Null in
+  /// state-only tests → no trace keys, which is the same shape as no open root.
+  ///
+  /// This is what makes trace context ride the snapshot instead of being
+  /// threaded through every capture site, so a hook cannot forget to attach it.
+  final TraceManager? trace;
+
   final Map<String, String> _global;
 
   /// Current network type; updated by the network capture hook.
@@ -25,6 +34,7 @@ class ContextManager {
 
   ContextManager({
     required this.sessionManager,
+    this.trace,
     Map<String, String>? global,
     this.networkType = 'unknown',
     this.captureAccessibilityContext = false,
@@ -33,14 +43,21 @@ class ContextManager {
   /// Set a single global key (e.g. `user.id`, `session.sampled`).
   void setGlobalAttribute(String key, String value) => _global[key] = value;
 
-  /// The enriched attribute set right now: globals, then live session attrs,
-  /// then `network.type`. Order matches v1.5.2 `_getEnrichedAttributes`.
+  /// The enriched attribute set right now: globals, live session attrs, the
+  /// ambient trace keys, then `network.type`. Order matches v1.5.2
+  /// `_getEnrichedAttributes`, with the trace delegate slotted beside the
+  /// session one.
+  ///
+  /// Reading the trace delegate is side-effecting — it evaluates root expiry —
+  /// which is deliberate and documented on [TraceManager]: with no timer,
+  /// every expiry is somebody's read.
   ///
   /// The geo/tenant strip (`location`/`tenant_id`/`geo`) lives in `Collector`,
   /// downstream of where event attributes merge in — see `Collector.add`.
   Map<String, String> snapshot() => {
         ..._global,
         ...sessionManager.getSessionAttributes(),
+        ...?trace?.current(),
         'network.type': networkType,
         ..._deviceContext(),
       };

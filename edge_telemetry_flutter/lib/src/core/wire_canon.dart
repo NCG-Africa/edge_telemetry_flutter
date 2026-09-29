@@ -58,6 +58,24 @@ const Set<String> kCanonMetrics = {
 /// of geo/tenant truth (mapping §1, injected from client IP + API key).
 const Set<String> kForbiddenAttributes = {'location', 'tenant_id', 'geo'};
 
+/// The ambient trace keys `ContextManager` merges from `TraceManager.current()`
+/// while a root is open — and the exact set `Collector.add` strips from an item
+/// that carries its own frozen trace context (`EdgeEvent.ownsTraceContext`).
+///
+/// **Three, pointedly not five.** `span.id` and `parent.span.id` are minted per
+/// referenceable item and are *never* ambient, so they need no stripping —
+/// listing them here would teach a future reader that the snapshot carries
+/// them. The strip exists because absence cannot beat presence in a spread: a
+/// request frozen before any root was live legally carries no trace keys, and
+/// without an explicit strip the ambient snapshot would stamp a later tap onto
+/// it — claiming a request was caused by a tap 50 ms after it started, on the
+/// same row whose outcome says unattributed.
+const Set<String> kAmbientTraceAttributes = {
+  'trace.id',
+  'rum.action.id',
+  'trace.root_type',
+};
+
 /// Whether a batched item of [type] (`event`/`metric`) named [name] is canon.
 bool isCanonWireItem(String type, String name) => type == 'metric'
     ? kCanonMetrics.contains(name)
