@@ -53,6 +53,17 @@ class _PointerTrack {
   final Duration downAt;
   final Offset origin;
   final VelocityTracker velocity;
+
+  /// Furthest the pointer ever got from [origin] — **not** its net
+  /// displacement, which is what the framework's own recognizers latch on. A
+  /// drag that rubber-bands back to where it started ends within the slop
+  /// while never having been a tap.
+  double maxTravel = 0;
+
+  void sample(Offset position) {
+    final travelled = (position - origin).distance;
+    if (travelled > maxTravel) maxTravel = travelled;
+  }
 }
 
 /// Captures real user behaviour without asking a consumer to annotate two
@@ -140,12 +151,13 @@ class ActionCaptureHook implements CaptureHook {
       );
     } else if (event is PointerMoveEvent) {
       _inFlight[event.pointer]
-          ?.velocity
-          .addPosition(event.timeStamp, event.position);
+        ?..velocity.addPosition(event.timeStamp, event.position)
+        ..sample(event.position);
     } else if (event is PointerUpEvent) {
       final track = _inFlight.remove(event.pointer);
       if (track == null) return;
       track.velocity.addPosition(event.timeStamp, event.position);
+      track.sample(event.position);
       _completed(track, event);
     } else if (event is PointerCancelEvent) {
       _inFlight.remove(event.pointer);
@@ -154,11 +166,10 @@ class ActionCaptureHook implements CaptureHook {
 
   /// Classify, mint, then emit one microtask later.
   void _completed(_PointerTrack track, PointerUpEvent up) {
-    final travel = (up.position - track.origin).distance;
     final velocity = track.velocity.getVelocity().pixelsPerSecond;
 
     final _GestureKind kind;
-    if (travel < kTouchSlop) {
+    if (track.maxTravel < kTouchSlop) {
       kind = up.timeStamp - track.downAt < kLongPressTimeout
           ? _GestureKind.tap
           : _GestureKind.longPress;
@@ -171,16 +182,22 @@ class ActionCaptureHook implements CaptureHook {
 
     trace.mint(TraceRootType.interaction);
 
+    // Swipes fail closed: no gate, no swipe event. Diagnostic captures are
+    // off by default, so an absent gate must not be the one path that turns
+    // one on.
     if (kind == _GestureKind.swipe &&
-        gate != null &&
-        !gate!.allows(Capture.swipes)) {
+        !(gate?.allows(Capture.swipes) ?? false)) {
       return;
     }
 
-    // The root's own span id, read at mint time: `ui.interaction` describes the
-    // root, so its span id *is* the action id. The remaining trace keys arrive
-    // ambient, like every other item's.
-    final spanId = trace.current()['rum.action.id'];
+    // Frozen at the mint, not read at emit. The event is emitted a microtask
+    // later, and two pointer-ups can complete inside one task (multi-touch, a
+    // fast double tap) — the second supersedes the first, so an ambient read
+    // at emit time would ship this gesture's span id beside the *next*
+    // gesture's trace. `ui.interaction` describes the root, so its span id is
+    // the action id; owning the context is what makes the Collector strip the
+    // live keys instead of spreading them underneath.
+    final frozen = trace.current();
     final screen = session.currentScreenName;
     final direction =
         kind == _GestureKind.swipe ? _directionOf(velocity) : null;
@@ -189,19 +206,22 @@ class ActionCaptureHook implements CaptureHook {
       // Read after any synchronous `trackAction` from the tapped handler.
       final name = trace.rootName;
       final attributes = <String, String>{
+        ...frozen,
+        if (frozen['rum.action.id'] != null)
+          'span.id': frozen['rum.action.id']!,
         'ui.type': kind.wire,
         if (direction != null) 'ui.direction': direction,
         if (screen != null) 'ui.screen': screen,
         'ui.name_source':
             (name == null ? UiNameSource.none : UiNameSource.trackAction).wire,
         if (name != null) 'ui.target': name,
-        if (spanId != null) 'span.id': spanId,
       };
       breadcrumbs?.addUserAction(name ?? kind.wire, data: {
         'ui.type': kind.wire,
         if (screen != null) 'ui.screen': screen,
       });
-      _sink?.add(EdgeEvent.event('ui.interaction', attributes: attributes));
+      _sink?.add(EdgeEvent.event('ui.interaction',
+          attributes: attributes, ownsTraceContext: true));
     });
   }
 

@@ -126,33 +126,40 @@ Route<void> _route(String name) => PageRouteBuilder<void>(
 
 int _pointerId = 0;
 
-/// Drive one completed gesture through the real global pointer route:
-/// down, [moves] intermediate samples travelling [travel], then up after
-/// [held].
+/// Drive one completed gesture through the real global pointer route: down,
+/// [moves] intermediate samples travelling [travel], then up after [held].
+/// [returns] brings the pointer back to its origin before lifting — a
+/// rubber-band drag, which has travelled far while ending nowhere.
 void _gesture(
     {Offset travel = Offset.zero,
     Duration held = const Duration(milliseconds: 80),
     int moves = 0,
+    bool returns = false,
     Duration at = Duration.zero}) {
   final router = GestureBinding.instance.pointerRouter;
   final pointer = ++_pointerId;
   const origin = Offset(100, 200);
+  final end = returns ? origin : origin + travel;
   router.route(PointerDownEvent(
       pointer: pointer,
       position: origin,
       timeStamp: at,
       kind: PointerDeviceKind.touch));
   for (var i = 1; i <= moves; i++) {
+    final fraction = i / moves;
+    // Out to `travel`, then back to the origin when `returns`.
+    final offset =
+        returns ? travel * (1 - (2 * fraction - 1).abs()) : travel * fraction;
     router.route(PointerMoveEvent(
       pointer: pointer,
-      position: origin + travel * (i / moves),
-      timeStamp: at + held * (i / moves),
+      position: origin + offset,
+      timeStamp: at + held * fraction,
       kind: PointerDeviceKind.touch,
     ));
   }
   router.route(PointerUpEvent(
       pointer: pointer,
-      position: origin + travel,
+      position: end,
       timeStamp: at + held,
       kind: PointerDeviceKind.touch));
 }
@@ -223,6 +230,28 @@ void main() {
               .attributesOf('custom_event')
               .single['session.action_count'],
           '0');
+      rig.dispose();
+    });
+
+    testWidgets('a drag that rubber-bands back to its origin is not a tap',
+        (tester) async {
+      // The slop test is on the furthest the pointer ever got, not on its net
+      // displacement: a list dragged out and settled back ends within the
+      // slop having never been a tap, and minting there would supersede the
+      // live root exactly as a scroll stop would.
+      final rig = _Rig();
+      await rig.session.startSession('session_1');
+
+      _gesture(
+          travel: const Offset(0, -100),
+          held: const Duration(milliseconds: 300),
+          moves: 6,
+          returns: true);
+      await tester.pump();
+      rig.flush();
+
+      expect(rig.interactions, isEmpty);
+      expect(rig.trace.current(), isEmpty);
       rig.dispose();
     });
 

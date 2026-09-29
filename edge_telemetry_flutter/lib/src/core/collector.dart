@@ -106,16 +106,21 @@ class Collector implements EventSink {
       return;
     }
 
-    // The per-session action cap, beside the allowlist because it is the same
-    // species of drop: taken on the item's name, before enrichment, counted on
-    // the wire. Ahead of the sample gate for the same reason the allowlist is —
-    // `session.finalized` bypasses sampling and ships this count.
+    if (!_shouldSample(event)) return;
+
+    // The per-session action cap: the same species of drop as the allowlist —
+    // taken on the item's name, before enrichment, counted on the wire — but
+    // *after* the sample gate, unlike the allowlist. A sampled-out session
+    // emits no `ui.interaction` at all, so counting its gestures against the
+    // cap would report a ceiling breach that never happened.
     if (event.name == 'ui.interaction' && ++_actionEvents > kActionEventCap) {
       session.recordDropped('action_cap');
+      if (debugMode) {
+        print('🚫 Dropped ui.interaction — past the per-session cap of '
+            '$kActionEventCap events (the root was still minted)');
+      }
       return;
     }
-
-    if (!_shouldSample(event)) return;
 
     // Counters bump before enrichment so the event's own session counts
     // include itself (matches v1.5.2 recordEvent-before-enrich ordering).
