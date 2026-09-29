@@ -65,6 +65,9 @@ class SessionManager {
   int _errorCount = 0;
   int _crashCount = 0;
   int _httpRequestCount = 0;
+
+  /// Trace roots minted this session — see [recordAction].
+  int _actionCount = 0;
   final Set<String> _visitedScreens = {};
   final List<String> _screenJourney = [];
 
@@ -195,6 +198,13 @@ class SessionManager {
   void recordCrash() => _crashCount++;
   void recordHttpRequest() => _httpRequestCount++;
 
+  /// Count one trace root minted (`TraceManager.mint`), which is what
+  /// `session.action_count` means. Counting roots rather than emitted
+  /// `ui.interaction` events is what keeps the per-session emission cap
+  /// honest: 400 actions against 100 recorded events reads as truth, where a
+  /// count of emissions would read as a quiet session.
+  void recordAction() => _actionCount++;
+
   /// Count one item the SDK declined to send. [reason] is a short stable slug
   /// (`off_canon`, …) — it rides the finalize bookend verbatim.
   void recordDropped(String reason) =>
@@ -206,6 +216,7 @@ class SessionManager {
     _errorCount = 0;
     _crashCount = 0;
     _httpRequestCount = 0;
+    _actionCount = 0;
     _visitedScreens.clear();
     _screenJourney.clear();
     _currentScreenId = null;
@@ -241,6 +252,12 @@ class SessionManager {
 
   /// The current screen visit's id, or null before the first navigation.
   String? get currentScreenId => _currentScreenId;
+
+  /// The route name of the current screen visit, or null before the first
+  /// navigation. Read by the pointer hook for `ui.screen` — the *name*, not
+  /// the visit id, which already rides every item as `screen.id`.
+  String? get currentScreenName =>
+      _screenJourney.isEmpty ? null : _screenJourney.last;
 
   // ==================== FINALIZE / JOURNEY SUMMARY ====================
 
@@ -369,6 +386,7 @@ class SessionManager {
       'session.error_count': _errorCount.toString(),
       'session.crash_count': _crashCount.toString(),
       'session.http_request_count': _httpRequestCount.toString(),
+      'session.action_count': _actionCount.toString(),
       'session.screen_count': _visitedScreens.length.toString(),
       'session.visited_screens': _visitedScreens.join(','),
       // Per-item, not batch-scoped: it changes within a batch, so the hoist
@@ -398,6 +416,7 @@ class SessionManager {
         'errorCount': _errorCount,
         'crashCount': _crashCount,
         'httpRequestCount': _httpRequestCount,
+        'actionCount': _actionCount,
         'screenCount': _visitedScreens.length,
         'visitedScreens': _visitedScreens.toList(),
         'screenJourney': List<String>.from(_screenJourney),

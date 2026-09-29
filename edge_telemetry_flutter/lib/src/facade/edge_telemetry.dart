@@ -198,6 +198,7 @@ class EdgeTelemetry {
         config: config,
         session: _sessionManager!,
         context: context,
+        trace: trace,
         breadcrumbs: breadcrumbs,
       );
 
@@ -317,6 +318,31 @@ class EdgeTelemetry {
   }
 
   // ==================== CORE TRACKING API ====================
+
+  /// Name the action the user is performing — `trackAction('transfer')`.
+  ///
+  /// It **names the open interaction root and emits nothing of its own**. The
+  /// pointer route already minted a root for the gesture and already emits one
+  /// `ui.interaction`; this call decides what that one event is called, so an
+  /// adopting app gets one named event per tap rather than two events for one
+  /// tap across two schemas.
+  ///
+  /// Call it synchronously from the handler — from `onPressed`, not after an
+  /// `await` — because the event is emitted one microtask after the gesture
+  /// completes. A later call still names the root (so the requests, crashes
+  /// and frames that follow carry the name's attribution) but misses that one
+  /// event. With no gesture in flight at all — a timer, a background sync — it
+  /// mints a root of its own, so it never silently does nothing.
+  ///
+  /// There is no attribute map on purpose: `trackEvent` already takes one, and
+  /// an open map on a gesture-rate path would route straight around the
+  /// cardinality and PII controls. The action carries no duration and no
+  /// outcome either — duration is a backend view over the action's children,
+  /// and outcome belongs to a signal with a terminal moment.
+  void trackAction(String name) {
+    _ensureInitialized();
+    _wiring!.trace.nameCurrent(name);
+  }
 
   /// Track a custom event with flexible attribute support.
   void trackEvent(String eventName, {Map<String, Object?>? attributes}) {

@@ -15,6 +15,27 @@
   a request that started before the user touched the screen can never be
   attributed to the tap that followed it. A request's own `span.id` is the
   request id — there is no `request_id` and no `error_id`.
+- **User actions are captured automatically, and `trackAction(name)` names
+  them.** A global pointer route classifies every completed gesture — tap,
+  long-press, swipe — against the framework's own touch slop, long-press
+  timeout and minimum fling velocity, mints an `interaction` trace root at
+  pointer-up and emits one `ui.interaction`. Nothing to annotate: an app that
+  never calls a telemetry API still gets action attribution on its requests,
+  crashes and frames. A scroll coming to a stop deliberately mints nothing.
+  `EdgeTelemetry.instance.trackAction('transfer')` **names the open root and
+  emits nothing of its own**, so one tap is one event with a real name rather
+  than two events across two schemas; call it synchronously from the handler.
+  It takes no attribute map (`trackEvent` already does) and the action carries
+  no duration and no outcome, so there is no pair to close and nothing to leak.
+  Swipe *emission* is diagnostic-tier and off by default; the root is minted
+  either way, so attribution survives the tier.
+- **`session.action_count`** — trace roots minted this session, including the
+  ones whose event the per-session cap of 200 `ui.interaction` events shed. A
+  busy session therefore reads as "400 actions, 200 recorded" rather than as a
+  quiet one, and the shed lands on `session.dropped_reasons` as `action_cap`.
+- **A `navigation` root is minted only when no root is live**, which attributes
+  a deep link or a notification-opened screen without ever stealing the root
+  from the tap that pushed the route.
 - **`screen.id`** — 16 hex characters, minted on every screen entry, so a
   back-navigation to the same route is a new, identifiable visit rather than an
   ambiguous replay of an earlier one. Session-scoped and reset on rotation.

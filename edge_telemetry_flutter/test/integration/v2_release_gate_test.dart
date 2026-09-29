@@ -26,6 +26,7 @@ import 'package:edge_telemetry_flutter/src/facade/telemetry_wiring.dart';
 import 'package:edge_telemetry_flutter/src/managers/breadcrumb_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/context_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
+import 'package:edge_telemetry_flutter/src/managers/trace_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -89,6 +90,7 @@ Future<(EdgeTelemetry, _RecordingSender, TelemetryWiring)> _facade({
     config: _config,
     session: session,
     context: context,
+    trace: TraceManager(session: session),
     breadcrumbs: breadcrumbs,
     crashReporting: const CrashReporting(),
     queue: _NoopQueue(),

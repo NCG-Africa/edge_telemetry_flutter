@@ -104,6 +104,7 @@ class TraceManager {
 
   String? _traceId;
   String? _rootSpanId;
+  String? _rootName;
   TraceRootType? _rootType;
   String? _rootSessionId;
   DateTime? _mintedAt;
@@ -115,14 +116,49 @@ class TraceManager {
   /// Open a root of [rootType], superseding any root still open — mobile
   /// actions are sequential, and the second tap ends the first's claim on
   /// ambient context.
+  ///
+  /// Counts an action unconditionally (#71 D4): `session.action_count` counts
+  /// **roots minted**, not events emitted, so the `ui.interaction` cap can
+  /// never quietly deflate it — a busy session reads as "400 actions, 100
+  /// recorded" rather than as a quiet one. Every root type counts, launch
+  /// included; the count is of roots, and that is what keeps it checkable
+  /// against the emitted events without a second definition.
   void mint(TraceRootType rootType) {
     final now = _clock();
     _traceId = secureHex32();
     _rootSpanId = secureHex16();
+    _rootName = null;
     _rootType = rootType;
     _rootSessionId = session.currentSessionId;
     _mintedAt = now;
     _lastActivityAt = now;
+    session.recordAction();
+  }
+
+  /// `trackAction(name)`: name the open root, minting one if none is live.
+  ///
+  /// It **emits nothing** — the sibling shipped a helper that emitted its own
+  /// event and reversed it, because an adopting app then got two events for
+  /// one tap across two differently-named schemas. The pointer hook's
+  /// `ui.interaction` is the one event; this call only decides what it is
+  /// called, which is why the pointer hook emits on a microtask (a naming call
+  /// made synchronously from `onTap` still lands first).
+  ///
+  /// Minting when nothing is live is the navigation-root rule verbatim, and it
+  /// is what makes `trackAction('nightly_sync')` from a timer work instead of
+  /// silently no-op'ing.
+  void nameCurrent(String name) {
+    _expire();
+    if (_traceId == null) mint(TraceRootType.interaction);
+    _rootName = name;
+    _lastActivityAt = _clock();
+  }
+
+  /// The open root's name, or null when it is unnamed or nothing is open.
+  /// Read by the pointer hook one microtask after the mint.
+  String? get rootName {
+    _expire();
+    return _rootName;
   }
 
   /// The ambient trace context — **exactly the three keys** in
@@ -173,6 +209,7 @@ class TraceManager {
   void clear() {
     _traceId = null;
     _rootSpanId = null;
+    _rootName = null;
     _rootType = null;
     _rootSessionId = null;
     _mintedAt = null;

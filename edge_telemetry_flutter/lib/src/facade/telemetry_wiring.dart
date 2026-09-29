@@ -1,5 +1,6 @@
 // lib/src/facade/telemetry_wiring.dart
 
+import '../capture/action_capture_hook.dart';
 import '../capture/capture_hook.dart';
 import '../capture/http_capture_hook.dart';
 import '../capture/lifecycle_capture_hook.dart';
@@ -18,6 +19,7 @@ import '../crash/native_crash_channel.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
 import '../managers/session_manager.dart';
+import '../managers/trace_manager.dart';
 import '../widgets/edge_navigation_observer.dart';
 
 /// The one construction site. Builds the graph bottom-up
@@ -30,6 +32,11 @@ class TelemetryWiring {
   final TelemetryConfig config;
   final SessionManager session;
   final ContextManager context;
+
+  /// Held here rather than reached through [context]: the wiring is what
+  /// hands it to the hooks that mint roots, and `ContextManager` holds it only
+  /// to merge its ambient keys.
+  final TraceManager trace;
   final BreadcrumbManager breadcrumbs;
   final CrashReporting crashReporting;
   final NativeCrashChannel nativeCrash;
@@ -51,6 +58,7 @@ class TelemetryWiring {
     required this.config,
     required this.session,
     required this.context,
+    required this.trace,
     required this.breadcrumbs,
     required this.crashReporting,
     required this.queue,
@@ -73,6 +81,7 @@ class TelemetryWiring {
     required TelemetryConfig config,
     required SessionManager session,
     required ContextManager context,
+    required TraceManager trace,
     required BreadcrumbManager breadcrumbs,
   }) async {
     // Resolve the collection surface once: overrides → deprecated booleans →
@@ -80,8 +89,6 @@ class TelemetryWiring {
     // dropped-item counter, the same counter the off-canon drop uses.
     final gate =
         CaptureGate(config, onShed: () => session.recordDropped('tier_shed'));
-    // The budget is per session, so a rotation starts a fresh allowance.
-    session.onSessionStart = gate.resetBudget;
 
     // Every delivery-side give-up lands on the same session counter as the
     // off-canon drop and the tier shed: a payload the SDK declined to send.
@@ -118,6 +125,13 @@ class TelemetryWiring {
       gate: gate,
     );
 
+    // Both per-session ceilings start a fresh allowance on rotation: the
+    // governor's item budget and the Collector's `ui.interaction` cap.
+    session.onSessionStart = () {
+      gate.resetBudget();
+      collector.resetActionCap();
+    };
+
     // Late-bind the session bookend sink now the Collector exists (breaks the
     // session↔collector construction cycle). session.started/finalized route
     // here from now on.
@@ -145,8 +159,17 @@ class TelemetryWiring {
               .start(collector));
     }
     if (gate.allows(Capture.navigation)) {
-      navHook = NavCaptureHook(session: session, breadcrumbs: breadcrumbs);
+      navHook = NavCaptureHook(
+          session: session, breadcrumbs: breadcrumbs, trace: trace);
       disposers.add(navHook.start(collector));
+    }
+    if (gate.allows(Capture.actions)) {
+      disposers.add(ActionCaptureHook(
+        trace: trace,
+        session: session,
+        breadcrumbs: breadcrumbs,
+        gate: gate,
+      ).start(collector));
     }
 
     // The lifecycle→session bridge (paused=flush+mark, resume=rotate-if-idle)
@@ -156,7 +179,7 @@ class TelemetryWiring {
     disposers.add(
       LifecycleCaptureHook(
         session: session,
-        trace: context.trace,
+        trace: trace,
         flush: pipeline.flush,
         breadcrumbs: breadcrumbs,
         gate: gate,
@@ -167,6 +190,7 @@ class TelemetryWiring {
       config: config,
       session: session,
       context: context,
+      trace: trace,
       breadcrumbs: breadcrumbs,
       crashReporting: crashReporting,
       queue: queue,
