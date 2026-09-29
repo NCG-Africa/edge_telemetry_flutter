@@ -8,6 +8,32 @@
 /// - [immediate]: sent straight away, bypassing the batch (crash rail).
 enum EventPriority { batched, immediate }
 
+/// `task.outcome` — three values, and a declared task reaches exactly one.
+/// There is no fourth: the two other obvious abandonment triggers are actively
+/// harmful, and the motivating example proves it. Navigation-away would abandon
+/// every task in the four-route transfer flow used to justify tasks existing,
+/// and backgrounding would report the single most common mobile-banking flow as
+/// a failure, because reading the OTP is step 2 of the happy path.
+const String kTaskCompleted = 'completed';
+const String kTaskFailed = 'failed';
+const String kTaskAbandoned = 'abandoned';
+
+/// `task.abandon_source` — **the gap, stated rather than hidden.**
+///
+/// [kTaskAbandonSessionEnd] is an in-process finalize: the session rotated on
+/// the 30-minute idle rule with the task still open. There is no task TTL of
+/// its own — the session idle window *is* the cap.
+///
+/// [kTaskAbandonLaunchRecovery] is the backdated finalize of a session whose
+/// process ended without one. It **cannot say whether a crash caused the
+/// abandonment**: the recovery finalize is emitted from
+/// `SessionManager.recoverAndStart`, and `drainNativeCrashes()` runs after it
+/// in `initialize()`. Joining the two is the backend's, on `session.id` — this
+/// key exists so a consumer reads "we do not know" off the row instead of
+/// inferring it from a crash-free denominator.
+const String kTaskAbandonSessionEnd = 'session_end';
+const String kTaskAbandonLaunchRecovery = 'launch_recovery';
+
 /// Internal, pre-enrichment event model handed from a capture hook or a facade
 /// API call into the [Collector].
 ///
@@ -103,6 +129,67 @@ class EdgeEvent {
         stackTrace = null,
         bypassSampling = false,
         priority = EventPriority.batched;
+
+  /// The `task.complete` wire shape — the terminal of a declared journey
+  /// (#92, spec §12).
+  ///
+  /// **Terminal-only.** A task start costs no wire item: it is held in memory
+  /// (and in the session record, so a killed process still reports it), and
+  /// exactly one event is emitted when the task reaches an outcome. That is
+  /// what makes the three-call API fire-and-forget — an unclosed start has no
+  /// failure mode to leak, because it never allocated a wire item to leak.
+  ///
+  /// `span.duration_ms` is the **existing** span duration key, not a new
+  /// `task.duration_ms`: time-on-task is a span duration and the family
+  /// already has a column for one. Unlike `http.request` — which omits it on a
+  /// root because the backend derives a root's duration from its children —
+  /// this event **always** carries it. A task mints no root, so it can never
+  /// be the row whose duration is derived, and it has no second duration key
+  /// to fall back on: omitting it on an untraced task would lose the one
+  /// measurement the signal exists for.
+  ///
+  /// [abandonSource] rides the abandoned outcome only. There is no slow/fast
+  /// or Apdex band on the wire — banding is a query-time comparison against a
+  /// per-target threshold, so it moves without a client release.
+  /// [sessionId] is set on the two **abandoned** legs and left to the context
+  /// snapshot on the two closing ones. That is not two shapes for one event —
+  /// it is one rule, that the row names the session whose ending it reports: a
+  /// launch-recovered abandonment is emitted before `_beginSession`, so the
+  /// snapshot holds no session at all and the row would otherwise arrive with an
+  /// empty `session.id`, unjoinable to the session it is about. A `completeTask`
+  /// belongs to whichever session the Collector is in when it lands, exactly
+  /// like every other event the facade emits — including across the rotation
+  /// that the close itself may trigger.
+  factory EdgeEvent.task({
+    required String name,
+    required String outcome,
+    required Duration duration,
+    String? sessionId,
+    String? abandonSource,
+    Map<String, String> traceAttributes = const {},
+  }) =>
+      EdgeEvent.event(
+        'task.complete',
+        attributes: {
+          'task.name': name,
+          'task.outcome': outcome,
+          'span.duration_ms': duration.inMilliseconds.toString(),
+          if (sessionId != null) 'session.id': sessionId,
+          if (abandonSource != null) 'task.abandon_source': abandonSource,
+          ...traceAttributes,
+        },
+        // The whole point of the freeze: a task runs for minutes, so by the
+        // time it terminates the ambient root is long gone or is an unrelated
+        // tap. Its own frozen copy merges over a stripped snapshot — including
+        // when the freeze found no open root, which is the empty case the axis
+        // exists for.
+        ownsTraceContext: true,
+        // Deliberately **not** counted, on either leg. The abandoned leg is
+        // emitted from the finalize path, where the counters are either already
+        // frozen into the journey summary or belong to a session that ended in
+        // a previous process — and one event may not count on one leg and not
+        // the other.
+      );
 
   /// The single source of truth for the `app.crash` wire shape.
   ///
