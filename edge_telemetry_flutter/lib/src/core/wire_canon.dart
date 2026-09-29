@@ -10,6 +10,8 @@
 // `Collector.add`, which logs under `debugMode` and bumps a session-scoped
 // dropped-item counter that ships on `session.finalized`.
 
+import 'clock_skew.dart';
+
 /// The 16 canon event names (§2). `app.crash` rides the immediate crash rail,
 /// not the batch, but is listed here for completeness.
 ///
@@ -87,9 +89,12 @@ bool isCanonWireItem(String type, String name) => type == 'metric'
 /// carries its own context snapshot in `attributes`, and the envelope names it.
 ///
 /// Field order is part of the canon
-/// (`type`/`timestamp`/`batch_size`/[`context`]/`events`). [context] is the
-/// hoisted block (#82); it is omitted entirely while [kHoistBatchContext] is
-/// off, so the default envelope is byte-identical to v2's.
+/// (`type`/`timestamp`/`batch_size`/[`clock_skew_ms`]/[`context`]/`events`).
+/// [context] is the hoisted block (#82), omitted entirely while
+/// [kHoistBatchContext] is off; `clock_skew_ms` is omitted until the first
+/// successful POST of the launch has a `Date` header to measure against. With
+/// the hoist off and no skew recorded yet, the envelope is byte-identical to
+/// v2's.
 Map<String, dynamic> telemetryBatch(
   List<Map<String, dynamic>> items, {
   Map<String, String> context = const {},
@@ -98,6 +103,7 @@ Map<String, dynamic> telemetryBatch(
       'type': 'telemetry_batch',
       'timestamp': DateTime.now().toIso8601String(),
       'batch_size': items.length,
+      if (recordedClockSkewMs != null) 'clock_skew_ms': recordedClockSkewMs,
       if (context.isNotEmpty) 'context': context,
       'events': items,
     };

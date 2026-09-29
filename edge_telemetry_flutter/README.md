@@ -231,6 +231,10 @@ await EdgeTelemetry.initialize(
   //    send, or null to drop the key. It never sees the ~30-key context snapshot.
   redactAttribute: (key, value) => key == 'checkout.email' ? null : value,
 
+  // 🔗 Hosts a W3C `traceparent` may be injected into. EMPTY = DARK: no header
+  //    is sent anywhere until you list a host.
+  traceHostAllowlist: ['api.myapp.com', '.internal.myapp.com'],
+
   // 🏷️ Global attributes added to all telemetry
   globalAttributes: {
     'app.environment': 'production',
@@ -260,6 +264,50 @@ A tier is an **on/off plus a shed rank**, never a sampling axis — `sampleRate`
 one roll over the whole session. If a session blows through its item budget the SDK
 sheds a *whole tier* (`diagnostic`, then `standard`, never `essential`) and reports
 every shed on `session.dropped_item_count` / `session.dropped_reasons`.
+
+### Distributed tracing
+
+Requests to a host you list carry a W3C `traceparent`, so a mobile tap and the backend
+span it caused sit in one trace. It is `traceparent` only — no `tracestate`, no B3 — and
+spans are attributes on the events you already get, never a separate span object or
+event type.
+
+```dart
+traceHostAllowlist: ['api.myapp.com', '.internal.myapp.com'],
+```
+
+Matching is **exact host, or a dot-anchored suffix of at least two labels**:
+`.myapp.com` matches `api.myapp.com` and never `api.myapp.com.evil.com`. **An empty
+allowlist — the default — means no header is injected anywhere.** The header carries
+your internal trace topology, so listing a host is a decision to disclose it to that
+host; a request to an unlisted host is still captured and still carries local trace ids,
+only the header is withheld.
+
+Every `http.request` says what happened in `traceparent.outcome`:
+
+| Value | Meaning |
+|---|---|
+| *(absent)* | Not traced — the SDK's own upload, or a request that never reached a socket. |
+| `skipped_off_allowlist` | Host not listed. Ids stamped locally, **no header sent**. |
+| `adopted` | You had already set your own `traceparent`. It is left untouched and its ids are mirrored; the request stays joined to your tap through `rum.action.id`. |
+| `injected_attributed` | Injected under the user action that made the call. |
+| `injected_expired` | That action had aged out, or the session rotated while the request was in flight. Re-rooted as a parentless request. |
+| `injected_unattributed` | Nothing was in progress when the call was made. Re-rooted as a parentless request. |
+
+The context is frozen at the **synchronous call instant**, before the connection is even
+attempted — a cold connect measured 509 ms, and reading it back at send time would
+silently reparent requests onto whatever the user tapped meanwhile. The header and the
+event describing that request are built from the same frozen copy, so they can never
+disagree.
+
+There is no separate trace sampling rate: `sampleRate`'s one per-session roll governs,
+and the sampled flag on the header is literally set.
+
+**Known limitation — redirects.** `dart:io` copies request headers onto a redirect
+target inside `close()`, below this SDK's wrapper, so a 302 from a listed host to an
+unlisted one carries the `traceparent` with it. Closing that would mean the SDK taking
+over redirect handling — changing your app's HTTP behaviour to serve a telemetry
+concern — so it is declined and documented rather than silently fixed.
 
 ### Privacy
 

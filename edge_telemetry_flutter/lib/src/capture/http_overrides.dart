@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'http_url.dart';
+import 'trace_injection.dart';
 
 /// Which seam captured a request. **Absence alone conflates "never measurable"
 /// with "measurable and missing"** and leaves a backend's connect-time
@@ -33,10 +34,20 @@ class TelemetryHttpOverrides extends HttpOverrides {
   /// keeps out of every consumer's default build.
   final bool measurePhases;
 
+  /// The propagation half (#86). Null = no header and no trace keys — the shape
+  /// a faked hook runs in.
+  final TraceInjector? injector;
+
+  /// The SDK's own upload target, excluded **explicitly** rather than by
+  /// construction order. See [TelemetryHttpClient.isSelfUpload].
+  final Uri? selfUrl;
+
   TelemetryHttpOverrides({
     required Function(HttpRequestTelemetry) onRequestComplete,
     this.debugMode = false,
     this.measurePhases = false,
+    this.injector,
+    this.selfUrl,
     HttpOverrides? previousOverrides,
   })  : _onRequestComplete = onRequestComplete,
         _previousOverrides = previousOverrides;
@@ -51,6 +62,8 @@ class TelemetryHttpOverrides extends HttpOverrides {
       onRequestComplete: _onRequestComplete,
       debugMode: debugMode,
       measurePhases: measurePhases,
+      injector: injector,
+      selfUrl: selfUrl,
       // Threaded by hand, and load-bearing — see [TelemetryHttpClient].
       securityContext: context,
     );
@@ -61,12 +74,16 @@ class TelemetryHttpOverrides extends HttpOverrides {
     required Function(HttpRequestTelemetry) onRequestComplete,
     bool debugMode = false,
     bool measurePhases = false,
+    TraceInjector? injector,
+    Uri? selfUrl,
   }) {
     final previousOverrides = HttpOverrides.current;
     HttpOverrides.global = TelemetryHttpOverrides(
       onRequestComplete: onRequestComplete,
       debugMode: debugMode,
       measurePhases: measurePhases,
+      injector: injector,
+      selfUrl: selfUrl,
       previousOverrides: previousOverrides,
     );
   }
@@ -144,16 +161,46 @@ class TelemetryHttpClient implements HttpClient {
   /// each entry is removed when its socket closes.
   final Map<int, HttpConnectRecord> _connects = {};
 
+  /// The propagation half (#86); null leaves every request un-traced.
+  final TraceInjector? injector;
+
+  /// The collector URL `RetryTransport` resolved. See [isSelfUpload].
+  final Uri? selfUrl;
+
   TelemetryHttpClient({
     required HttpClient baseClient,
     required Function(HttpRequestTelemetry) onRequestComplete,
     this.debugMode = false,
     this.measurePhases = false,
+    this.injector,
+    this.selfUrl,
     SecurityContext? securityContext,
   })  : _baseClient = baseClient,
         _onRequestComplete = onRequestComplete,
         _securityContext = securityContext {
     _baseClient.connectionFactory = _connect;
+  }
+
+  /// Whether [url] is the SDK's own telemetry POST.
+  ///
+  /// **Explicit, not by construction order** (#55 D10). `RetryTransport` builds
+  /// its `HttpClient` before the hook installs the global override, so today
+  /// self-capture is prevented by luck — undocumented, and one refactor from
+  /// breaking. The failure mode is not cosmetic: every upload would emit an
+  /// `http.request`, which enters the next batch, which is another upload —
+  /// unbounded amplification — and the collector would receive a `traceparent`
+  /// it removed its ingestion path for. A self-upload emits no event, injects
+  /// no header, and per the outcome contract carries no outcome key at all.
+  ///
+  /// The check is free: the wrapper is already comparing hosts for the
+  /// allowlist, so this is one more comparison on a path already comparing.
+  bool isSelfUpload(Uri url) {
+    final self = selfUrl;
+    return self != null &&
+        url.scheme == self.scheme &&
+        url.host == self.host &&
+        url.port == self.port &&
+        url.path == self.path;
   }
 
   /// Time one connection setup and record it against the local port.
@@ -172,7 +219,10 @@ class TelemetryHttpClient implements HttpClient {
   /// only.
   Future<ConnectionTask<Socket>> _connect(
       Uri url, String? proxyHost, int? proxyPort) async {
-    final start = DateTime.now();
+    // Monotonic: a wall clock spanning an NTP correction can report a negative
+    // connect time. Every duration in this file comes off a Stopwatch; only
+    // timestamps stay wall-clock, because they must be absolute to join.
+    final elapsed = Stopwatch()..start();
     final consumer = _consumerConnectionFactory;
 
     Duration? dns;
@@ -190,7 +240,7 @@ class TelemetryHttpClient implements HttpClient {
       Object connectHost = host;
       if (measurePhases) {
         final addresses = await InternetAddress.lookup(host);
-        dns = DateTime.now().difference(start);
+        dns = elapsed.elapsed;
         if (addresses.isNotEmpty) connectHost = addresses.first;
       }
 
@@ -210,7 +260,7 @@ class TelemetryHttpClient implements HttpClient {
     unawaited(task.socket.then((socket) {
       final localPort = socket.port;
       _connects[localPort] = HttpConnectRecord(
-        connect: DateTime.now().difference(start),
+        connect: elapsed.elapsed,
         dns: dns,
       );
       unawaited(socket.done
@@ -394,7 +444,18 @@ class TelemetryHttpClient implements HttpClient {
   /// everything it needs to resolve its phases at completion.
   Future<HttpClientRequest> _track(
       String method, Uri url, Future<HttpClientRequest> Function() open) async {
+    // Before anything else, and before the first await: the SDK's own upload is
+    // not a request the SDK reports on.
+    if (isSelfUpload(url)) return open();
+
+    // **The freeze**, on entry to the override and before the base client is
+    // awaited. That await measured 509 ms cold and the host app may await again
+    // before `close()` — two supersede opportunities before a single byte is
+    // injected. The causal parent is the action that called the API, not
+    // whatever tap landed during a TLS handshake.
+    final freeze = injector?.freeze() ?? (carrier: null, expired: false);
     final callStart = DateTime.now();
+    final clock = Stopwatch()..start();
     final HttpClientRequest request;
     try {
       request = await open();
@@ -403,7 +464,11 @@ class TelemetryHttpClient implements HttpClient {
       // could not report this at all: it started measuring only once `openUrl`
       // had already succeeded, so the whole offline case was invisible. The
       // re-based clock makes it a measured row.
-      _onRequestComplete(_failed(url, method, callStart, error));
+      //
+      // It carries the frozen ids but **no outcome**: no header was ever
+      // written, and absence is the contract's own member for "not traced".
+      _onRequestComplete(_failed(url, method, callStart, clock, error,
+          traceAttributes: injector?.stamp(freeze) ?? const {}));
       rethrow;
     }
     return TelemetryHttpClientRequest(
@@ -411,10 +476,13 @@ class TelemetryHttpClient implements HttpClient {
       method: method,
       url: url,
       callStart: callStart,
-      openMs: DateTime.now().difference(callStart).inMilliseconds,
+      clock: clock,
+      openMs: clock.elapsedMilliseconds,
       connects: _connects,
       onRequestComplete: _onRequestComplete,
       debugMode: debugMode,
+      injector: injector,
+      freeze: freeze,
     );
   }
 }
@@ -440,12 +508,25 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
   final Function(HttpRequestTelemetry) _onRequestComplete;
   final bool debugMode;
 
-  /// Before the call, not after the connection — the re-base.
+  /// Before the call, not after the connection — the re-base. Wall clock,
+  /// because `span.start_time` must be absolute to join a client span to a
+  /// server one; every *duration* comes off [elapsed] instead.
   final DateTime callStart;
+
+  /// The one monotonic clock for this request, started beside [callStart].
+  final Stopwatch clock;
 
   /// How long `openUrl` took: queue wait plus connect, when this request made
   /// the connection; queue wait alone when it reused one.
   final int openMs;
+
+  /// The propagation half, and what it froze at the call instant.
+  final TraceInjector? injector;
+  final TraceFreeze freeze;
+
+  /// Resolved once, at [_injectOnce].
+  Map<String, String> _traceAttributes = const {};
+  bool _injected = false;
 
   final Map<int, HttpConnectRecord> _connects;
 
@@ -458,10 +539,13 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
     required this.method,
     required this.url,
     required this.callStart,
+    required this.clock,
     required this.openMs,
     required Map<int, HttpConnectRecord> connects,
     required Function(HttpRequestTelemetry) onRequestComplete,
     this.debugMode = false,
+    this.injector,
+    this.freeze = (carrier: null, expired: false),
   })  : _baseRequest = baseRequest,
         _connects = connects,
         _onRequestComplete = onRequestComplete;
@@ -519,6 +603,8 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
     }
 
     final phases = _resolvePhases();
+    _injectOnce();
+
     try {
       final response = await _baseRequest.close();
       return TelemetryHttpClientResponse(
@@ -526,8 +612,10 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
         method: method,
         url: url,
         callStart: callStart,
-        headersAt: DateTime.now(),
+        clock: clock,
+        elapsedAtHeaders: clock.elapsed,
         phases: phases,
+        traceAttributes: _traceAttributes,
         onRequestComplete: _onRequestComplete,
         debugMode: debugMode,
       );
@@ -535,8 +623,57 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
       // A failed request still measures what it reached: the re-based clock
       // runs from before the call, so a connect failure now reports the
       // connect time it actually spent instead of a near-zero.
-      _onRequestComplete(_failed(url, method, callStart, error, phases));
+      _onRequestComplete(_failed(url, method, callStart, clock, error,
+          phases: phases, traceAttributes: _traceAttributes));
       rethrow;
+    }
+  }
+
+  /// Resolve the ladder and write the header — **at the last instant the
+  /// header map is still mutable**, which is the first body byte, not `close()`.
+  ///
+  /// `dart:io` sends the header section on the first write and freezes the map
+  /// with it, so injecting at `close()` throws `HttpException: HTTP headers are
+  /// not mutable` out of the consumer's own `close()` on every request with a
+  /// body. An SDK that makes the host app's POSTs throw is the exact class of
+  /// harm the redirect leak was declined to avoid.
+  ///
+  /// It still runs after the consumer has set their own headers — they set them
+  /// before writing a body — so the adopt rung is unaffected.
+  void _injectOnce() {
+    if (_injected) return;
+    _injected = true;
+    final resolver = injector;
+    if (resolver == null) return;
+
+    final decision = resolver.resolve(
+      url: url,
+      inbound: _inboundTraceparent(),
+      freeze: freeze,
+    );
+    _traceAttributes = decision.attributes;
+    final header = decision.header;
+    if (header == null) return;
+    try {
+      headers.set(kTraceparentHeader, header);
+    } catch (_) {
+      // Unreachable through this wrapper, and swallowed rather than thrown:
+      // the SDK must never be why a consumer's request fails. The ids stay on
+      // the row, the outcome key comes off — nothing was propagated, and
+      // absence is the contract's member for that.
+      _traceAttributes = Map<String, String>.from(decision.attributes)
+        ..remove('traceparent.outcome');
+    }
+  }
+
+  /// The consumer's own `traceparent`, if they set one — the adopt rung.
+  /// `HttpHeaders.value` throws when a header carries more than one value, and
+  /// two `traceparent`s is malformed anyway, so that reads as "none".
+  String? _inboundTraceparent() {
+    try {
+      return headers.value(kTraceparentHeader);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -544,31 +681,50 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
   HttpConnectionInfo? get connectionInfo => _baseRequest.connectionInfo;
 
   @override
-  void add(List<int> data) => _baseRequest.add(data);
+  void add(List<int> data) {
+    _injectOnce();
+    _baseRequest.add(data);
+  }
 
   @override
   void addError(Object error, [StackTrace? stackTrace]) =>
       _baseRequest.addError(error, stackTrace);
 
   @override
-  Future<void> addStream(Stream<List<int>> stream) =>
-      _baseRequest.addStream(stream);
+  Future<void> addStream(Stream<List<int>> stream) {
+    _injectOnce();
+    return _baseRequest.addStream(stream);
+  }
 
   @override
-  Future<void> flush() => _baseRequest.flush();
+  Future<void> flush() {
+    _injectOnce();
+    return _baseRequest.flush();
+  }
 
   @override
-  void write(Object? object) => _baseRequest.write(object);
+  void write(Object? object) {
+    _injectOnce();
+    _baseRequest.write(object);
+  }
 
   @override
-  void writeAll(Iterable<Object?> objects, [String separator = ""]) =>
-      _baseRequest.writeAll(objects, separator);
+  void writeAll(Iterable<Object?> objects, [String separator = ""]) {
+    _injectOnce();
+    _baseRequest.writeAll(objects, separator);
+  }
 
   @override
-  void writeCharCode(int charCode) => _baseRequest.writeCharCode(charCode);
+  void writeCharCode(int charCode) {
+    _injectOnce();
+    _baseRequest.writeCharCode(charCode);
+  }
 
   @override
-  void writeln([Object? object = ""]) => _baseRequest.writeln(object);
+  void writeln([Object? object = ""]) {
+    _injectOnce();
+    _baseRequest.writeln(object);
+  }
 
   @override
   Encoding get encoding => _baseRequest.encoding;
@@ -589,16 +745,19 @@ HttpRequestTelemetry _failed(
   Uri url,
   String method,
   DateTime callStart,
-  Object error, [
+  Stopwatch clock,
+  Object error, {
   HttpPhases phases = const HttpPhases(),
-]) =>
+  Map<String, String> traceAttributes = const {},
+}) =>
     HttpRequestTelemetry(
       url: url.toString(),
       method: method,
       statusCode: 0,
-      duration: DateTime.now().difference(callStart),
+      duration: clock.elapsed,
       timestamp: callStart,
       error: error.toString(),
+      traceAttributes: traceAttributes,
       connectDuration: phases.connect,
       dnsDuration: phases.dns,
       queueDuration: phases.queue,
@@ -623,8 +782,10 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
   final String method;
   final Uri url;
   final DateTime callStart;
-  final DateTime headersAt;
+  final Stopwatch clock;
+  final Duration elapsedAtHeaders;
   final HttpPhases phases;
+  final Map<String, String> traceAttributes;
   final Function(HttpRequestTelemetry) _onRequestComplete;
   final bool debugMode;
 
@@ -637,9 +798,11 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
     required this.method,
     required this.url,
     required this.callStart,
-    required this.headersAt,
+    required this.clock,
+    required this.elapsedAtHeaders,
     required this.phases,
     required Function(HttpRequestTelemetry) onRequestComplete,
+    this.traceAttributes = const {},
     this.debugMode = false,
   })  : _baseResponse = baseResponse,
         _onRequestComplete = onRequestComplete;
@@ -648,8 +811,8 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
     if (_emitted) return;
     _emitted = true;
 
-    final duration = headersAt.difference(callStart);
-    final download = DateTime.now().difference(headersAt);
+    final duration = elapsedAtHeaders;
+    final download = clock.elapsed - elapsedAtHeaders;
 
     if (debugMode) {
       print('🌐 HTTP ${method.toUpperCase()} $url - $statusCode '
@@ -688,6 +851,7 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
       queueDuration: phases.queue,
       connectionReused: phases.reused,
       redirectCount: _baseResponse.redirects.length,
+      traceAttributes: traceAttributes,
     ));
   }
 
@@ -862,6 +1026,11 @@ class HttpRequestTelemetry {
 
   final int? redirectCount;
 
+  /// The frozen trace keys plus `traceparent.outcome`, resolved at inject from
+  /// the same copy the header was built from. Empty when nothing was traced —
+  /// and absence of the outcome key is itself the contract's "not traced".
+  final Map<String, String> traceAttributes;
+
   const HttpRequestTelemetry({
     required this.url,
     required this.method,
@@ -877,6 +1046,7 @@ class HttpRequestTelemetry {
     this.queueDuration,
     this.connectionReused,
     this.redirectCount,
+    this.traceAttributes = const {},
   });
 
   /// Convert to attributes map for telemetry.
@@ -929,6 +1099,17 @@ class HttpRequestTelemetry {
         'http.response_size_source': responseSizeSource!,
       'http.success': isSuccess.toString(),
       'http.seam': kSeam,
+      // Absolute UTC, RFC3339 — the processor's `parseTime` returns a silent
+      // NULL on anything else, so epoch millis would vanish without an error.
+      'span.start_time': timestamp.toUtc().toIso8601String(),
+      // Children only — a root derives its duration server-side from its
+      // children, so a re-rooted (or adopted, root-shaped) request sends none.
+      // The measurement is not lost: `http.duration_ms` carries it either way.
+      if (traceAttributes.containsKey('parent.span.id'))
+        'span.duration_ms': (duration + (downloadDuration ?? Duration.zero))
+            .inMilliseconds
+            .toString(),
+      ...traceAttributes,
     };
   }
 

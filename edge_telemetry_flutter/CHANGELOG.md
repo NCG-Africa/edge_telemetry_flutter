@@ -46,6 +46,42 @@
   — a counter of its own, because a replaced value is not a dropped item and must
   not corrupt `session.dropped_item_count`.
 
+- **Distributed tracing: requests to hosts you list carry a W3C `traceparent`.**
+  New `traceHostAllowlist` config — matched as an exact host or a dot-anchored
+  suffix of at least two labels, and **empty (the default) means dark**: no
+  header is injected anywhere until a host is listed, because the header carries
+  internal trace topology. `traceparent` only — no `tracestate`, no B3 — and
+  spans stay attributes on existing events. The carrier is frozen at the
+  **synchronous call instant**, before the connection is attempted (a cold
+  connect measured 509 ms), and the header and the `http.request` describing it
+  are built from that one frozen copy, so the wire and the row cannot disagree.
+  `http.request` gains the frozen trace keys plus `span.start_time`, and
+  `span.duration_ms` on the rows that are spans under an action — a request that
+  re-rooted itself is a root, and a root's duration is derived server-side from
+  its children.
+- **`traceparent.outcome` on `http.request`, five values, and absence means
+  "not traced".** `skipped_off_allowlist` (host not listed — ids still stamped
+  locally, no header sent), `adopted` (you had set your own `traceparent`; it is
+  left untouched, its ids mirrored, and the request stays joined to your tap
+  through `rum.action.id`), `injected_attributed`, `injected_expired` (the action
+  aged out, or the session rotated while the request was in flight — re-rooted
+  parentless) and `injected_unattributed` (nothing was in progress). The SDK's
+  own telemetry upload carries no outcome key and emits no `http.request` at
+  all: it is excluded **explicitly** rather than by construction order, because
+  capturing it is unbounded amplification.
+- **Known limitation, declined and documented: redirects leak the header.**
+  `dart:io` copies request headers onto a redirect target inside `close()`,
+  below this SDK's wrapper, so a 302 from a listed host to an unlisted one
+  carries the `traceparent` with it. Closing it would mean the SDK taking over
+  redirect semantics to serve a telemetry concern. Asserted as a known
+  limitation in the seam test rather than silently tolerated.
+- **Clock skew is recorded, never corrected.** Successful POSTs read the
+  collector's `Date` response header and ship the offset as `clock_skew_ms` on
+  the batch envelope, so a session can be shifted onto server time at query
+  time. Client timestamps are never rewritten — that would destroy debuggability
+  and break idempotent replay of offline batches, which by design arrive hours
+  or days late.
+
 - **The correlation spine: trace context now rides the context snapshot.** An
   open trace root (one of `launch`, `interaction`, `request`, `navigation`) puts
   exactly three keys — `trace.id`, `rum.action.id`, `trace.root_type` — on every
@@ -117,6 +153,11 @@
   launch until the collector registers decompression.
 
 ### Changed
+
+- **Every HTTP duration now comes off a monotonic `Stopwatch`** rather than two
+  wall-clock reads. A request spanning an NTP correction or a user clock change
+  could report a negative duration. Timestamps stay absolute UTC, because
+  `span.start_time` must be absolute to join a client span to a server one.
 
 - **`http.url` defaults to path-only, with an honesty flag.** Scheme, host and
   path; no query string, no fragment, no userinfo. v2 shipped the **full query

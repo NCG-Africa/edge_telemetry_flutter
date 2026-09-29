@@ -8,6 +8,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:edge_telemetry_flutter/src/core/clock_skew.dart';
 import 'package:edge_telemetry_flutter/src/core/collector.dart';
 import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
 import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
@@ -114,6 +115,35 @@ void main() {
     // The metric keeps metricName + value at root (shape unchanged).
     expect(events[1]['metricName'], 'frame_render_time');
     expect(events[1]['value'], 12.5);
+  });
+
+  test('clock skew rides the envelope, recorded and never applied', () async {
+    addTearDown(resetClockSkew);
+    final (collector, sender) = await _wire(flushAt: 1);
+
+    // The collector's clock is 30s ahead of ours.
+    recordClockSkew(DateTime.now().add(const Duration(seconds: 30)));
+    collector.add(const EdgeEvent.event('navigation'));
+    await Future<void>(() {});
+
+    final batch = sender.sent.single;
+    expect(batch.keys.toList(),
+        ['type', 'timestamp', 'batch_size', 'clock_skew_ms', 'events']);
+    expect(batch['clock_skew_ms'], closeTo(30000, 1000));
+    // Never corrected in place: the item's own timestamp is still ours, so an
+    // offline batch replayed days late still replays identically.
+    expect(
+        DateTime.parse(batch['timestamp'] as String)
+            .isBefore(DateTime.now().add(const Duration(seconds: 5))),
+        isTrue);
+
+    // A response with no Date leaves the last estimate standing; a reset drops
+    // the key entirely, which is the shape of every launch before its first
+    // successful POST.
+    recordClockSkew(null);
+    expect(recordedClockSkewMs, isNotNull);
+    resetClockSkew();
+    expect(recordedClockSkewMs, isNull);
   });
 
   test('allowlist gate: canon kept, noise + folded http + dropped metrics out',

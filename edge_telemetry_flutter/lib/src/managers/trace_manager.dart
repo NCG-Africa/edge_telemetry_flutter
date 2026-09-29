@@ -56,7 +56,12 @@ class FrozenTrace {
   /// W3C 16-hex — the root's span id, which is also `rum.action.id`, the sole
   /// join key. Spans hang directly off the root, so the two are the same value
   /// under two names, both of which the backend contract expects.
-  final String parentSpanId;
+  ///
+  /// **Null on a root.** A parentless `request` root (#86) is its own root, and
+  /// the contract says `parent.span.id` is children-only and absent on roots —
+  /// so the key is omitted rather than self-referential, and [actionId] falls
+  /// back to this item's own span id.
+  final String? parentSpanId;
 
   final TraceRootType rootType;
 
@@ -65,15 +70,18 @@ class FrozenTrace {
   /// may have rotated in between.
   final String? sessionId;
 
+  /// The sole join key: the root's span id — which, on a root, is its own.
+  String get actionId => parentSpanId ?? spanId;
+
   /// The item's own trace keys. Its caller must also set
   /// `EdgeEvent.ownsTraceContext`, or the ambient snapshot wins on any key this
   /// map happens not to carry.
   Map<String, String> get attributes => {
         'trace.id': traceId,
-        'rum.action.id': parentSpanId,
+        'rum.action.id': actionId,
         'trace.root_type': rootType.name,
         'span.id': spanId,
-        'parent.span.id': parentSpanId,
+        if (parentSpanId != null) 'parent.span.id': parentSpanId!,
       };
 }
 
@@ -109,6 +117,7 @@ class TraceManager {
   String? _rootSessionId;
   DateTime? _mintedAt;
   DateTime? _lastActivityAt;
+  bool _expiredRoot = false;
 
   TraceManager({required this.session, DateTime Function()? clock})
       : _clock = clock ?? DateTime.now;
@@ -179,6 +188,42 @@ class TraceManager {
     };
   }
 
+  /// Whether the **most recent** expiry evaluation aged a root out.
+  ///
+  /// This is the carrier for `injected_expired`'s TTL half: [startChild]
+  /// returns null both when a root aged out and when none was ever open, and
+  /// those are different outcomes on the wire. It is scoped to the one
+  /// evaluation rather than to the session, so the request *after* the expired
+  /// one reads as unattributed — which is what the sibling reports, and the
+  /// expired-outcome ratio is only a shared falsifier if the numbers match.
+  bool get rootExpired => _expiredRoot;
+
+  /// A parentless `request` root: the request is its own root, so it mints a
+  /// trace and a span and carries no `parent.span.id`.
+  ///
+  /// Deliberately **not** [mint]: this root is not ambient (nothing else should
+  /// hang off it) and it is not a user action, so it must not bump
+  /// `session.action_count`. It lives here rather than at the call site so that
+  /// every trace and span id in the SDK is minted in this one file.
+  FrozenTrace startRequestRoot() => FrozenTrace(
+        traceId: secureHex32(),
+        spanId: secureHex16(),
+        parentSpanId: null,
+        rootType: TraceRootType.request,
+        sessionId: session.currentSessionId,
+      );
+
+  /// Whether [frozen] still belongs to the live session.
+  ///
+  /// A trace never spans a session, and the half that bites is a request frozen
+  /// in S1 whose completion lands in S2: it would otherwise emit S1's
+  /// `trace.id` beside S2's `session.id` — the invariant dying quietly on
+  /// precisely the requests that matter most, the ones in flight when the app
+  /// came back. Asked here rather than by reaching through to [session], which
+  /// keeps this manager's one dependency edge its own.
+  bool sessionMatches(FrozenTrace frozen) =>
+      frozen.sessionId == session.currentSessionId;
+
   /// The one call a referenceable capture site makes — request, interaction,
   /// screen load, task completion. One synchronous call rather than four
   /// ordered steps on a hot path inside a wrapper before an await, where a
@@ -222,12 +267,15 @@ class TraceManager {
   /// trace never spans a session, so a root whose session id no longer matches
   /// the live one is already dead, whether it aged out or not.
   void _expire() {
+    // Scoped to this evaluation: see [rootExpired].
+    _expiredRoot = false;
     if (_traceId == null) return;
     final now = _clock();
     if (_rootSessionId != session.currentSessionId ||
         now.difference(_lastActivityAt!) > idleWindow ||
         now.difference(_mintedAt!) > rootCap) {
       clear();
+      _expiredRoot = true;
     }
   }
 }
