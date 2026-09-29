@@ -278,6 +278,64 @@ Flutter composites one frame from one widget tree (there is no later paint to
 name), and a Flutter route's gesture arena is live on frame one (so TTI would be
 first frame under a second name).
 
+### 🎞️ Frames (Zero Setup Required)
+
+Frame timings are **aggregated, never streamed**. v2 emitted two items per
+frame at 60–120 Hz into a 30-item buffer — roughly 300 items per flush window,
+starving every other signal; measuring jank was causing it. v3 emits **at most
+two `frame.summary` events per session**, and the per-frame cost is about
+eleven scalar operations.
+
+Frames accumulate per **screen segment** — a window closes on a screen change
+or after 10 s, whichever comes first, both checked inside the frame callback
+(no timer, because a backgrounded Flutter app cannot run one). A window with
+no slow frames is discarded. The rest are ranked in a **keep-worst-two
+reservoir** on `(frozen frames, slow frames, worst frame)` — absolute counts,
+so a five-frame window cannot outrank a six-hundred-frame one — and the two
+survivors are sent when the app is backgrounded or the session ends.
+
+| Key | Means |
+|---|---|
+| `frame.total_frames` | Frames in the window |
+| `frame.slow_frames` | Frames over 16 ms |
+| `frame.frozen_frames` | Frames over 700 ms (a subset of slow) |
+| `frame.slow_frame_rate` | `slow / total` |
+| `frame.max_total_duration_ms` | Worst frame, vsync start → raster finish |
+| `frame.max_build_duration_ms` | Worst UI-thread build |
+| `frame.max_raster_duration_ms` | Worst GPU raster |
+| `frame.window_duration_ms` | Wall clock the window spanned |
+| `display.refresh_rate` | The panel's actual Hz |
+| `screen.name` / `screen.id` | The screen, frozen at window start |
+
+Three things about that table are deliberate and stable:
+
+- **The thresholds are absolute and do not adapt to refresh rate.** The rate is
+  recorded, never applied. A per-device budget would make `frame.slow_frames`
+  mean something different on every handset and break comparison with the
+  sibling SDKs and with platform vitals.
+- **Total frame duration is the framework's own span** (vsync start → raster
+  finish). v2 added the build and raster durations, which run on two
+  *pipelined* threads, so it over-reported drops.
+- **The event carries no trace or action id at all.** A ten-second window spans
+  several user actions; attributing it to one of them would be false precision.
+  A window is not an action.
+
+The timestamp is backdated to the window start, and the screen keys are frozen
+there too, so a window held in the reservoir is never attributed to whatever
+screen you happened to be on when it shipped.
+
+**`frame.total_frames` is not a fleet denominator.** Only windows containing
+jank are eligible, and at the default tier only the two worst of those survive:
+the two rows are exemplars — *"the worst two screen segments in this session"* —
+not a sample. Use `screen.load` / `navigation` counts for coverage. Turn on
+`Capture.screenWindowedFrames` (diagnostic) to get **every** qualifying window
+as it closes; it *replaces* the reservoir rather than adding to it, so nothing
+is ever counted twice.
+
+`Capture.longTask` (diagnostic) adds one `long_task` metric per **frozen** frame
+— redefined from v2's every-dropped-frame, where a single two-second stall
+exhausted the whole session's allowance in one go.
+
 ### 👆 User Actions (Zero Setup Required)
 ```dart
 ElevatedButton(

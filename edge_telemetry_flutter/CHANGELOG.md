@@ -225,6 +225,36 @@
   now lands on a bookend that was being sent anyway, at **zero extra items**,
   and survives a killed app through the recovery record.
 
+- **`frame.summary` — windowed frame aggregation, at most two events per
+  session.** Frames accumulate per screen segment (a window closes on a screen
+  change or after 10 s, both checked inside the frame callback — no timer), a
+  window with no slow frames is discarded, and the rest are ranked in a
+  keep-worst-two reservoir on `(frozen frames, slow frames, worst frame)` —
+  **absolute counts, not a rate**, so a five-frame window cannot evict a
+  six-hundred-frame one. The two survivors ship when the app is backgrounded or
+  the session ends. The payload is the sibling SDK's ten keys verbatim
+  (`frame.total_frames`, `frame.slow_frames`, `frame.frozen_frames`,
+  `frame.slow_frame_rate`, `frame.max_total_duration_ms`,
+  `frame.max_build_duration_ms`, `frame.max_raster_duration_ms`,
+  `frame.window_duration_ms`, `display.refresh_rate`, `screen.name`) — zero
+  Flutter inventions and zero new backend columns, and the build/raster triage
+  split survives aggregation as the two max-duration keys. Thresholds are
+  **fixed absolutes** — slow above 16 ms, frozen above 700 ms — and do **not**
+  adapt to refresh rate; the rate is recorded, never applied, because a
+  per-device budget would make the same column mean a different quantity on
+  every handset. Total frame duration is now the framework's **own span**
+  (vsync start → raster finish); v2 summed build and raster, which run on two
+  pipelined threads, and over-reported drops. The event's timestamp is
+  backdated to the window start, its screen keys are frozen there, and it
+  carries **no trace or action id at all** — a ten-second window spans several
+  actions, so attributing it to one would be false precision.
+- **`Capture.screenWindowedFrames` (diagnostic) emits every qualifying window
+  as it closes** — the sibling's population, for valid cross-SDK comparison. It
+  **supersedes** the reservoir rather than adding a second emitter, so no window
+  is ever counted twice. Note that at the default tier `frame.total_frames` is
+  *not* a fleet denominator: the two rows are exemplars (the session's two worst
+  screen segments), not a sample. Use `screen.load` / `navigation` counts.
+
 ### Changed
 
 - **Screen dwell folds onto the `navigation` event.** A navigation is now one
@@ -337,6 +367,22 @@
   and a payload stored bare by an earlier version is re-wrapped when it drains,
   so the backlog accumulated since v2.0.0 arrives as soon as v3 runs once.
 
+- **`long_task` is redefined to frozen frames only (`> 700 ms`).** v2 fired it
+  on every frame over 16.67 ms, so at 60 Hz a single two-second stall produced
+  ~120 rows and exhausted the 100-per-session allowance on the session's first
+  stall — every later stall, including the one before a crash, recorded
+  nothing. It is now the per-occurrence detail behind `frame.frozen_frames`,
+  joinable to it on `screen.id`, and one threshold serves both. `frame.severity`
+  and `frame.target_fps` are gone from its attributes. **This is a population
+  change: v2 and v3 `long_task` row counts are not comparable**, and since the
+  metric is `diagnostic`-only, a default-config consumer now gets none where v2
+  gave hundreds.
+- **`Capture.frames` is its own switch.** Frame capture moved out of the shared
+  performance hook into its own, so turning it off removes the frame-timing
+  callback registration entirely — the per-frame cost goes to zero rather than
+  to "accumulate and discard". Memory, system and startup capture stay on
+  `Capture.health`.
+
 ### Removed
 
 - **`enableCrashReporting` and `enableErrorReporting` are removed outright** —
@@ -358,6 +404,14 @@
 - `withSpan()` / `withNetworkSpan()` — OTel-era no-ops that recorded nothing.
 
 ### Deprecated
+
+- **The `frame_render_time` metric is deprecated in place — removal in
+  v4.0.0.** The name stays on the wire allowlist (a canon name is never
+  removed) and it is no longer emitted: a per-frame metric at 60–120 Hz became
+  the windowed `frame.summary` event above. Any dashboard averaging it goes
+  flat; read `frame.slow_frame_rate` and the `frame.max_*` keys instead. The
+  seven `frame.*` columns bound to the per-frame vocabulary keep their meaning
+  and their history and simply stop receiving rows.
 
 - **The `screen.duration` event is deprecated in place — removal in v4.0.0.** The
   name stays on the wire allowlist (a canon name is never removed) and it is no

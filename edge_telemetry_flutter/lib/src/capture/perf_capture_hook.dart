@@ -4,31 +4,28 @@ import 'dart:async' show Timer;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
 import '../core/edge_event.dart';
 import 'capture_hook.dart';
 
-/// Frame timing, memory, and startup capture. Ports v1.5.2
-/// `FlutterPerformanceMonitor` verbatim onto the [EventSink] seam — same event
-/// and metric names, sent direct (no session-counter bump). `dispose` cancels
-/// the timers and removes the frame-timing callback (no leak across restarts).
+/// Memory, system and startup capture (`Capture.health`). Ports v1.5.2
+/// `FlutterPerformanceMonitor` onto the [EventSink] seam — same event and
+/// metric names, sent direct (no session-counter bump). `dispose` cancels the
+/// timers (no leak across restarts).
+///
+/// **Frames left this hook in v3** (#89). They are [FrameCaptureHook]'s, behind
+/// their own `Capture.frames` switch, because `Capture.frames: false` has to
+/// take the `addTimingsCallback` registration with it — the per-frame cost then
+/// goes to literally zero rather than to "accumulate and discard".
 class PerfCaptureHook implements CaptureHook {
   DateTime? _appStartTime;
   Timer? _performanceTimer;
   Timer? _memoryTimer;
-  TimingsCallback? _timingsCallback;
 
   @override
   DisposeHandle start(EventSink sink) {
     _appStartTime = DateTime.now();
 
-    _timingsCallback = (timings) {
-      for (final timing in timings) {
-        _trackFrameTiming(sink, timing);
-      }
-    };
-    WidgetsBinding.instance.addTimingsCallback(_timingsCallback!);
     WidgetsBinding.instance.addPostFrameCallback((_) => _trackAppStartup(sink));
 
     _performanceTimer = Timer.periodic(
@@ -39,7 +36,6 @@ class PerfCaptureHook implements CaptureHook {
     sink.add(
         const EdgeEvent.event('performance.monitor_initialized', attributes: {
       'monitor.type': 'flutter_performance_monitor',
-      'monitoring.frame_timing': 'true',
       'monitoring.memory': 'true',
       'monitoring.system': 'true',
     }));
@@ -47,10 +43,6 @@ class PerfCaptureHook implements CaptureHook {
     return () {
       _performanceTimer?.cancel();
       _memoryTimer?.cancel();
-      if (_timingsCallback != null) {
-        WidgetsBinding.instance.removeTimingsCallback(_timingsCallback!);
-        _timingsCallback = null;
-      }
     };
   }
 
@@ -75,36 +67,6 @@ class PerfCaptureHook implements CaptureHook {
           'startup.type': startupType,
           'metric.unit': 'milliseconds',
         }));
-  }
-
-  void _trackFrameTiming(EventSink sink, FrameTiming timing) {
-    final buildDuration = timing.buildDuration.inMicroseconds / 1000;
-    final rasterDuration = timing.rasterDuration.inMicroseconds / 1000;
-    final totalDuration = buildDuration + rasterDuration;
-    final frameType = _determineFrameType(totalDuration);
-    final isDropped = totalDuration > 16.67;
-
-    sink.add(EdgeEvent.metric('frame_render_time', totalDuration, attributes: {
-      // Canon split (glossary §1, dotless metric internals): UI-thread build vs
-      // GPU raster — the whole jank-triage decision the single total can't make.
-      'build_time_ms': buildDuration.toString(),
-      'raster_time_ms': rasterDuration.toString(),
-      'frame.type': frameType,
-      'frame.dropped': isDropped.toString(),
-      'metric.unit': 'milliseconds',
-    }));
-
-    if (isDropped) {
-      final severity = totalDuration > 33.33 ? 'severe' : 'minor';
-      // Canon: a dropped frame is the `long_task` metric (event→metric, §4).
-      sink.add(EdgeEvent.metric('long_task', totalDuration, attributes: {
-        'frame.build_duration_ms': buildDuration.toString(),
-        'frame.raster_duration_ms': rasterDuration.toString(),
-        'frame.total_duration_ms': totalDuration.toString(),
-        'frame.severity': severity,
-        'frame.target_fps': '60',
-      }));
-    }
   }
 
   void _trackMemoryUsage(EventSink sink) {
@@ -144,12 +106,6 @@ class PerfCaptureHook implements CaptureHook {
   // timeline (deferred to the native-crash ticket #10).
   String _determineStartupType(int durationMs) =>
       durationMs < 2000 ? 'warm' : 'cold';
-
-  String _determineFrameType(double durationMs) {
-    if (durationMs <= 16.67) return 'smooth';
-    if (durationMs <= 33.33) return 'janky';
-    return 'severely_dropped';
-  }
 
   int? _getMemoryUsage() {
     try {
