@@ -96,8 +96,9 @@ _Avoid_: force-send, priority
 
 **Offline queue**:
 The on-disk backlog — one JSON file per undeliverable payload, drained FIFO on the next
-successful send or on startup, five files per cycle, crashes first. Crash files have
-their own drop-oldest cap, not an exemption; every file has an attempt ceiling.
+successful send or on startup, five files per cycle, fatal crashes first. Crash files have
+their own drop-oldest cap, not an exemption; every file has an attempt ceiling. A non-fatal
+error rides an ordinary batch file, because it rides an ordinary batch.
 _Avoid_: cache, outbox, spool
 
 ### Collection
@@ -249,8 +250,9 @@ _Avoid_: error type, error kind, severity, cause
 
 **Handled**:
 Whether the app kept running because someone caught the error — `"true"` for `trackError`
-and the SDK's own self-diagnostics, `"false"` for the four auto-installed handlers and
-every native crash. A string, matching the shipped `is_fatal`.
+and the SDK's own self-diagnostics, `"false"` for the three auto-installed handlers
+(`flutter_error`, `platform_dispatcher`, `isolate`) and every native crash. A string,
+matching the shipped `is_fatal`.
 _Avoid_: caught, recovered, is_handled
 
 **Drain**:

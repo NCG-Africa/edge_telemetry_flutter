@@ -237,10 +237,18 @@
   additive `category:` parameter on `trackError` — declared-only for *everything*
   was rejected on the measured finding that consumers do not call helpers, so an
   app that never passes it still gets four categories for free.
-  `error.category_source` says which it was, `inferred` or `declared`.
+  `error.category_source` says which it was, `inferred` or `declared` — and is
+  **omitted** where neither happened (an SDK-internal failure, a native crash),
+  rather than stamping `inferred` on a guess that never ran. A fatal carries
+  `error.category: "unknown"` so the facet covers every `app.crash` instead of
+  silently excluding the fatal half; what a fatal *is* rides `cause`.
+  **An HTTP failure emits no `app.crash` and never did** — the status code and
+  `http.error` already ride `http.request`, so auth-vs-server is a query, not a
+  second item. That invariant now has a regression test rather than only a
+  convention.
 - **`handled` on `app.crash`** — `"true"` for `trackError` and the SDK's own
-  self-diagnostics, `"false"` for the four auto-installed handlers and every
-  native crash. A **string**, matching the shipped `is_fatal`, rather than the
+  self-diagnostics, `"false"` for the three auto-installed handlers
+  (`flutter_error`, `platform_dispatcher`, `isolate`) and every native crash. A **string**, matching the shipped `is_fatal`, rather than the
   sibling's JSON bool: retyping a shipped key is a rename wearing a correction's
   clothes.
 - **SDK-internal failures are tagged `crash.source: "sdk"`** and kept off
@@ -371,11 +379,6 @@
 
 ### Fixed
 
-- **An HTTP failure no longer emits an `app.crash`.** A 4xx, a 5xx or a timeout is
-  already a row: the status code and `http.error` ride `http.request`, so
-  auth-vs-server is a status-code query rather than a second item and a failed
-  request stops being counted twice. `error.category` is for errors the app
-  *throws*.
 - **Crashes are delivered.** The immediate rail POSTed a bare wire item with no
   `events` array; the collector answered 400, and the payload parked in a
   cap-exempt file that was re-POSTed after every successful batch for the life

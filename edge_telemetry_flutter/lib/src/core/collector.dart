@@ -111,7 +111,10 @@ class Collector implements EventSink {
     session.beforeEvent();
 
     // Allowlist gate: only the canon 16 events / 4 metrics reach the wire.
-    // Immediate crashes (app.crash) bypass — they ride their own rail. Drops
+    // Anything on the immediate rail bypasses it — a fatal crash and the session
+    // bookends, which are their own one-item batches. A **non-fatal** `app.crash`
+    // batches since #90, so it does pass this gate; `app.crash` is on the canon
+    // list, which is what lets it through. Drops
     // happen before the session counters so noise/folded events don't bump
     // session counts. Still a hard drop (#79) — but no longer a silent one: it
     // logs under debugMode and lands on `session.finalized` as a counted reason.
@@ -146,16 +149,6 @@ class Collector implements EventSink {
       return;
     }
 
-    // The non-fatal error caps, same species and same position as the action
-    // cap: taken on the item's own attributes, before enrichment, counted on the
-    // wire. A fatal never reaches here — it is `essential`.
-    if (event.name == 'app.crash' &&
-        event.attributes['is_fatal'] == 'false' &&
-        !_admitNonFatal(event.attributes)) {
-      session.recordDropped('error_cap');
-      return;
-    }
-
     // Counters bump before enrichment so the event's own session counts
     // include itself (matches v1.5.2 recordEvent-before-enrich ordering).
     if (event.countsToSession) {
@@ -173,10 +166,30 @@ class Collector implements EventSink {
     if (event.name == 'app.crash') {
       if (event.attributes['crash.source'] != kSdkCrashSource) {
         session.recordCrash();
-        if (event.attributes['is_fatal'] == 'false') session.recordError();
+        if (event.isNonFatalCrash) session.recordError();
       }
     } else if (event.name == 'http.request') {
       session.recordHttpRequest();
+    }
+
+    // The non-fatal error caps (#90), deliberately **after** the counters and so
+    // unlike the action cap's position here. The precedent is
+    // `session.action_count`, which is taken at the mint rather than at the
+    // emission for exactly this reason: a counter that counted *sends* would
+    // report 5 for a build method that threw 40 times, and read as a quiet
+    // session. The count is what happened; `error_cap` on the bookend says what
+    // did not ship, and the two add back to the truth.
+    //
+    // A fatal never reaches this gate — it is `essential`, there is at most one,
+    // and it is the item the rails exist for.
+    if (event.isNonFatalCrash && !_claimErrorAllowance(event)) {
+      session.recordDropped('error_cap');
+      if (debugMode) {
+        print('🚫 Dropped non-fatal app.crash "${event.crashDedupKey}" — past '
+            'the per-session caps ($kErrorPerKeyCap per fault, '
+            '$kErrorSessionCap overall)');
+      }
+      return;
     }
 
     // The single wire choke point for the geo/tenant strip: every path below
@@ -213,7 +226,7 @@ class Collector implements EventSink {
     // (#90). An empty ring omits the key rather than sending `"[]"`.
     if (event.name == 'app.crash' && breadcrumbs != null) {
       final crumbs = breadcrumbs!.getBreadcrumbsAsJson(
-          limit: event.attributes['is_fatal'] == 'false'
+          limit: event.isNonFatalCrash
               ? BreadcrumbManager.nonFatalBreadcrumbs
               : null);
       if (crumbs.isNotEmpty) enriched['crash.breadcrumbs'] = jsonEncode(crumbs);
@@ -242,8 +255,9 @@ class Collector implements EventSink {
     // be leaving the device, so it is the only honest input to the budget.
     gate?.recordItem();
 
-    // Two send rails: crashes (and any immediate event) bypass the batch; every
-    // batched event/metric buffers in the Pipeline.
+    // Two send rails, chosen by the item: a fatal crash and the session bookends
+    // go immediate; everything else — a non-fatal crash included — buffers in
+    // the Pipeline.
     if (event.priority == EventPriority.immediate) {
       // The immediate rail is never hoisted — it is already its own one-item
       // batch, and the `session.*` bookends riding it are exactly where the
@@ -264,45 +278,22 @@ class Collector implements EventSink {
     _errorsByKey.clear();
   }
 
-  /// Whether this non-fatal may be emitted: [kErrorPerKeyCap] per
-  /// exception-type-and-top-frame, [kErrorSessionCap] overall.
+  /// Claim one allowance for this non-fatal against [kErrorPerKeyCap] per fault
+  /// and [kErrorSessionCap] overall, returning whether there was one to claim.
   ///
-  /// The overall cap is checked first and, once reached, short-circuits before
-  /// the key is built — past 50 the answer is no whatever the key is, and the
-  /// `_errorsByKey` map must not keep growing after the gate has closed.
-  bool _admitNonFatal(Map<String, String> attributes) {
-    if (_nonFatalErrors >= kErrorSessionCap) {
-      if (debugMode) {
-        print('🚫 Dropped non-fatal app.crash — past the per-session cap of '
-            '$kErrorSessionCap errors');
-      }
-      return false;
-    }
-    final key = '${attributes['exception_type']}|'
-        '${_topFrame(attributes['stacktrace'])}';
+  /// Named for the mutation because it mutates: a caller that asks twice for one
+  /// item consumes two allowances. The overall cap is checked first and, once
+  /// reached, short-circuits before the key is read — past 50 the answer is no
+  /// whatever the key is, so `_errorsByKey` stops growing when the gate closes.
+  bool _claimErrorAllowance(EdgeEvent event) {
+    if (_nonFatalErrors >= kErrorSessionCap) return false;
+    final key = event.crashDedupKey;
     final seen = _errorsByKey[key] ?? 0;
-    if (seen >= kErrorPerKeyCap) {
-      if (debugMode) {
-        print('🚫 Dropped non-fatal app.crash — past $kErrorPerKeyCap '
-            'occurrences of "$key" this session');
-      }
-      return false;
-    }
+    if (seen >= kErrorPerKeyCap) return false;
     _errorsByKey[key] = seen + 1;
     _nonFatalErrors++;
     return true;
   }
-
-  /// The first non-blank stack line — the half of the dedup key that separates
-  /// two different `StateError`s. Absent stack (a `trackError` with none) folds
-  /// every such error onto one key, which is the honest grouping: without a
-  /// frame there is nothing to tell them apart by.
-  static String _topFrame(String? stacktrace) =>
-      stacktrace
-          ?.split('\n')
-          .map((l) => l.trim())
-          .firstWhere((l) => l.isNotEmpty, orElse: () => '') ??
-      '';
 
   /// Split the batch-level context out of [enriched] **in place** — the same map
   /// object the wire item already holds — and return the hoisted block. Mutable

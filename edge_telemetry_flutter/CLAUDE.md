@@ -222,7 +222,9 @@ never the SDK's own keys, which are unique per item by design and would be senti
   `session`, `error` or `profile` member, because an SDK reporting no crashes must never be
   indistinguishable from one configured not to. **Do not complete it for symmetry.** Adding a member
   is a decision about what a consumer may switch off, not a gap in an enumeration.
-- Debug output is `print()` guarded by `config.debugMode`; crash send/fail logs in `RetryTransport` are
-  **intentionally always printed** — leave those un-guarded.
+- Debug output is `print()` guarded by `config.debugMode`; the send/fail logs on `RetryTransport
+  .sendImmediate` are **intentionally always printed** — leave those un-guarded. They now cover
+  **fatals only**, because that is what the immediate rail carries; a non-fatal rides a batch and
+  reports through the ordinary guarded path.
 - Custom profile attributes are auto-prefixed with `user.`.
 - Changes visible to consumers must land in `README.md` + `CHANGELOG.md`.

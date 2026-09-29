@@ -194,12 +194,11 @@ void main() {
   });
 
   group('handled — spelled as a string, matching is_fatal', () {
-    test('the four auto handlers are unhandled; trackError is handled', () {
+    test('the three auto handlers are unhandled; trackError is handled', () {
       for (final source in [
         'flutter_error',
         'platform_dispatcher',
         'isolate',
-        'zone'
       ]) {
         expect(
             reporting
@@ -221,6 +220,10 @@ void main() {
       }).attributes;
       expect(a['handled'], 'false');
       expect(a['is_fatal'], 'true'); // same string spelling, not a bool
+      // The facet covers the fatal half; nothing was inferred or declared, so
+      // the source flag is absent rather than claiming a guess.
+      expect(a['error.category'], 'unknown');
+      expect(a.containsKey('error.category_source'), isFalse);
     });
   });
 
@@ -314,6 +317,9 @@ void main() {
       final attrs = (finalize['attributes'] as Map).cast<String, String>();
       expect(attrs['session.dropped_item_count'], '35');
       expect(attrs['session.dropped_reasons'], contains('error_cap'));
+      // The counter counts what happened, not what shipped — same rule as
+      // `session.action_count`. 5 sent + 35 dropped adds back to 40.
+      expect(attrs['session.error_count'], '40');
     });
 
     test('the dedup key is type + top frame — a different frame is a new key',
@@ -348,6 +354,26 @@ void main() {
       await Future<void>(() {});
 
       expect(sender.named('app.crash'), hasLength(kErrorSessionCap));
+    });
+
+    test('a consumer attribute cannot route a non-fatal onto the fatal rail',
+        () async {
+      final (collector, _, pipeline, sender) = await wire();
+
+      // `is_fatal` selects the rail now, so the SDK's value has to win.
+      collector.add(reporting.buildCrashEvent(StateError('boom'),
+          attributes: {'is_fatal': 'true', 'handled': 'false'}));
+      await Future<void>(() {});
+
+      // Nothing POSTed on its own — only the session.started bookend is out.
+      expect(sender.named('app.crash'), isEmpty);
+
+      pipeline.flush();
+      await Future<void>(() {});
+
+      final a = sender.named('app.crash').single['attributes'] as Map;
+      expect(a['is_fatal'], 'false'); // the SDK's value, not the consumer's
+      expect(a['handled'], 'true');
     });
 
     test('a fatal is exempt from both caps', () async {
@@ -490,8 +516,10 @@ void main() {
           as Map<String, dynamic>;
       expect(attrs['crash.source'], 'sdk');
       // Exempt from inference: a SocketException inside the SDK is not the host
-      // app's network problem.
+      // app's network problem — and the source flag is omitted rather than
+      // claiming an inference that never ran.
       expect(attrs['error.category'], 'unknown');
+      expect(attrs.containsKey('error.category_source'), isFalse);
 
       rotate(session);
       await Future<void>(() {});

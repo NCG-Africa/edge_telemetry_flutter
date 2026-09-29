@@ -118,8 +118,9 @@ class EdgeEvent {
   /// backend `rum_crash_events` extractors read these verbatim. `cause` is a
   /// clean fatal/non-fatal taxonomy (all Dart errors are `Error`/non-fatal); the
   /// specific handler goes in the secondary `crash.source`. The client never
-  /// sends `crash_hash`/`severity`/`breadcrumbs`, and mints **no error id and no
-  /// fingerprint** — the server owns crash hashing in both SDKs.
+  /// sends `crash_hash` or `severity`, and mints **no error id and no
+  /// fingerprint** — the server owns crash hashing in both SDKs. (The ring
+  /// *does* ship, as `crash.breadcrumbs`; the Collector attaches it.)
   ///
   /// Three v3 keys join them (#90): the dotted `error.category` taxonomy and its
   /// `error.category_source` honesty flag, plus `handled`, spelled as a string
@@ -139,11 +140,15 @@ class EdgeEvent {
     // An SDK-internal failure is exempt from inference: the category describes
     // what the *host app* did wrong, and the SDK's own `SocketException` is not
     // the host's network problem.
+    final sdkInternal = source == kSdkCrashSource;
     final resolved = category ??
-        (source == kSdkCrashSource
-            ? ErrorCategory.unknown
-            : inferErrorCategory(error));
+        (sdkInternal ? ErrorCategory.unknown : inferErrorCategory(error));
     return EdgeEvent._crash({
+      // The consumer's bag goes **first**, so every key below wins a collision.
+      // `is_fatal` now selects the *rail*, not just a value, so a stray consumer
+      // key must not be able to route a non-fatal onto the rail reserved for a
+      // dying process — and the rest are read verbatim by the backend.
+      ...?attributes,
       'message': error.toString(),
       if (stackTrace != null) 'stacktrace': stackTrace.toString(),
       'exception_type': error.runtimeType.toString(),
@@ -151,10 +156,14 @@ class EdgeEvent {
       'is_fatal': 'false',
       'handled': _handled(source).toString(),
       'error.category': resolved.wire,
-      'error.category_source':
-          category != null ? kCategoryDeclared : kCategoryInferred,
+      // The flag records where the value came from, so it ships only when it
+      // came from somewhere: inference ran, or the developer declared. An
+      // SDK-internal failure is neither — it is `unknown` by rule — and stamping
+      // `inferred` on it would claim a guess that never happened.
+      if (!sdkInternal || category != null)
+        'error.category_source':
+            category != null ? kCategoryDeclared : kCategoryInferred,
       if (source != null) 'crash.source': source,
-      ...?attributes,
     });
   }
 
@@ -166,22 +175,35 @@ class EdgeEvent {
   /// passthrough — so this factory carries the map verbatim onto the immediate
   /// rail (no `cause`/`is_fatal` synthesis; those come from the OS, not us).
   ///
-  /// `handled:"false"` is defaulted here rather than added to the channel
-  /// payload: an OS-reported crash is unhandled by definition, so the Dart side
-  /// can state it without a three-language lockstep change. A payload that
-  /// carries its own value wins.
+  /// `handled:"false"` and `error.category:"unknown"` are defaulted here rather
+  /// than added to the channel payload: an OS-reported crash is unhandled by
+  /// definition and carries no Dart type to classify, so the Dart side states
+  /// both without a three-language lockstep change. A payload that carries its
+  /// own value wins.
+  ///
+  /// The category ships even though it is always `unknown`, so a dashboard
+  /// faceting on `error.category` covers every `app.crash` rather than silently
+  /// excluding the fatal half. `error.category_source` is **absent**: nothing
+  /// was inferred and nothing declared. What a fatal *is* rides `cause`
+  /// (`NativeCrash`/`ANR`/`Hang`), which discriminates it already.
   factory EdgeEvent.nativeCrash(Map<String, String> payload) =>
-      EdgeEvent._crash(
-          Map<String, String>.unmodifiable({'handled': 'false', ...payload}));
+      EdgeEvent._crash(Map<String, String>.unmodifiable({
+        'handled': 'false',
+        'error.category': ErrorCategory.unknown.wire,
+        ...payload,
+      }));
 
-  /// Whether the app kept running *because someone caught this*. The four
+  /// Whether the app kept running *because someone caught this*. The three
   /// auto-installed handlers catch what nobody else did, so they are unhandled;
   /// `trackError` and the SDK's own self-diagnostics are a live `catch`.
+  ///
+  /// The set is exactly the source tokens the facade emits. A fourth handler
+  /// added later — a `runZonedGuarded` bridge being the obvious one — belongs
+  /// here in the same commit, or its uncaught errors report as handled.
   static bool _handled(String? source) => !const {
         'flutter_error',
         'platform_dispatcher',
-        'isolate',
-        'zone'
+        'isolate'
       }.contains(source);
 
   /// The rail is chosen by fatality and nothing else. A fatal — every native
@@ -209,6 +231,31 @@ class EdgeEvent {
         priority = attributes['is_fatal'] == 'false'
             ? EventPriority.batched
             : EventPriority.immediate;
+
+  /// A non-fatal `app.crash` — the item that batches, that the per-session error
+  /// caps bound, and that ships the short breadcrumb slice. One getter, so the
+  /// sites that ask cannot drift apart on the spelling.
+  bool get isNonFatalCrash =>
+      name == 'app.crash' && attributes['is_fatal'] == 'false';
+
+  /// The per-session cap's grouping key: exception type + top stack frame.
+  ///
+  /// **Client-local and never sent.** It groups occurrences of one fault for the
+  /// cap and nothing else — the server owns crash hashing, so this is a counter
+  /// key, not a fingerprint. An error with no stack folds every such error onto
+  /// one key, which is the honest grouping: without a frame there is nothing to
+  /// tell them apart by.
+  String get crashDedupKey =>
+      '${attributes['exception_type']}|${_topFrame(attributes['stacktrace'])}';
+
+  /// The first non-blank stack line — the half of the key that separates two
+  /// different `StateError`s.
+  static String _topFrame(String? stacktrace) =>
+      stacktrace
+          ?.split('\n')
+          .map((l) => l.trim())
+          .firstWhere((l) => l.isNotEmpty, orElse: () => '') ??
+      '';
 
   /// The session bookends (`session.started` / `session.finalized`). Immediate
   /// rail + bypass: they always reach the wire (never batched away, never

@@ -7,10 +7,10 @@ import 'dart:io' show FileSystemException, HttpException, SocketException;
 /// dotted key `error.category`.
 ///
 /// **It is deliberately not `cause`.** `cause` is shipped in both SDKs and means
-/// two different things — free text in the sibling, this enum
-/// (`Error`/`NativeCrash`/`ANR`/`Hang`) in Flutter — so the no-renames rule
-/// keeps the taxonomy out of it and the spelling dotted, beside the already-
-/// dotted `crash.source` / `crash.breadcrumbs`.
+/// two different things — free text in the sibling, a fixed enum
+/// (`Error`/`NativeCrash`/`ANR`/`Hang`) here — so the no-renames rule keeps the
+/// taxonomy out of it, on its own dotted key beside the already-dotted
+/// `crash.source` / `crash.breadcrumbs`.
 enum ErrorCategory {
   network,
   timeout,
@@ -28,17 +28,9 @@ enum ErrorCategory {
   /// inferred `unknown` is a category, not a missing key.
   unknown;
 
-  /// The wire value. Same as the Dart name, spelled out so a rename of the
-  /// symbol cannot silently rename a shipped attribute value.
-  String get wire => switch (this) {
-        ErrorCategory.network => 'network',
-        ErrorCategory.timeout => 'timeout',
-        ErrorCategory.auth => 'auth',
-        ErrorCategory.parse => 'parse',
-        ErrorCategory.storage => 'storage',
-        ErrorCategory.business => 'business',
-        ErrorCategory.unknown => 'unknown',
-      };
+  /// The wire value. The test pins all seven strings, which is what stops a
+  /// rename of the symbol from silently renaming a shipped attribute value.
+  String get wire => name;
 }
 
 /// Where `error.category` came from — the #88/#89 honesty pattern: a consumer
