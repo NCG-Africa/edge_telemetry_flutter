@@ -38,17 +38,24 @@
   and because the same seam carries `traceparent`, every one of its requests is
   also a severed distributed trace. **Client in, same type out**: an already
   captured client, a call made before `initialize()`, and a build with
-  `Capture.http` off all return the argument itself, so double capture is designed
-  out at construction rather than documented around. Freeze and inject collapse
+  `Capture.http` off all return the argument itself — and so does a plain
+  `http.Client()`, which is an `IOClient` whose sockets the `dart:io` override
+  already sees. Double capture is decided at construction rather than documented
+  around: no request is ever measured through both seams. Freeze and inject collapse
   into **one instant** on this seam — `send` is entered synchronously and the
   headers precede it — which makes `injected_expired` unreachable here. Rows carry
   `http.seam: http_client` and omit `http.connect_ms` / `http.dns_ms` /
   `http.queue_ms` / `http.connection_reused`: the platform client below the wrapper
   owns the connection pool. gRPC, HTTP/2 and `http2_adapter` stay out of scope — a
-  protocol gap, not a wrapper gap. Adds `package:http` as a direct dependency:
-  Dart-team owned, pure Dart, and already in the pubspec of every consumer who can
-  hit this, since `cupertino_http` and `cronet_http` *are* `package:http`
-  implementations.
+  protocol gap, not a wrapper gap. Adds `package:http` as a direct dependency —
+  the package's first *pure-Dart* one, every other being a platform plugin:
+  Dart-team owned, and already in the pubspec of every consumer who can hit this,
+  since `cupertino_http` and `cronet_http` *are* `package:http` implementations.
+  One divergence from the `dart:io` seam, because the fact differs: a request that
+  fails without a response keeps `traceparent.outcome` here. The header is written
+  before the send, unconditionally, and nothing above `package:http` can see
+  whether those bytes reached a socket — so the row reports what the SDK did
+  rather than guessing the socket's fate and orphaning a server span.
 - **`sdk.http_seam_state` on every item — four values, one of them provable.**
   `overrides`, `wrapper`, `both`, `blind`. It says which seams are **live**, and
   pointedly not how much of your traffic they see; a client the SDK was never

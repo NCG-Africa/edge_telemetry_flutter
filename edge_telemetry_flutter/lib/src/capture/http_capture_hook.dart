@@ -1,10 +1,12 @@
 // lib/src/capture/http_capture_hook.dart
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
 import '../core/capture_gate.dart';
 import '../core/config/collection_tier.dart';
 import '../core/edge_event.dart';
+import '../core/http_seam_state.dart';
 import '../core/models/breadcrumb.dart';
 import '../managers/breadcrumb_manager.dart';
 import 'capture_hook.dart';
@@ -85,23 +87,45 @@ class HttpCaptureHook implements CaptureHook {
         _installed = false;
       }
       _sink = null;
+      // A disposed hook's wrapped clients emit nothing (see [capture]), so the
+      // wrapper half of the seam state is no longer live either — leaving it
+      // set would make `blind` unprovable for the rest of the process.
+      recordClientWrapped(wrapped: false);
     };
   }
 
   /// Wrap one `package:http` client — the bypass half of §8 (#87).
   ///
-  /// An already-captured client is returned **unchanged**, which is why the
-  /// call returns the same type it takes: double capture is designed out at
-  /// construction rather than documented around. So is a call made before
-  /// [start] — with no sink there is nothing to emit into, and a wrapper that
-  /// silently dropped rows would be worse than no wrapper.
+  /// Every degenerate case is answered with the consumer's own client, which is
+  /// why the call returns the type it takes: double capture is designed out at
+  /// construction rather than documented around.
+  ///
+  /// - Already captured → the same wrapper back.
+  /// - Called before [start], or after dispose → nothing to emit into, and a
+  ///   wrapper that silently dropped rows would be worse than no wrapper.
+  /// - An [IOClient] while our `dart:io` override is live → that client's
+  ///   sockets already pass the other seam, so wrapping it would measure one
+  ///   request twice. This is the case that must be *decided*, not documented:
+  ///   `package:http` exposes the runtime type, so the SDK can simply ask.
   http.Client capture(http.Client client) {
-    final sink = _sink;
-    if (client is CapturedClient || sink == null) return client;
-    markClientWrapped();
+    if (client is CapturedClient || _sink == null) return client;
+    if (client is IOClient && overridesSeamLive) {
+      if (debugMode) {
+        print('🌐 captureClient: this client runs on dart:io and the global '
+            'override already sees it — returning it unwrapped');
+      }
+      return client;
+    }
+    recordClientWrapped();
     return CapturedClient(
       inner: client,
-      onRequestComplete: (t) => _emit(sink, t),
+      // Read late, not captured: a wrapped client outlives the hook that made
+      // it, and one that kept emitting into a disposed hook's sink would keep
+      // filling a pipeline nobody is draining.
+      onRequestComplete: (t) {
+        final sink = _sink;
+        if (sink != null) _emit(sink, t);
+      },
       injector: injector,
       selfUrl: selfUrl,
       debugMode: debugMode,

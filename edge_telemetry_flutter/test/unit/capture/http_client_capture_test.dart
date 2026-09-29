@@ -18,6 +18,7 @@ import 'package:edge_telemetry_flutter/src/capture/http_client_capture.dart';
 import 'package:edge_telemetry_flutter/src/capture/http_overrides.dart';
 import 'package:edge_telemetry_flutter/src/capture/trace_injection.dart';
 import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
+import 'package:edge_telemetry_flutter/src/core/http_seam_state.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/trace_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -123,6 +124,39 @@ void main() {
       addTearDown(client.close);
       expect(hook.capture(client), same(client));
     });
+
+    test('a client wrapped before dispose stops emitting after it', () async {
+      final server = await serve();
+      final hook = HttpCaptureHook(
+        injector: TraceInjector(trace: trace),
+      );
+      final dispose = hook.start(sink);
+      TelemetryHttpOverrides.uninstallGlobal();
+      final client = hook.capture(http.Client());
+      addTearDown(client.close);
+
+      dispose();
+      await client.read(Uri.parse('http://127.0.0.1:${server.port}/x'));
+
+      // The wrapper outlives the hook — it is the consumer's object now — but
+      // it must not go on filling a pipeline nobody is draining.
+      expect(sink.events, isEmpty);
+      // And the seam state stops claiming the wrapper half.
+      expect(httpSeamState(), kSeamStateBlind);
+    });
+
+    test('an IOClient is left alone while our own override is live', () {
+      final hook = HttpCaptureHook(injector: TraceInjector(trace: trace));
+      addTearDown(hook.start(sink));
+      // The override the hook just installed is ours, and a plain
+      // `http.Client()` is an `IOClient` whose sockets already pass it.
+      // Wrapping would measure one request through two seams, so the decision
+      // is made here rather than documented in the dartdoc.
+      final client = http.Client();
+      addTearDown(client.close);
+      expect(hook.capture(client), same(client));
+      expect(httpSeamState(), kSeamStateOverrides);
+    });
   });
 
   group('the loopback seam', () {
@@ -199,10 +233,41 @@ void main() {
       expect(attrs['http.status_code'], '0');
       expect(attrs['http.error'], isNotNull);
       expect(attrs['http.seam'], kSeamHttpClient);
-      // Ids so the row is correlatable; no outcome, because no header was ever
-      // written and absence is the contract's member for "not traced".
       expect(attrs['trace.id'], isNotNull);
-      expect(attrs.containsKey('traceparent.outcome'), isFalse);
+      // **The divergence from the `dart:io` seam, and why.** There the header
+      // is written after the connection opens, so a refusal means it was never
+      // written and the outcome is legitimately absent. Here it is written
+      // before the send, unconditionally — `IOClient` finalizes the request
+      // before it connects — so the outcome reports what the SDK did, which is
+      // true on every path, instead of guessing what the socket did.
+      expect(attrs['traceparent.outcome'], kOutcomeInjectedAttributed);
+    });
+
+    test('a socket that dies after the headers went out stays traced',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      // Accept, read the request — so the header provably left — then kill the
+      // connection without answering.
+      unawaited(server.forEach((req) async {
+        received.add(req.headers);
+        await req.drain<void>();
+        await req.response.detachSocket().then((s) => s.destroy());
+      }));
+      final hook = startedHook(allowlist: const ['127.0.0.1']);
+      final client = hook.capture(http.Client());
+      addTearDown(client.close);
+      trace.mint(TraceRootType.interaction);
+
+      await expectLater(
+          client.read(Uri.parse('http://127.0.0.1:${server.port}/x')),
+          throwsA(anything));
+
+      // The header *was* propagated — the server has it — so dropping the
+      // outcome here would report "not traced" for a request the collector saw
+      // traced. Only a request that never finalized loses the key.
+      expect(received.single.value(kTraceparentHeader), isNotNull);
+      expect(theRow()['traceparent.outcome'], kOutcomeInjectedAttributed);
     });
 
     test('the SDK\'s own upload is neither reported nor traced', () async {
@@ -251,7 +316,7 @@ void main() {
     test('both, then blind again the instant a consumer severs the global', () {
       TelemetryHttpOverrides.installGlobal(onRequestComplete: (_) {});
       addTearDown(TelemetryHttpOverrides.uninstallGlobal);
-      markClientWrapped();
+      recordClientWrapped();
       expect(httpSeamState(), kSeamStateBoth);
 
       // The state nothing notifies us of. A value latched at install would go

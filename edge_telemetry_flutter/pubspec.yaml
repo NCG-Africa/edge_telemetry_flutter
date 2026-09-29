@@ -11,10 +11,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # The wrapper seam (#87). Dart-team owned, pure Dart, and already in the
-  # pubspec of every consumer who can hit the bypass problem — `cupertino_http`
-  # and `cronet_http` *are* `package:http` implementations. Promoted from
-  # transitive to direct: it was already in the lockfile.
+  # The wrapper seam (#87). The package's first *pure-Dart* runtime dependency
+  # — every other one is a platform plugin. Dart-team owned, and already in the
+  # pubspec of every consumer who can hit the bypass problem, since
+  # `cupertino_http` and `cronet_http` *are* `package:http` implementations.
+  # Promoted from transitive to direct: it was already in the lockfile.
   http: ^1.2.0
   device_info_plus: ^11.5.0
   package_info_plus: ^8.3.0

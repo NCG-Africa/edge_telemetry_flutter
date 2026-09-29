@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../core/http_seam_state.dart';
 import 'http_url.dart';
 import 'trace_injection.dart';
 
@@ -16,56 +17,6 @@ import 'trace_injection.dart';
 /// denominator wrong, so the seam rides every row rather than being inferred
 /// from which keys happen to be present.
 const String kSeam = 'http_overrides';
-
-// ==================== THE SEAM STATE (#87) ====================
-//
-// `sdk.http_seam_state` — session-constant, `sdk.`-prefixed so it hoists with
-// the rest of identity, and on **every** item rather than only HTTP rows,
-// because the case worth knowing about is the session with no HTTP rows at all.
-//
-// It reports which seams are **live**, and pointedly not how much of the app's
-// traffic they see. The SDK cannot know that: a `package:http` client the
-// consumer never handed us is indistinguishable from one that exists but is
-// never used. Four values, one of them provable:
-//
-// - [kSeamStateOverrides] — the `dart:io` global is ours; no client wrapped.
-// - [kSeamStateWrapper]   — the global is **not** ours; at least one wrapped.
-// - [kSeamStateBoth]      — both live.
-// - [kSeamStateBlind]     — neither. Provable client-side, and the only honest
-//   thing to say when a consumer set their own `HttpOverrides.global` after
-//   init and wrapped nothing.
-//
-// The undetectable case — capture healthy, and every request going through a
-// `cupertino_http`/`cronet_http` client nobody wrapped — is **not** papered
-// over here. It has no client-side signature at all; it is named in the family
-// change-request packet as a backend alert on sessions that finalize with
-// `session.http_request_count == 0` while the seam state says a seam was live.
-
-const String kSeamStateOverrides = 'overrides';
-const String kSeamStateWrapper = 'wrapper';
-const String kSeamStateBoth = 'both';
-const String kSeamStateBlind = 'blind';
-
-/// Set once the facade has wrapped a client, and never unset for the process:
-/// a wrapped client outlives the hook that made it, so "was one made" is the
-/// honest question, not "is one still open".
-bool _clientWrapped = false;
-
-/// Record that the wrapper seam is live. Called by the facade's one wrap call.
-void markClientWrapped() => _clientWrapped = true;
-
-/// Evaluated **at snapshot**, never cached. The `dart:io` half can be severed
-/// at any instant by a consumer assigning `HttpOverrides.global` after init —
-/// a state nothing notifies us of — so a value latched at install would keep
-/// claiming a seam that has been dead for the rest of the session.
-String httpSeamState() {
-  final overrides = HttpOverrides.current is TelemetryHttpOverrides;
-  if (overrides) return _clientWrapped ? kSeamStateBoth : kSeamStateOverrides;
-  return _clientWrapped ? kSeamStateWrapper : kSeamStateBlind;
-}
-
-/// Test-only: forget the wrapper half between cases.
-void resetHttpSeamState() => _clientWrapped = false;
 
 /// HTTP overrides that automatically monitor all network requests
 ///
@@ -128,7 +79,7 @@ class TelemetryHttpOverrides extends HttpOverrides {
     Uri? selfUrl,
   }) {
     final previousOverrides = HttpOverrides.current;
-    HttpOverrides.global = TelemetryHttpOverrides(
+    final installed = TelemetryHttpOverrides(
       onRequestComplete: onRequestComplete,
       debugMode: debugMode,
       measurePhases: measurePhases,
@@ -136,6 +87,10 @@ class TelemetryHttpOverrides extends HttpOverrides {
       selfUrl: selfUrl,
       previousOverrides: previousOverrides,
     );
+    HttpOverrides.global = installed;
+    // The seam state compares against this exact instance — see
+    // [overridesSeamLive].
+    recordOverridesSeam(installed);
   }
 
   /// Remove global HTTP monitoring (restore previous overrides)
@@ -145,6 +100,7 @@ class TelemetryHttpOverrides extends HttpOverrides {
           HttpOverrides.current as TelemetryHttpOverrides;
       HttpOverrides.global = telemetryOverrides._previousOverrides;
     }
+    recordOverridesSeam(null);
   }
 }
 
@@ -869,19 +825,13 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
           '(${duration.inMilliseconds}ms + ${download.inMilliseconds}ms body)');
     }
 
-    // Content-length when the server gave one, else the bytes we decoded. The
-    // two were measured **9x apart on one response**, and the platform reports
-    // null on chunked encoding — i.e. on most modern JSON APIs — so the source
-    // rides along rather than being assumed.
-    // An unknown size is **omitted**, never a false zero: a body cancelled
-    // part-way or a detached socket leaves a partial byte count, which is not
-    // the response size and must not be sent as one.
+    // `dart:io` spells "no content-length" as -1; the shared rule speaks null.
     final declared = _baseResponse.contentLength;
-    final int? size = declared >= 0
-        ? declared
-        : _bodyComplete
-            ? _decodedBytes
-            : null;
+    final sized = resolveResponseSize(
+      declared: declared >= 0 ? declared : null,
+      counted: _decodedBytes,
+      complete: _bodyComplete,
+    );
 
     _onRequestComplete(HttpRequestTelemetry(
       url: url.toString(),
@@ -890,12 +840,8 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
       duration: duration,
       timestamp: callStart,
       downloadDuration: download,
-      responseSize: size,
-      responseSizeSource: size == null
-          ? null
-          : declared >= 0
-              ? kSizeFromContentLength
-              : kSizeFromDecodedBytes,
+      responseSize: sized.size,
+      responseSizeSource: sized.source,
       connectDuration: phases.connect,
       dnsDuration: phases.dns,
       queueDuration: phases.queue,
@@ -1027,6 +973,32 @@ const String kSizeFromContentLength = 'content_length';
 /// `http.response_size_source` when the length came from counting decoded
 /// bytes off the body stream.
 const String kSizeFromDecodedBytes = 'decoded_bytes';
+
+/// The one size-and-source rule, shared by both seams so they cannot drift.
+///
+/// Content-length when the server gave one, else the bytes we decoded. The two
+/// were measured **9x apart on one response**, and the platform reports no
+/// length at all on chunked encoding — i.e. on most modern JSON APIs — so the
+/// source rides along rather than being assumed.
+///
+/// An unknown size is **omitted**, never a false zero: a body cancelled
+/// part-way or a detached socket leaves a partial byte count, which is not the
+/// response size and must not be sent as one.
+({int? size, String? source}) resolveResponseSize({
+  required int? declared,
+  required int counted,
+  required bool complete,
+}) {
+  final size = declared ?? (complete ? counted : null);
+  return (
+    size: size,
+    source: size == null
+        ? null
+        : declared != null
+            ? kSizeFromContentLength
+            : kSizeFromDecodedBytes,
+  );
+}
 
 /// Data class for HTTP request telemetry.
 ///
