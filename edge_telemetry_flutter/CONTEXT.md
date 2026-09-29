@@ -168,6 +168,19 @@ request going through a bypassing client nobody wrapped — is a backend alert o
 zero-request sessions, not a client-side guess.
 _Avoid_: coverage, health, instrumentation state
 
+**Fault bundle**:
+The five device-state keys attached to a **fatal** crash and to nothing else —
+`device.battery_level`, `device.battery_charging`, `device.power_save_mode`,
+`device.thermal_state`, `device.orientation`. Read off the dying thread, where the binder
+calls are free. A key the platform cannot answer is **omitted**, never sentinelled.
+_Avoid_: device health snapshot, device state event, health sample
+
+**Memory bookend**:
+One `memory_usage` metric when the session opens and one when the app is backgrounded —
+two items, where v2 sampled sixty. The quantity is native (`phys_footprint` on iOS, total
+PSS on Android) and `memory.source` names it on the wire.
+_Avoid_: memory poll, memory sample, memory tick
+
 **Captured client**:
 A `package:http` client handed to `captureClient` and returned as a client. The same
 type in and out is what lets an already-captured client, a pre-init call, a disabled

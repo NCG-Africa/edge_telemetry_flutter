@@ -7,7 +7,7 @@
 - 🌐 **Automatic HTTP Request Monitoring** - ALL network calls tracked automatically (URL, method, status, duration)
 - 🚨 **Crash & Error Reporting** - Dart errors, native crashes, ANRs and iOS hangs, all as `app.crash`
 - 📱 **Automatic Navigation Tracking** - Screen transitions and user journeys with breadcrumb context
-- ⚡ **Automatic Performance Monitoring** - Frame drops, memory usage, app startup times
+- ⚡ **Automatic Performance Monitoring** - Frame drops, memory at the session bookends, app startup times
 - 🔄 **Automatic Session Management** - User sessions with auto-generated IDs
 - 👤 **User Context Management** - Associate telemetry with user profiles
 - 🍞 **Crash Context Breadcrumbs** - Rich crash context with automatic navigation breadcrumbs
@@ -417,6 +417,69 @@ target inside `close()`, below this SDK's wrapper, so a 302 from a listed host t
 unlisted one carries the `traceparent` with it. Closing that would mean the SDK taking
 over redirect handling — changing your app's HTTP behaviour to serve a telemetry
 concern — so it is declined and documented rather than silently fixed.
+
+### Device health
+
+**Health is not a time series.** v2 sampled memory every 10 seconds and ran a
+30-second system check — roughly 58 items a session into a stream with no named
+consumer. v3 ships two signals instead, and neither of them polls:
+
+- **Memory at the two session bookends** (`memory_usage`, `Capture.health`): one
+  reading when the session opens, one when the app is backgrounded. The quantity
+  is read **natively** — `phys_footprint` on iOS, total PSS on Android — because
+  Dart's `ProcessInfo.currentRss` is the wrong number on both platforms and the
+  two are not comparable: it under-reports against the footprint iOS jetsams on,
+  and over-reports on Android, where the shared Flutter engine library counts
+  against your process. `memory.source` (`footprint` / `pss`) says which
+  quantity a row carries, so the v2→v3 step change in your charts is legible
+  rather than mysterious.
+- **A five-key fault bundle on fatal crashes only** — battery level, charging,
+  power-save mode, thermal state, orientation. They are read off the dying
+  thread, where four binder calls are free; doing them continuously would cost a
+  chatty app frames. Android reads them in its uncaught-exception handler; on
+  iOS the keys are **absent**, because MetricKit hands a crash over on the next
+  launch, in a different process, and this launch's battery level is not that
+  crash's battery level.
+
+`device.thermal_state` is a **normalised string** — `nominal`, `fair`, `serious`,
+`critical` — never the platform ordinal. Android has seven thermal statuses and
+iOS four, and they disagree on what the same integer means (Android's `2` is
+MODERATE, iOS's is serious).
+
+**A key the platform cannot answer is omitted, never sentinelled.** No `-1`
+battery level, no `"unknown"` thermal state: absent beats a number a dashboard
+will happily average.
+
+**Removed from device context in v3:** `device.name` (the only key that could
+carry a human's name — iOS defaults to "Marvin's iPhone") and
+`device.identifier_for_vendor` (**redundant, not a privacy concession**:
+`device.id` sits beside it, is minted by this SDK and survives a reinstall,
+where the vendor id does not). Carrier was never built — no consumer, and on iOS
+permanently unreachable. `device.fingerprint` **stays**: despite the name it is
+Android OS build metadata, identical across every device on that build.
+
+**Added:** `sdk.version`, so a backend can tell a fixed defect from a live one.
+
+### iOS privacy manifest
+
+The package ships its own `PrivacyInfo.xcprivacy`:
+
+- **`NSPrivacyAccessedAPITypes` is empty.** No required-reason API is used. The
+  one signal that would justify a declaration — a true process-start cold start
+  — is something Dart structurally cannot see, so the launch mark this SDK
+  reports is **SDK-init to first frame**, not process-start to first frame.
+  Storage headroom was dropped for the same reason.
+- **`NSPrivacyTracking` is false** and the tracking-domain list is empty.
+- **Nine collected data types, all declared linked to identity.** `device.id`
+  rides every item and `setUserProfile()` exists, so "unlinked" would be a lie —
+  one that two widely-used peers tell.
+
+**Standing rule for this package:** an iOS required-reason API is adopted only if
+an approved reason **both** fits our use **and** permits off-device
+transmission, and the declaration is made in *this* package's manifest — never
+inherited from a dependency's. (One existing dependency triggers an undeclared
+disk-space access on every consumer app today; it is filed upstream. The call is
+in their binary, so nothing in our manifest discharges it.)
 
 ### Privacy
 

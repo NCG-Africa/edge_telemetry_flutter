@@ -4,6 +4,46 @@
 
 ### Added
 
+- **Device health without a cadence — the fault bundle, and memory at the two
+  session bookends.** A second pull-only method, `readDeviceState`, lands on the
+  existing `edge_telemetry/native_crash` channel (one channel: the expensive
+  surface is the three-language lockstep, not the channel string). It returns a
+  flat string map, and **a key the platform cannot answer is omitted, never
+  sentinelled** — no `-1` battery level, no `"unknown"` thermal state. A missing
+  plugin means an empty map, not a throw.
+- **A five-key fault bundle on fatal crashes only** — `device.battery_level`,
+  `device.battery_charging`, `device.power_save_mode`, `device.thermal_state`,
+  `device.orientation`. Android reads them inline in its uncaught-exception
+  handler, off the dying thread, where four binder calls cost the user nothing;
+  doing the same per frame would breach the frame budget in a chatty app. iOS
+  attaches none: MetricKit delivers a crash on the next launch, in a different
+  process, and this launch's state is not that crash's state.
+- **`device.thermal_state` is a normalised string** — `nominal` / `fair` /
+  `serious` / `critical`, never the platform ordinal. Android has seven thermal
+  statuses and iOS four, and they disagree on what the same integer means
+  (Android's `2` is MODERATE, iOS's is serious) — a vocabulary defect we would
+  have authored rather than inherited.
+- **`memory.source` on every `memory_usage` metric** (`footprint` on iOS, `pss`
+  on Android), plus `memory.phase` (`session_start` / `session_end`), so the
+  quantity change is legible on the wire instead of appearing as an unexplained
+  step in a chart.
+- **`sdk.version` on every item.** The gap analysis's most damaging static
+  omission: a backend that cannot tell which SDK build produced a row cannot
+  tell a fixed defect from a live one. It is a compile-time constant, because
+  Dart cannot read its own package's version at runtime, asserted against
+  `pubspec.yaml` by a unit test so the two cannot drift. Framework version is
+  **rejected, not deferred** — build-time only, and not worth code generation in
+  a published package.
+- **An iOS privacy manifest shipped by this package** (`PrivacyInfo.xcprivacy`):
+  an **empty accessed-API array** (no required-reason API is used, and the
+  required-reason budget is zero), tracking false, tracking domains empty, and
+  **nine collected data types, all declared linked to identity** — `device.id`
+  rides every item and `setUserProfile()` exists, so unlinked would be the
+  peer-conformant lie. The standing rule now lives in `README.md` and
+  `CLAUDE.md`: a required-reason API is adopted only if an approved reason both
+  fits our use **and** permits off-device transmission, declared in this
+  package's own manifest, never inherited.
+
 - **HTTP request timing is re-based, and the phases are measured.**
   `http.duration_ms` now runs from **before the call to headers received** — v2
   started its clock after the connection was already established, so it measured
@@ -227,6 +267,22 @@
 
 ### Changed
 
+- **Memory is read natively and measured at the bookends, not sampled.** v2's
+  `ProcessInfo.currentRss` was the wrong quantity on **both** platforms, and the
+  two were not comparable: it under-reports against the `phys_footprint` iOS
+  jetsams on, and over-reports on Android, where the shared engine library
+  counts against the process. v3 reads footprint / total PSS natively, twice a
+  session. The metric survives rather than being deprecated because the schema's
+  memory columns are Flutter's and permanently null on the sibling SDK —
+  dropping it would darken the family's only landing memory signal. The Android
+  read uses `Debug.getMemoryInfo` off the platform thread, not
+  `ActivityManager.getProcessMemoryInfo`, whose rate limit returns the previous
+  answer silently.
+- **`memory.type` is gone from `memory_usage`.** It said `rss`, and that is no
+  longer the quantity being reported; `memory.source` names the real one.
+- **`Capture.frames` and `Capture.health` now have genuinely separate
+  switches.** They used to share one hook, so either alone kept both running.
+
 - **Screen dwell folds onto the `navigation` event.** A navigation is now one
   item, not two: the departing screen's time rides
   `screen.previous_duration_ms` / `screen.previous_exit_method` on the same
@@ -338,6 +394,28 @@
   so the backlog accumulated since v2.0.0 arrives as soon as v3 runs once.
 
 ### Removed
+
+- **The device-health time series and its off-cadence trigger — −58 items per
+  session.** The 10-second `memory_usage` sample, the 30-second
+  `performance.system_check` and the `performance.memory_pressure` threshold
+  event are deleted at the source, along with `performance.monitor_initialized`
+  whose attributes described monitors that no longer exist. A stream graduates
+  when a named consumer needs it; there is no named consumer, and the "30–60 s
+  cadence" traced to a coverage table rather than a dashboard. Two of the three
+  names were dropped by the canon allowlist on every device anyway.
+- **`device.name` (iOS)** — the only key in the static bag that can carry a
+  human's name, because the iOS default is "Marvin's iPhone".
+- **`device.identifier_for_vendor` (iOS)** — **redundant, not a privacy
+  concession.** `device.id` sits beside it, is minted by this SDK and survives a
+  reinstall; the vendor id is reset when the last app from the vendor is
+  deleted, so the key we keep is strictly more stable than the one we drop.
+- Carrier was **never built** (no consumer, and permanently unreachable on iOS
+  since `CTCarrier` became a constant) and storage headroom is **dropped
+  entirely** (no approved iOS reason both fits our use and permits off-device
+  transmission). `device.fingerprint` **stays** — despite the name it is Android
+  OS build metadata, identical across every device on that build.
+- Ledger holds: **zero new Android permissions, zero new iOS required-reason
+  surface.**
 
 - **`enableCrashReporting` and `enableErrorReporting` are removed outright** —
   from `initialize()` and from `TelemetryConfig`. This is a deliberate hard

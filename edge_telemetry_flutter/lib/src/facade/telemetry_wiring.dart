@@ -4,6 +4,7 @@ import '../capture/action_capture_hook.dart';
 import '../capture/capture_hook.dart';
 import '../capture/http_capture_hook.dart';
 import '../capture/lifecycle_capture_hook.dart';
+import '../capture/memory_bookend_hook.dart';
 import '../capture/nav_capture_hook.dart';
 import '../capture/network_capture_hook.dart';
 import '../capture/perf_capture_hook.dart';
@@ -65,6 +66,11 @@ class TelemetryWiring {
   final NavCaptureHook? navHook;
   final NetworkCaptureHook? networkHook;
 
+  /// Held so the wiring can open and close the memory bookend pair. Null when
+  /// `Capture.health` is off — health is then simply not collected, which is
+  /// the consumer's own choice.
+  final MemoryBookendHook? memoryBookend;
+
   /// Held so the facade's `reportScreenSettled()` has somewhere to go. Null
   /// when `Capture.screenLoad` is off — the call is then a no-op, which is the
   /// consumer's own choice rather than a silent failure.
@@ -89,6 +95,7 @@ class TelemetryWiring {
     this.navHook,
     this.networkHook,
     this.screenLoadHook,
+    this.memoryBookend,
   })  : _disposers = disposers,
         gate = gate ?? CaptureGate(config),
         policy = policy ?? AttributePolicy(redact: config.redactAttribute),
@@ -153,12 +160,21 @@ class TelemetryWiring {
       policy: policy,
     );
 
+    // One channel instance shared by the crash drain and the health read —
+    // declared here because the session-start callback below closes over the
+    // hook, which is built with the rest of the hooks further down.
+    final nativeCrash = NativeCrashChannel();
+    MemoryBookendHook? memoryBookend;
+
     // Both per-session ceilings start a fresh allowance on rotation: the
     // governor's item budget and the Collector's `ui.interaction` cap.
     session.onSessionStart = () {
       gate.resetBudget();
       collector.resetActionCap();
       policy.reset();
+      // The opening bookend, and the reset of the closing one — a rotation is a
+      // new session, so it gets its own pair.
+      memoryBookend?.onSessionStart();
     };
 
     // Late-bind the session bookend sink now the Collector exists (breaks the
@@ -176,11 +192,21 @@ class TelemetryWiring {
       networkHook = NetworkCaptureHook(context: context);
       disposers.add(networkHook.start(collector));
     }
-    // ponytail: one hook serves both captures, so either alone keeps it
-    // running. Split PerfCaptureHook when frames and health need separate
-    // switches — the ticket that splits the emitters owns that.
-    if (gate.allows(Capture.frames) || gate.allows(Capture.health)) {
+    // Frames only since #91 — the health emitters that used to share this hook
+    // (the 10 s memory sample, the 30 s system check) are gone, and what
+    // replaced memory is the bookend pair below. The two captures now have the
+    // separate switches the old shared hook could not give them.
+    if (gate.allows(Capture.frames)) {
       disposers.add(PerfCaptureHook().start(collector));
+    }
+    // The whole of `Capture.health` on the Dart side: two native reads per
+    // session, no timer, no cadence. The fault bundle is the other half and
+    // needs nothing here — it is read off the dying thread natively and rides
+    // the fatal crash payload.
+    if (gate.allows(Capture.health)) {
+      memoryBookend =
+          MemoryBookendHook(channel: nativeCrash, flush: pipeline.flush);
+      disposers.add(memoryBookend.start(collector));
     }
     HttpCaptureHook? httpHook;
     if (gate.allows(Capture.http)) {
@@ -239,7 +265,10 @@ class TelemetryWiring {
         session: session,
         trace: trace,
         flush: pipeline.flush,
-        onPaused: screenLoadHook?.onPaused,
+        onPaused: () {
+          screenLoadHook?.onPaused();
+          memoryBookend?.onPaused();
+        },
         breadcrumbs: breadcrumbs,
         gate: gate,
       ).start(collector),
@@ -263,6 +292,8 @@ class TelemetryWiring {
       navHook: navHook,
       networkHook: networkHook,
       screenLoadHook: screenLoadHook,
+      memoryBookend: memoryBookend,
+      nativeCrash: nativeCrash,
     );
   }
 

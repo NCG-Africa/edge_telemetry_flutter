@@ -19,6 +19,11 @@ on next launch over the edge_telemetry/native_crash channel.
   s.author           = { 'NCG Africa' => 'movaaraconsult@gmail.com' }
   s.source           = { :path => '.' }
   s.source_files     = 'Classes/**/*'
+  # The package ships its OWN privacy manifest — empty accessed-API array,
+  # tracking false, collected data types at the capability ceiling (#91). A
+  # manifest is never inherited from a dependency, and an App Store privacy
+  # report unions every bundle's, so ours has to be in ours.
+  s.resource_bundles = { 'edge_telemetry_flutter_privacy' => ['Resources/PrivacyInfo.xcprivacy'] }
   s.dependency 'Flutter'
   s.platform = :ios, '14.0'
   s.swift_version = '5.0'

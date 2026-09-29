@@ -143,6 +143,27 @@ would give an in-tap request two candidate parents.
 resume. `paused` = flush + mark, **not** finalize. A session killed by the OS is finalized, backdated,
 on the next launch. No `Timer.periodic` — a backgrounded Flutter app cannot run one reliably.
 
+### Health is not a time series
+
+No cadence, no timer, no continuous device-state event — a stream graduates only when a
+named consumer needs it, and there is none. v2's 10-second memory sample, 30-second
+system check and threshold `memory_pressure` event are **deleted** (−58 items/session).
+Two signals remain. **Memory at the two session bookends** (`MemoryBookendHook`): opened
+from `SessionManager.onSessionStart`, closed once per session on `paused` — *not* on
+finalize, because the common ending is the OS killing a backgrounded process, which
+finalizes on the next launch in a process whose memory is unrelated. The quantity is
+**native** (`phys_footprint` / total PSS); Dart's `currentRss` is the wrong number on both
+platforms and the two are not comparable, so `memory.source` puts the break on the wire.
+**A five-key fault bundle on fatal crashes only** — read off the dying thread by the
+Android uncaught handler; iOS attaches none, because MetricKit delivers next-launch and
+this launch's state is not that crash's. `device.thermal_state` is a **normalised string**,
+never the ordinal: Android's `2` is MODERATE, iOS's is serious. Everywhere here, **an
+unavailable key is omitted, never sentinelled**.
+
+`readDeviceState` is one new pull-only method on the **existing** crash channel — the
+expensive surface is the three-language lockstep, not the channel string. Flat string map,
+no cache, two call sites, missing plugin means empty rather than a throw.
+
 ### Native crash capture is pull-only
 
 `ios/Classes/` (Swift, MetricKit — iOS 14 floor) and `android/src/main/kotlin/` (JVM
@@ -215,4 +236,14 @@ never the SDK's own keys, which are unique per item by design and would be senti
 - Debug output is `print()` guarded by `config.debugMode`; crash send/fail logs in `RetryTransport` are
   **intentionally always printed** — leave those un-guarded.
 - Custom profile attributes are auto-prefixed with `user.`.
+- **iOS required-reason APIs — the standing rule.** One is adopted only if an approved
+  reason **both** fits our use **and** permits off-device transmission, and the
+  declaration is made in **this package's own** `ios/Resources/PrivacyInfo.xcprivacy`,
+  never inherited from a dependency's. The budget today is **zero**: the accessed-API
+  array is empty, and it stays empty unless that two-part test passes. Collected data
+  types are declared at the **capability ceiling** — nine, all linked to identity —
+  because `device.id` rides every item and `setUserProfile()` exists; unlinked is the
+  peer-conformant lie.
+- `sdk.version` is a constant in `lib/src/core/sdk_version.dart`, asserted against
+  `pubspec.yaml` by a test. **A release bumps both.**
 - Changes visible to consumers must land in `README.md` + `CHANGELOG.md`.

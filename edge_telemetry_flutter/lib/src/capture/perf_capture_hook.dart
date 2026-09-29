@@ -1,22 +1,24 @@
 // lib/src/capture/perf_capture_hook.dart
 
-import 'dart:async' show Timer;
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../core/edge_event.dart';
 import 'capture_hook.dart';
 
-/// Frame timing, memory, and startup capture. Ports v1.5.2
-/// `FlutterPerformanceMonitor` verbatim onto the [EventSink] seam — same event
-/// and metric names, sent direct (no session-counter bump). `dispose` cancels
-/// the timers and removes the frame-timing callback (no leak across restarts).
+/// Frame timing and startup capture. `dispose` removes the frame-timing
+/// callback (no leak across restarts).
+///
+/// **Timer-free since v3 (#91).** v2 also ran two `Timer.periodic`s here — a
+/// 10-second memory sample (`memory_usage` + an off-cadence
+/// `performance.memory_pressure`) and a 30-second `performance.system_check` —
+/// roughly 58 items per session into a time series with no named consumer, two
+/// of whose three names the canon allowlist dropped on every device anyway.
+/// Health is no longer a time series: memory rides the two session bookends
+/// (`MemoryBookendHook`) and the fault bundle rides fatal crashes only. Nothing
+/// here polls, which also means nothing here has to be cancelled on pause.
 class PerfCaptureHook implements CaptureHook {
   DateTime? _appStartTime;
-  Timer? _performanceTimer;
-  Timer? _memoryTimer;
   TimingsCallback? _timingsCallback;
 
   @override
@@ -31,22 +33,7 @@ class PerfCaptureHook implements CaptureHook {
     WidgetsBinding.instance.addTimingsCallback(_timingsCallback!);
     WidgetsBinding.instance.addPostFrameCallback((_) => _trackAppStartup(sink));
 
-    _performanceTimer = Timer.periodic(
-        const Duration(seconds: 30), (_) => _trackSystemPerformance(sink));
-    _memoryTimer = Timer.periodic(
-        const Duration(seconds: 10), (_) => _trackMemoryUsage(sink));
-
-    sink.add(
-        const EdgeEvent.event('performance.monitor_initialized', attributes: {
-      'monitor.type': 'flutter_performance_monitor',
-      'monitoring.frame_timing': 'true',
-      'monitoring.memory': 'true',
-      'monitoring.system': 'true',
-    }));
-
     return () {
-      _performanceTimer?.cancel();
-      _memoryTimer?.cancel();
       if (_timingsCallback != null) {
         WidgetsBinding.instance.removeTimingsCallback(_timingsCallback!);
         _timingsCallback = null;
@@ -107,36 +94,6 @@ class PerfCaptureHook implements CaptureHook {
     }
   }
 
-  void _trackMemoryUsage(EventSink sink) {
-    try {
-      final memoryUsage = _getMemoryUsage();
-      if (memoryUsage != null) {
-        sink.add(EdgeEvent.metric('memory_usage', memoryUsage.toDouble(),
-            attributes: {
-              'memory.type': 'rss',
-              'memory.unit': 'bytes',
-              'memory.source': 'process_info',
-            }));
-        _trackMemoryPressure(sink, memoryUsage);
-      }
-    } catch (e) {
-      sink.add(EdgeEvent.error(e, attributes: {
-        'error.context': 'memory_usage_tracking',
-        'error.component': 'performance_monitor',
-      }));
-    }
-  }
-
-  void _trackSystemPerformance(EventSink sink) {
-    final systemInfo = _getSystemPerformanceInfo();
-    sink.add(EdgeEvent.event('performance.system_check', attributes: {
-      'system.timestamp': DateTime.now().toIso8601String(),
-      'system.check_type': 'periodic',
-      'system.platform': systemInfo['platform'] ?? 'unknown',
-      ...systemInfo,
-    }));
-  }
-
   // Canon startup taxonomy is cold | warm (glossary §4). This hook only runs at
   // SDK init, so it can't truly see a warm (already-resident) start; a duration
   // threshold is the passive Dart-side proxy.
@@ -149,50 +106,5 @@ class PerfCaptureHook implements CaptureHook {
     if (durationMs <= 16.67) return 'smooth';
     if (durationMs <= 33.33) return 'janky';
     return 'severely_dropped';
-  }
-
-  int? _getMemoryUsage() {
-    try {
-      return ProcessInfo.currentRss;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  void _trackMemoryPressure(EventSink sink, int memoryBytes) {
-    final memoryMB = memoryBytes / (1024 * 1024);
-    String pressureLevel;
-    if (memoryMB > 500) {
-      pressureLevel = 'critical';
-    } else if (memoryMB > 300) {
-      pressureLevel = 'high';
-    } else if (memoryMB > 150) {
-      pressureLevel = 'moderate';
-    } else {
-      pressureLevel = 'normal';
-    }
-
-    if (pressureLevel != 'normal') {
-      sink.add(EdgeEvent.event('performance.memory_pressure', attributes: {
-        'memory.usage_mb': memoryMB.toStringAsFixed(2),
-        'memory.pressure_level': pressureLevel,
-        'memory.timestamp': DateTime.now().toIso8601String(),
-      }));
-    }
-  }
-
-  Map<String, String> _getSystemPerformanceInfo() {
-    final info = <String, String>{
-      'platform': Platform.operatingSystem,
-      'platform_version': Platform.operatingSystemVersion,
-    };
-    final memoryUsage = _getMemoryUsage();
-    if (memoryUsage != null) {
-      info['memory.current_rss'] = memoryUsage.toString();
-      info['memory.current_mb'] =
-          (memoryUsage / (1024 * 1024)).toStringAsFixed(2);
-    }
-    info['system.processor_count'] = Platform.numberOfProcessors.toString();
-    return info;
   }
 }
