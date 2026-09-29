@@ -195,6 +195,11 @@ runApp(MyApp());
 | `standard` | **Default.** Everything above plus HTTP, navigation, screen load, actions, frames, health, connectivity, lifecycle. Subject to the one per-session sampling roll. |
 | `diagnostic` | Everything above plus the high-volume / privacy-sensitive variants: swipes, tap coordinates, full HTTP URLs (query included), device fingerprint, accessibility context, extra lifecycle states, long tasks, per-screen frame summaries. |
 
+The `Capture` member set is fixed here so no later release moves it, but a member only
+does something once its emitter ships. Live today: `http`, `navigation`, `connectivity`,
+`frames`, `health`, `lifecycle`, `lifecycleTransitions`, `accessibilityContext`. The rest
+are declared and inert until their own release.
+
 A tier is an **on/off plus a shed rank**, never a sampling axis — `sampleRate` stays the
 one roll over the whole session. If a session blows through its item budget the SDK
 sheds a *whole tier* (`diagnostic`, then `standard`, never `essential`) and reports

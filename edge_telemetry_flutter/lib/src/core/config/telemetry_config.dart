@@ -1,6 +1,6 @@
 // lib/src/core/config/telemetry_config.dart
 
-import 'capture_tier.dart';
+import 'collection_tier.dart';
 
 /// Configuration for `EdgeTelemetry.initialize()`.
 ///
@@ -134,10 +134,18 @@ class TelemetryConfig {
     int? maxQueueSize,
     CollectionTier? tier,
     Map<Capture, bool>? captureOverrides,
+    @Deprecated(
+        'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
     bool? enableNetworkMonitoring,
+    @Deprecated(
+        'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.')
     bool? enablePerformanceMonitoring,
+    @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
     bool? enableNavigationTracking,
+    @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
     bool? enableHttpMonitoring,
+    @Deprecated(
+        'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.')
     bool? captureAccessibilityContext,
     bool? enableLocalReporting,
     String? reportStoragePath,
@@ -185,7 +193,7 @@ class TelemetryConfig {
   /// the deprecated booleans, then the [tier] default. Runtime shedding is the
   /// governor's, on `CaptureGate` — this is the config half only.
   bool capturesEnabled(Capture c) =>
-      _legacyOverrides[c] ?? kCaptureTiers[c]!.index <= tier.index;
+      _legacyOverrides[c] ?? c.tier.index <= tier.index;
 
   /// The deprecated booleans folded into override shape, with
   /// [captureOverrides] layered on top so the new key wins. A legacy `true`

@@ -29,6 +29,14 @@
   shed on the existing `session.dropped_item_count` /
   `session.dropped_reasons` (`tier_shed=N`) that ships on the session's closing
   event.
+- **`app_lifecycle` now emits `paused` and `resumed` only, by default.**
+  `inactive`, `hidden` and `detached` move to `Capture.lifecycleTransitions`
+  (`diagnostic`, opt-in). The framework synthesizes all three on every
+  backgrounding round-trip, so v2 shipped six lifecycle items per round-trip
+  where the budget assumed two, and nothing read the extra four. Restore them
+  with `captureOverrides: {Capture.lifecycleTransitions: true}`. The
+  lifecycle→session bridge is unchanged and unconditional — only the event is
+  tiered.
 - **`trackEvent` / `trackMetric` take `Map<String, Object?>?`** instead of
   `dynamic`. Values are stringified as before, so `{'count': 3, 'ok': true}`
   keeps compiling and the bytes on the wire are unchanged. The `toJson()`

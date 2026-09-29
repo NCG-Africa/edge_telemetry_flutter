@@ -1,6 +1,6 @@
 // lib/src/core/capture_gate.dart
 
-import 'config/capture_tier.dart';
+import 'config/collection_tier.dart';
 import 'config/telemetry_config.dart';
 
 /// Per-session item ceilings the budget governor sheds on (#49 §3, policy
@@ -38,7 +38,7 @@ class CaptureGate {
   /// Whether [c] may run right now.
   bool allows(Capture c) {
     if (_enabled[c] != true) return false;
-    if (_shed != null && kCaptureTiers[c]!.index >= _shed!.index) {
+    if (_shed != null && c.tier.index >= _shed!.index) {
       onShed?.call();
       return false;
     }

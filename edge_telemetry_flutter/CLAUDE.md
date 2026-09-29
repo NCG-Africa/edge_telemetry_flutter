@@ -131,8 +131,14 @@ three languages — change it in lockstep or not at all.
 
 ## Conventions
 - Public API changes stay backward compatible (deprecate, don't remove). `useJsonFormat`, `batchTimeout`,
-  `maxBatchSize`, `eventBatchSize`, `withSpan`, `withNetworkSpan` are shipped no-ops kept for that reason —
-  they go in v3.0.0.
+  `maxBatchSize`, `eventBatchSize`, `withSpan`, `withNetworkSpan` were shipped no-ops kept for that reason —
+  **removed in v3.0.0**.
+- **The one sanctioned exception to deprecate-don't-remove: `enableCrashReporting` and
+  `enableErrorReporting`, removed outright in v3.0.0 (#72 D5).** A working switch turned into a silent
+  no-op means a consumer who suppressed crash reporting begins transmitting on a `pub upgrade`. A
+  `@Deprecated` lint is scrollable and an init-time `print` is invisible to a CI-only consumer; only the
+  compiler is unignorable, and unignorable was the requirement. Do not generalise this — it applies where
+  a removal changes *what leaves the device*, never to tidying a no-op.
 - **Deprecate-in-place — names are retained, emission stops or changes.** The cycle is an annotation on
   **every** declaration naming the removal version (the clause that catches a missed field), a shipped
   release, a changelog line, and a runtime warning wherever behaviour *changes* rather than disappears.

@@ -1,4 +1,4 @@
-// test/unit/core/capture_tier_test.dart
+// test/unit/core/collection_tier_test.dart
 //
 // #80: the v3 config surface. Two fields — a tier dial and a capture override
 // map — plus the budget governor that sheds whole tiers. The wire-seam half
@@ -7,9 +7,11 @@
 
 import 'dart:io';
 
+import 'package:edge_telemetry_flutter/src/capture/capture_hook.dart';
+import 'package:edge_telemetry_flutter/src/capture/lifecycle_capture_hook.dart';
 import 'package:edge_telemetry_flutter/src/core/capture_gate.dart';
 import 'package:edge_telemetry_flutter/src/core/collector.dart';
-import 'package:edge_telemetry_flutter/src/core/config/capture_tier.dart';
+import 'package:edge_telemetry_flutter/src/core/config/collection_tier.dart';
 import 'package:edge_telemetry_flutter/src/core/config/telemetry_config.dart';
 import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
 import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
@@ -21,8 +23,17 @@ import 'package:edge_telemetry_flutter/src/facade/telemetry_wiring.dart';
 import 'package:edge_telemetry_flutter/src/managers/breadcrumb_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/context_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// Collects EdgeEvents a capture hook emits — nothing reaches it unless the
+/// hook actually built an attribute map.
+class _FakeSink implements EventSink {
+  final List<EdgeEvent> events = [];
+  @override
+  void add(EdgeEvent event) => events.add(event);
+}
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -86,8 +97,8 @@ void main() {
 
     test('every member is standard or diagnostic, never essential', () {
       for (final c in Capture.values) {
-        expect(kCaptureTiers[c], isNotNull, reason: '${c.name} has no tier');
-        expect(kCaptureTiers[c], isNot(CollectionTier.essential));
+        expect(c.tier, isNotNull, reason: '${c.name} has no tier');
+        expect(c.tier, isNot(CollectionTier.essential));
       }
     });
   });
@@ -98,8 +109,7 @@ void main() {
     test('standard collects the standard set and none of the diagnostic set',
         () {
       for (final c in Capture.values) {
-        expect(_config.capturesEnabled(c),
-            kCaptureTiers[c] == CollectionTier.standard,
+        expect(_config.capturesEnabled(c), c.tier == CollectionTier.standard,
             reason: c.name);
       }
     });
@@ -188,26 +198,76 @@ void main() {
 
   // ==================== Gating at the capture hook ====================
 
-  test('a gated-off capture never starts, so no attribute map is ever built',
-      () async {
-    // The gate is the whole reason TelemetryWiring never calls start() on a
-    // disabled hook: a disabled capture costs one branch at init and nothing
-    // thereafter. HttpCaptureHook's start() installs HttpOverrides.global, so
-    // an untouched global is proof that no request was ever timed and no
-    // `<String, String>{}` literal was ever built for one.
-    HttpOverrides.global = null;
-    final session = SessionManager();
-    final wiring = await TelemetryWiring.build(
-      config: _config.copyWith(tier: CollectionTier.essential),
-      session: session,
-      context: ContextManager(sessionManager: session, global: const {}),
-      breadcrumbs: BreadcrumbManager(),
-    );
+  group('tiers gate at the capture hook, before the attribute map', () {
+    test('a running hook builds no map for a gated-off state', () {
+      // The sharp version of the rule: LifecycleCaptureHook is *running* — the
+      // session bridge is unconditional — and still emits nothing for a gated
+      // state. This is the seam the rule exists for. Gating at the Collector
+      // would have built the map, stringified the attributes, spent the CPU
+      // and discarded the item; the sink proves nothing was built at all.
+      final sink = _FakeSink();
+      final hook = LifecycleCaptureHook(
+        session: SessionManager(),
+        flush: () {},
+        gate: CaptureGate(_config), // standard tier: transitions are opt-in
+      );
+      hook.start(sink);
+      addTearDown(() => WidgetsBinding.instance.removeObserver(hook));
 
-    expect(HttpOverrides.current, isNull); // http hook never ran
-    expect(wiring.navigationObserver, isNull); // nav hook never constructed
-    expect(wiring.networkHook, isNull); // connectivity hook never constructed
-    wiring.disposeAll();
+      hook.didChangeAppLifecycleState(AppLifecycleState.inactive);
+      hook.didChangeAppLifecycleState(AppLifecycleState.hidden);
+      hook.didChangeAppLifecycleState(AppLifecycleState.detached);
+      expect(sink.events, isEmpty); // Capture.lifecycleTransitions is off
+
+      hook.didChangeAppLifecycleState(AppLifecycleState.paused);
+      hook.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      expect(sink.events, hasLength(2)); // Capture.lifecycle is on
+      expect(sink.events.map((e) => e.attributes['lifecycle.state']),
+          ['paused', 'resumed']);
+    });
+
+    test('a shed tier stops a hook that is already running', () {
+      // The other half: the governor moves at runtime, so a hook started when
+      // the budget was healthy must stop emitting once its tier is shed.
+      final sink = _FakeSink();
+      final gate = CaptureGate(_config.copyWith(
+          captureOverrides: const {Capture.lifecycleTransitions: true}));
+      final hook = LifecycleCaptureHook(
+          session: SessionManager(), flush: () {}, gate: gate);
+      hook.start(sink);
+      addTearDown(() => WidgetsBinding.instance.removeObserver(hook));
+
+      hook.didChangeAppLifecycleState(AppLifecycleState.inactive);
+      expect(sink.events, hasLength(1));
+
+      for (var i = 0; i <= kDiagnosticShedCeiling; i++) {
+        gate.recordItem();
+      }
+      hook.didChangeAppLifecycleState(AppLifecycleState.inactive);
+      expect(sink.events, hasLength(1)); // shed — nothing built
+      hook.didChangeAppLifecycleState(AppLifecycleState.paused);
+      expect(sink.events, hasLength(2)); // standard survives the first shed
+    });
+
+    test('a disabled capture is never even constructed', () {
+      // The coarser, cheaper gate: TelemetryWiring simply does not call start()
+      // on a hook whose capture is off, so it costs one branch at init and
+      // nothing thereafter. HttpCaptureHook.start() installs
+      // HttpOverrides.global, so an untouched global is proof it never ran.
+      HttpOverrides.global = null;
+      final session = SessionManager();
+      return TelemetryWiring.build(
+        config: _config.copyWith(tier: CollectionTier.essential),
+        session: session,
+        context: ContextManager(sessionManager: session, global: const {}),
+        breadcrumbs: BreadcrumbManager(),
+      ).then((wiring) {
+        expect(HttpOverrides.current, isNull);
+        expect(wiring.navigationObserver, isNull);
+        expect(wiring.networkHook, isNull);
+        wiring.disposeAll();
+      });
+    });
   });
 
   // ==================== The budget governor ====================
@@ -309,6 +369,10 @@ void main() {
     });
 
     test('essential survives a full shed', () {
+      // Tautological on purpose, and the tautology is the guarantee: `essential`
+      // signals have no Capture member, so they never reach a gate at all and
+      // there is no code path by which shedding could reach them. This pins
+      // that structural fact — the day a crash *can* be gated, it fails.
       for (var i = 0; i <= kStandardShedCeiling; i++) {
         gate.recordItem();
       }
@@ -378,6 +442,11 @@ void main() {
         'at': DateTime.utc(2026, 1, 1),
         'took': const Duration(milliseconds: 250),
         'already': 'string',
+        'nested': {'a': 1},
+        'listOfLists': [
+          [1, 2],
+          [3],
+        ],
       });
       // A canon metric name — an off-canon one is dropped by the allowlist,
       // which is #79's business, not this ticket's.
@@ -396,6 +465,8 @@ void main() {
           event['attributes'], containsPair('at', '2026-01-01T00:00:00.000Z'));
       expect(event['attributes'], containsPair('took', '250'));
       expect(event['attributes'], containsPair('already', 'string'));
+      expect(event['attributes'], containsPair('nested', '{a: 1}'));
+      expect(event['attributes'], containsPair('listOfLists', '[1, 2],[3]'));
 
       final metric = items.firstWhere((e) => e['metricName'] == 'memory_usage');
       expect(metric['value'], 12.0);

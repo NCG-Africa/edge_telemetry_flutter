@@ -12,7 +12,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../collectors/flutter_device_info_collector.dart';
-import '../core/config/capture_tier.dart';
+import '../core/config/collection_tier.dart';
 import '../core/config/telemetry_config.dart';
 import '../core/edge_event.dart';
 import '../core/interfaces/device_info_collector.dart';

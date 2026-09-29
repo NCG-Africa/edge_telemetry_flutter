@@ -1,4 +1,4 @@
-// lib/src/core/config/capture_tier.dart
+// lib/src/core/config/collection_tier.dart
 //
 // The v3 collection model: a tier dial and a capture override map. Two fields,
 // not a pile of booleans — one map handles both directions, so there is no
@@ -38,43 +38,28 @@ enum CollectionTier {
 /// either: it already has a switch, and it is the call site.
 enum Capture {
   // ---- standard tier (default-on) ----
-  http,
-  navigation,
-  screenLoad,
-  actions,
-  frames,
-  health,
-  connectivity,
-  lifecycle,
+  http(CollectionTier.standard),
+  navigation(CollectionTier.standard),
+  screenLoad(CollectionTier.standard),
+  actions(CollectionTier.standard),
+  frames(CollectionTier.standard),
+  health(CollectionTier.standard),
+  connectivity(CollectionTier.standard),
+  lifecycle(CollectionTier.standard),
 
   // ---- diagnostic tier (opt-in) ----
-  swipes,
-  interactionCoordinates,
-  httpQueryString,
-  deviceFingerprint,
-  accessibilityContext,
-  lifecycleTransitions,
-  longTask,
-  screenWindowedFrames,
-}
+  swipes(CollectionTier.diagnostic),
+  interactionCoordinates(CollectionTier.diagnostic),
+  httpQueryString(CollectionTier.diagnostic),
+  deviceFingerprint(CollectionTier.diagnostic),
+  accessibilityContext(CollectionTier.diagnostic),
+  lifecycleTransitions(CollectionTier.diagnostic),
+  longTask(CollectionTier.diagnostic),
+  screenWindowedFrames(CollectionTier.diagnostic);
 
-/// The tier each [Capture] belongs to. Every member is `standard` or
-/// `diagnostic` — see the note on [Capture] for why none is `essential`.
-const Map<Capture, CollectionTier> kCaptureTiers = {
-  Capture.http: CollectionTier.standard,
-  Capture.navigation: CollectionTier.standard,
-  Capture.screenLoad: CollectionTier.standard,
-  Capture.actions: CollectionTier.standard,
-  Capture.frames: CollectionTier.standard,
-  Capture.health: CollectionTier.standard,
-  Capture.connectivity: CollectionTier.standard,
-  Capture.lifecycle: CollectionTier.standard,
-  Capture.swipes: CollectionTier.diagnostic,
-  Capture.interactionCoordinates: CollectionTier.diagnostic,
-  Capture.httpQueryString: CollectionTier.diagnostic,
-  Capture.deviceFingerprint: CollectionTier.diagnostic,
-  Capture.accessibilityContext: CollectionTier.diagnostic,
-  Capture.lifecycleTransitions: CollectionTier.diagnostic,
-  Capture.longTask: CollectionTier.diagnostic,
-  Capture.screenWindowedFrames: CollectionTier.diagnostic,
-};
+  const Capture(this.tier);
+
+  /// The tier this capture belongs to. Every member is `standard` or
+  /// `diagnostic` — see the note above for why none is `essential`.
+  final CollectionTier tier;
+}

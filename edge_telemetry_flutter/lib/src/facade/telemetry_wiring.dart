@@ -11,7 +11,7 @@ import '../core/collector.dart';
 import '../core/offline_queue.dart';
 import '../core/pipeline.dart';
 import '../core/retry_transport.dart';
-import '../core/config/capture_tier.dart';
+import '../core/config/collection_tier.dart';
 import '../core/config/telemetry_config.dart';
 import '../crash/crash_reporting.dart';
 import '../crash/native_crash_channel.dart';
@@ -127,6 +127,9 @@ class TelemetryWiring {
       networkHook = NetworkCaptureHook(context: context);
       disposers.add(networkHook.start(collector));
     }
+    // ponytail: one hook serves both captures, so either alone keeps it
+    // running. Split PerfCaptureHook when frames and health need separate
+    // switches — the ticket that splits the emitters owns that.
     if (gate.allows(Capture.frames) || gate.allows(Capture.health)) {
       disposers.add(PerfCaptureHook().start(collector));
     }
@@ -141,12 +144,16 @@ class TelemetryWiring {
     }
 
     // The lifecycle→session bridge (paused=flush+mark, resume=rotate-if-idle)
-    // plus the canon app_lifecycle event. Always on — it drives the session
-    // model, not an optional monitor.
+    // is always on — it drives the session model, not an optional monitor. The
+    // `app_lifecycle` *event* it also emits is tiered, so the hook holds the
+    // gate and checks per emission rather than being started behind one.
     disposers.add(
       LifecycleCaptureHook(
-              session: session, flush: pipeline.flush, breadcrumbs: breadcrumbs)
-          .start(collector),
+        session: session,
+        flush: pipeline.flush,
+        breadcrumbs: breadcrumbs,
+        gate: gate,
+      ).start(collector),
     );
 
     return TelemetryWiring(
