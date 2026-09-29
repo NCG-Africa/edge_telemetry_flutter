@@ -2,7 +2,7 @@
 
 import 'dart:ui';
 
-import '../capture/http_overrides.dart';
+import '../core/http_seam_state.dart';
 import 'session_manager.dart';
 import 'trace_manager.dart';
 
@@ -59,7 +59,8 @@ class ContextManager {
   /// `sdk.http_seam_state` is read here rather than latched at install for the
   /// same reason: a consumer can sever the `dart:io` seam at any instant by
   /// assigning `HttpOverrides.global` after init, and nothing notifies us. A
-  /// cached value would keep claiming a seam that died an hour ago.
+  /// cached value would keep claiming a seam that died an hour ago. It lives in
+  /// `core/` so this read is a manager→core edge, not a manager→capture one.
   Map<String, String> snapshot() => {
         ..._global,
         ...sessionManager.getSessionAttributes(),

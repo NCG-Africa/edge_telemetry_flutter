@@ -164,9 +164,9 @@ final client = EdgeTelemetry.instance.captureClient(
 `initialize()`, and a build with `Capture.http` switched off all hand you back the
 client you passed — so wrapping twice is one capture, not two rows.
 
-Wrap only a client the override cannot see. A plain `http.Client()` runs on `dart:io`,
-so wrapping one while the override is live measures the same request through both seams;
-`http.seam` tells the two rows apart, but they are still two rows.
+Handing over a plain `http.Client()` is safe too: that is an `IOClient`, its sockets
+already pass the `dart:io` override, and it comes back unwrapped rather than measured
+through both seams. No request is ever captured twice.
 
 Rows from this seam carry `http.seam: http_client` and **no** `http.connect_ms`,
 `http.dns_ms`, `http.queue_ms` or `http.connection_reused` — the platform client below
@@ -186,6 +186,10 @@ which the SDK cannot know:
 | `wrapper` | The global is **not** ours (you replaced it), but a client was wrapped. |
 | `both` | Both seams live. |
 | `blind` | Neither. Provable, and the honest answer when the override was replaced and nothing was wrapped. |
+
+It is read fresh on every item rather than fixed at startup — you can replace
+`HttpOverrides.global` at any moment and nothing tells the SDK — so one session can
+report more than one value.
 
 One case has no client-side signature at all: capture healthy, and every request going
 through a bypassing client nobody wrapped. It is deliberately not papered over here —

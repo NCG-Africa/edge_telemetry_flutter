@@ -55,10 +55,6 @@ class CapturedClient extends http.BaseClient {
 
   final bool debugMode;
 
-  /// The client this one wraps — the escape hatch for a consumer who needs the
-  /// original back, and what makes double-wrapping detectable at the facade.
-  http.Client get inner => _inner;
-
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     if (_isSelfUpload(request.url)) return _inner.send(request);
@@ -87,11 +83,8 @@ class CapturedClient extends http.BaseClient {
           request.headers[kTraceparentHeader] = header;
         } catch (_) {
           // An already-finalized request — the consumer is re-sending one.
-          // Swallowed: the SDK must never be why a request fails. The ids stay
-          // on the row and the outcome key comes off, because nothing was
-          // propagated and absence is the contract's member for that.
-          traceAttributes = Map<String, String>.from(traceAttributes)
-            ..remove('traceparent.outcome');
+          // Swallowed: the SDK must never be why a request fails.
+          traceAttributes = _untraced(traceAttributes);
         }
       }
     }
@@ -103,14 +96,20 @@ class CapturedClient extends http.BaseClient {
     try {
       response = await _inner.send(request);
     } catch (error) {
-      // Nothing came back at all. Same shape the `dart:io` seam reports for a
-      // refused connection: ids so the row is correlatable, status 0, and the
+      // Nothing came back. Ids so the row is correlatable, status 0, and the
       // time actually spent failing.
       //
-      // **The outcome key comes off.** It was resolved before the send, but no
-      // socket carried it — and absence is the contract's own member for "not
-      // traced". A row claiming `injected_attributed` for a header that never
-      // left the device would be the one lie the backend cannot detect.
+      // **The outcome key stays**, which is where this seam diverges from the
+      // `dart:io` one — deliberately, because the fact differs. There, the
+      // freeze happens before `openUrl` and a refused connection means the
+      // header was never written at all, so absence is literally true. Here the
+      // header is written onto the request *before* the send, unconditionally,
+      // and nothing above `package:http` can see whether those bytes reached a
+      // socket: `IOClient` finalizes the request before it even connects. So
+      // the outcome reports what the SDK did — it injected — which is true on
+      // every path through this seam. Guessing the socket's fate would make the
+      // row claim a thing it cannot know, and a server span joined on this
+      // `trace.id` would be orphaned by a wrong "not traced".
       _onRequestComplete(HttpRequestTelemetry(
         url: request.url.toString(),
         method: request.method,
@@ -118,8 +117,7 @@ class CapturedClient extends http.BaseClient {
         duration: clock.elapsed,
         timestamp: callStart,
         error: error.toString(),
-        traceAttributes: Map<String, String>.from(traceAttributes)
-          ..remove('traceparent.outcome'),
+        traceAttributes: traceAttributes,
         seam: kSeamHttpClient,
       ));
       rethrow;
@@ -127,9 +125,53 @@ class CapturedClient extends http.BaseClient {
 
     // Headers received. The tail is the body, exactly as on the other seam.
     final atHeaders = clock.elapsed;
+    var bytes = 0;
+    var complete = false;
+
+    /// Count the body and emit **when it ends**, not when its headers arrive:
+    /// `http.download_ms` is the tail, and a byte count has no value until the
+    /// last byte. The `finally` covers done, error and cancel alike, so a
+    /// consumer who abandons a response still produces exactly one row.
+    ///
+    /// A local generator rather than a method: everything it needs is already
+    /// in scope here, and threading the same seven values through a signature
+    /// is what the `dart:io` seam needed a whole class for.
+    Stream<List<int>> countBody() async* {
+      try {
+        yield* response.stream.map((chunk) {
+          bytes += chunk.length;
+          return chunk;
+        });
+        complete = true;
+      } finally {
+        final sized = resolveResponseSize(
+          declared: response.contentLength,
+          counted: bytes,
+          complete: complete,
+        );
+        final download = clock.elapsed - atHeaders;
+        if (debugMode) {
+          print('🌐 HTTP ${request.method.toUpperCase()} ${request.url} - '
+              '${response.statusCode} (${atHeaders.inMilliseconds}ms + '
+              '${download.inMilliseconds}ms body) [$kSeamHttpClient]');
+        }
+        _onRequestComplete(HttpRequestTelemetry(
+          url: request.url.toString(),
+          method: request.method,
+          statusCode: response.statusCode,
+          duration: atHeaders,
+          timestamp: callStart,
+          downloadDuration: download,
+          responseSize: sized.size,
+          responseSizeSource: sized.source,
+          traceAttributes: traceAttributes,
+          seam: kSeamHttpClient,
+        ));
+      }
+    }
+
     return http.StreamedResponse(
-      _countBody(response, callStart, clock, atHeaders, request.method,
-          request.url, traceAttributes),
+      countBody(),
       response.statusCode,
       contentLength: response.contentLength,
       request: response.request,
@@ -140,55 +182,10 @@ class CapturedClient extends http.BaseClient {
     );
   }
 
-  /// Count the body and emit **when it ends**, not when its headers arrive:
-  /// `http.download_ms` is the tail, and a byte count has no value until the
-  /// last byte. The `finally` covers done, error and cancel alike, so a
-  /// consumer who abandons a response still produces exactly one row.
-  Stream<List<int>> _countBody(
-    http.StreamedResponse response,
-    DateTime callStart,
-    Stopwatch clock,
-    Duration atHeaders,
-    String method,
-    Uri url,
-    Map<String, String> traceAttributes,
-  ) async* {
-    var bytes = 0;
-    var complete = false;
-    try {
-      yield* response.stream.map((chunk) {
-        bytes += chunk.length;
-        return chunk;
-      });
-      complete = true;
-    } finally {
-      final declared = response.contentLength;
-      // An unknown size is omitted, never a false zero: a body cancelled
-      // part-way leaves a partial count, which is not the response size.
-      final size = declared ?? (complete ? bytes : null);
-      if (debugMode) {
-        print('🌐 HTTP ${method.toUpperCase()} $url - ${response.statusCode} '
-            '(${atHeaders.inMilliseconds}ms + '
-            '${(clock.elapsed - atHeaders).inMilliseconds}ms body) [wrapper]');
-      }
-      _onRequestComplete(HttpRequestTelemetry(
-        url: url.toString(),
-        method: method,
-        statusCode: response.statusCode,
-        duration: atHeaders,
-        timestamp: callStart,
-        downloadDuration: clock.elapsed - atHeaders,
-        responseSize: size,
-        responseSizeSource: size == null
-            ? null
-            : declared != null
-                ? kSizeFromContentLength
-                : kSizeFromDecodedBytes,
-        traceAttributes: traceAttributes,
-        seam: kSeamHttpClient,
-      ));
-    }
-  }
+  /// The same ids, minus the claim that anything was propagated. One helper so
+  /// "absence is the contract's member for not traced" lives in one place.
+  Map<String, String> _untraced(Map<String, String> attributes) =>
+      Map<String, String>.from(attributes)..remove('traceparent.outcome');
 
   /// Same comparison the `dart:io` seam makes, for the same reason.
   bool _isSelfUpload(Uri url) {

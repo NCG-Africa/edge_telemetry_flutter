@@ -365,12 +365,10 @@ class EdgeTelemetry {
   /// [initialize], and a build with `Capture.http` switched off all return the
   /// argument itself.
   ///
-  /// Wrap only a client the override **cannot** see. A plain `http.Client()`
-  /// runs on `dart:io`, so wrapping one while the override is live measures the
-  /// same request through both seams. That is not hidden — the two rows carry
-  /// different `http.seam` values and `sdk.http_seam_state` says `both` — but it
-  /// is still two rows, and the SDK cannot tell the cases apart: a
-  /// `cupertino_http` client and an `IOClient` are the same static type.
+  /// Handing over a plain `http.Client()` is safe too: that is an `IOClient`,
+  /// its sockets already pass the `dart:io` override, and you get it back
+  /// unwrapped rather than measured twice. Like the other degenerate cases,
+  /// that is decided here rather than left to you to remember.
   ///
   /// gRPC, HTTP/2 and `http2_adapter` are **out of scope** — they bypass
   /// `package:http` as well, which is a protocol gap rather than a wrapper gap.
