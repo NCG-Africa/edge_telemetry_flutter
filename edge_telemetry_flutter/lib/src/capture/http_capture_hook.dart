@@ -8,6 +8,7 @@ import '../managers/breadcrumb_manager.dart';
 import 'capture_hook.dart';
 import 'http_overrides.dart';
 import 'http_url.dart';
+import 'trace_injection.dart';
 
 /// Captures every HTTP request by installing [TelemetryHttpOverrides] globally
 /// and folding each completed request into a single canon `http.request` event
@@ -26,6 +27,12 @@ class HttpCaptureHook implements CaptureHook {
   /// can run without one, in which case both are off.
   final CaptureGate? gate;
 
+  /// The propagation half (#86). Optional so a faked hook runs un-traced.
+  final TraceInjector? injector;
+
+  /// `RetryTransport.resolvedUrl` — the SDK's own upload, excluded explicitly.
+  final Uri? selfUrl;
+
   /// Resolved **once, at install** rather than per emission, so neither moves
   /// when the budget governor sheds the `diagnostic` tier mid-session.
   ///
@@ -41,7 +48,13 @@ class HttpCaptureHook implements CaptureHook {
 
   bool _installed = false;
 
-  HttpCaptureHook({this.debugMode = false, this.breadcrumbs, this.gate});
+  HttpCaptureHook({
+    this.debugMode = false,
+    this.breadcrumbs,
+    this.gate,
+    this.injector,
+    this.selfUrl,
+  });
 
   @override
   DisposeHandle start(EventSink sink) {
@@ -52,6 +65,8 @@ class HttpCaptureHook implements CaptureHook {
         onRequestComplete: (t) => _emit(sink, t),
         debugMode: debugMode,
         measurePhases: _phases,
+        injector: injector,
+        selfUrl: selfUrl,
       );
       _installed = true;
     }
@@ -67,8 +82,14 @@ class HttpCaptureHook implements CaptureHook {
   /// the old `http.error` / `http.slow_request` / `http.response_time` fold in
   /// here). Bumps session counters, as the HTTP path did in v1.5.2.
   void _emit(EventSink sink, HttpRequestTelemetry t) {
+    // `ownsTraceContext`: the request froze its trace context at the call
+    // instant and this event is emitted at completion, hundreds of milliseconds
+    // later. Without the strip the ambient snapshot would stamp whatever tap
+    // landed mid-flight onto it — including onto the legally-unattributed rows,
+    // where an absent key cannot beat a present one.
     sink.add(EdgeEvent.event('http.request',
         attributes: t.toAttributes(fullUrl: _fullUrl, phases: _phases),
+        ownsTraceContext: true,
         countsToSession: true));
 
     // Templated path only — no query, no fragment, no raw ids, so neither PII

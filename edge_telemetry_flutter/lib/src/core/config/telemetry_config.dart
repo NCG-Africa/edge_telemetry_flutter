@@ -63,6 +63,20 @@ class TelemetryConfig {
   /// developer this hook over what they supplied.
   final String? Function(String key, String value)? redactAttribute;
 
+  /// Hosts a W3C `traceparent` may be injected into, so a mobile tap and a
+  /// backend span sit in one trace.
+  ///
+  /// Matching is the family's rule verbatim: **exact host, or a dot-anchored
+  /// suffix of at least two labels** — `.example.com` matches `api.example.com`
+  /// and never `api.example.com.evil.com`.
+  ///
+  /// **Empty (the default) means dark: no header is injected anywhere.** The
+  /// header carries internal trace topology, so listing a host is a decision to
+  /// disclose it — not a default anyone should inherit. Requests to unlisted
+  /// hosts are still captured and still carry local trace ids; only the header
+  /// is withheld.
+  final List<String> traceHostAllowlist;
+
   /// Enable automatic network monitoring (connectivity changes)
   @Deprecated('Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
   final bool enableNetworkMonitoring;
@@ -115,6 +129,7 @@ class TelemetryConfig {
     this.tier = CollectionTier.standard,
     this.captureOverrides = const {},
     this.redactAttribute,
+    this.traceHostAllowlist = const [],
     @Deprecated(
         'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
     this.enableNetworkMonitoring = true,
@@ -147,6 +162,7 @@ class TelemetryConfig {
     CollectionTier? tier,
     Map<Capture, bool>? captureOverrides,
     String? Function(String key, String value)? redactAttribute,
+    List<String>? traceHostAllowlist,
     @Deprecated(
         'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
     bool? enableNetworkMonitoring,
@@ -177,6 +193,7 @@ class TelemetryConfig {
       tier: tier ?? this.tier,
       captureOverrides: captureOverrides ?? this.captureOverrides,
       redactAttribute: redactAttribute ?? this.redactAttribute,
+      traceHostAllowlist: traceHostAllowlist ?? this.traceHostAllowlist,
       // ignore: deprecated_member_use_from_same_package
       enableNetworkMonitoring:
           // ignore: deprecated_member_use_from_same_package

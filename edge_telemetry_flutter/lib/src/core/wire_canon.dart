@@ -81,13 +81,39 @@ bool isCanonWireItem(String type, String name) => type == 'metric'
     ? kCanonMetrics.contains(name)
     : kCanonEvents.contains(name);
 
+/// The collector's clock minus ours, in milliseconds — **recorded, never
+/// corrected** (#86).
+///
+/// The collector's HTTP `Date` response header is a free server timestamp
+/// already arriving on every successful POST, so one subtraction buys the
+/// offset the backend needs to shift a session onto server time at query time.
+/// Correcting client timestamps in place is rejected outright: it destroys
+/// debuggability and breaks idempotent replay of offline batches, which by
+/// design arrive hours or days late.
+///
+/// Null until the first successful POST of the launch. Process-wide for the
+/// same reason the gzip probe is — skew is a property of the device's clock,
+/// not of a transport instance.
+// ponytail: `Date` has one-second resolution and the estimate ignores round
+// trip, so it is accurate to ~±1 s. That is two orders below the corrections
+// it exists to expose; take a request-time midpoint the day sub-second skew
+// matters.
+int? recordedClockSkewMs;
+
+/// Record the offset from a collector response's `Date` header. A null header
+/// (or a response that never arrived) leaves the last estimate standing.
+void recordClockSkew(DateTime? serverDate) {
+  if (serverDate == null) return;
+  recordedClockSkewMs = serverDate.difference(DateTime.now()).inMilliseconds;
+}
+
 /// The one wire envelope (`telemetry_batch`). Both rails send this shape — the
 /// batched flush and the one-item immediate crash — so a payload the queue
 /// stored verbatim and drained days later is still self-describing: the item
 /// carries its own context snapshot in `attributes`, and the envelope names it.
 ///
 /// Field order is part of the canon
-/// (`type`/`timestamp`/`batch_size`/[`context`]/`events`). [context] is the
+/// (`type`/`timestamp`/`batch_size`/[`clock_skew_ms`]/[`context`]/`events`). [context] is the
 /// hoisted block (#82); it is omitted entirely while [kHoistBatchContext] is
 /// off, so the default envelope is byte-identical to v2's.
 Map<String, dynamic> telemetryBatch(
@@ -98,6 +124,7 @@ Map<String, dynamic> telemetryBatch(
       'type': 'telemetry_batch',
       'timestamp': DateTime.now().toIso8601String(),
       'batch_size': items.length,
+      if (recordedClockSkewMs != null) 'clock_skew_ms': recordedClockSkewMs,
       if (context.isNotEmpty) 'context': context,
       'events': items,
     };

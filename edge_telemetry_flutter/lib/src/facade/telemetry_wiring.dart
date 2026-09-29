@@ -7,6 +7,7 @@ import '../capture/lifecycle_capture_hook.dart';
 import '../capture/nav_capture_hook.dart';
 import '../capture/network_capture_hook.dart';
 import '../capture/perf_capture_hook.dart';
+import '../capture/trace_injection.dart';
 import '../core/attribute_policy.dart';
 import '../core/capture_gate.dart';
 import '../core/collector.dart';
@@ -173,6 +174,15 @@ class TelemetryWiring {
         debugMode: config.debugMode,
         breadcrumbs: breadcrumbs,
         gate: gate,
+        injector: TraceInjector(
+          trace: trace,
+          allowlist: config.traceHostAllowlist,
+          debugMode: config.debugMode,
+        ),
+        // Explicit self-exclusion. The construction ordering above (transport
+        // built before the hook installs the override) is kept as well — belt
+        // and braces, because the failure mode is unbounded amplification.
+        selfUrl: transport.resolvedUrl,
       ).start(collector));
     }
     if (gate.allows(Capture.navigation)) {

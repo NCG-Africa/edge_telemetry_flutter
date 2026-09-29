@@ -56,7 +56,12 @@ class FrozenTrace {
   /// W3C 16-hex — the root's span id, which is also `rum.action.id`, the sole
   /// join key. Spans hang directly off the root, so the two are the same value
   /// under two names, both of which the backend contract expects.
-  final String parentSpanId;
+  ///
+  /// **Null on a root.** A parentless `request` root (#86) is its own root, and
+  /// the contract says `parent.span.id` is children-only and absent on roots —
+  /// so the key is omitted rather than self-referential, and [actionId] falls
+  /// back to this item's own span id.
+  final String? parentSpanId;
 
   final TraceRootType rootType;
 
@@ -65,15 +70,18 @@ class FrozenTrace {
   /// may have rotated in between.
   final String? sessionId;
 
+  /// The sole join key: the root's span id — which, on a root, is its own.
+  String get actionId => parentSpanId ?? spanId;
+
   /// The item's own trace keys. Its caller must also set
   /// `EdgeEvent.ownsTraceContext`, or the ambient snapshot wins on any key this
   /// map happens not to carry.
   Map<String, String> get attributes => {
         'trace.id': traceId,
-        'rum.action.id': parentSpanId,
+        'rum.action.id': actionId,
         'trace.root_type': rootType.name,
         'span.id': spanId,
-        'parent.span.id': parentSpanId,
+        if (parentSpanId != null) 'parent.span.id': parentSpanId!,
       };
 }
 
