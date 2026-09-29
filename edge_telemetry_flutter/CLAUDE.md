@@ -56,6 +56,16 @@ bare item (a bare item is what the collector 400'd through all of v2). POST goes
 `<endpoint>/collector/telemetry` with `X-API-Key`, gzipped; a 400 on a compressed body
 triggers one uncompressed re-POST per launch, and that probe is the only capability check.
 
+The envelope also has an optional flat-dotted `context` block — the batch-level hoist, gated by
+`kHoistBatchContext` in `wire_canon.dart`, **default off and never a config field**. It fails
+*silently* against an unmerged processor (unknown block dropped → every session arrives with an
+empty `session.id`), so it flips only in the release after the server-side merge lands. When on,
+the Collector splits identity out of each batched item (classified by dotted prefix, so every
+live `device.*` value is batch-scoped, not just `platform_brightness`), mutable session counters
+leave the wire
+(they ride only the two bookends, on the never-hoisted immediate rail), and the Pipeline flushes
+whenever the block changes — one batch is structurally one session and one user.
+
 Attribute spelling is deliberately mixed and must not be "normalized": dotted for identity/domain keys
 (`session.id`, `http.url`), **unprefixed** on `app.crash` (`message`, `stacktrace`, `exception_type`,
 `cause`, `is_fatal`) because the backend extractors read those verbatim.

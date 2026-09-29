@@ -14,7 +14,8 @@ metric names, envelope and attribute spelling. Defined here in `lib/src/core/wir
 _Avoid_: schema, spec, protocol
 
 **Batch**:
-One `telemetry_batch` envelope — a timestamped array of wire items POSTed as a unit.
+One `telemetry_batch` envelope — a timestamped array of wire items POSTed as a unit, plus the
+optional hoisted context block. One batch is one session and one user.
 _Avoid_: payload, bundle
 
 **Wire item**:
@@ -56,8 +57,25 @@ domain keys (`session.id`), unprefixed on `app.crash` (`message`, `cause`), deli
 _Avoid_: property, field, tag
 
 **Common attributes**:
-The identity and device context merged into every wire item from `ContextManager.snapshot()`.
+The identity and device context from `ContextManager.snapshot()`. Merged into every wire item —
+except on the batched rail once the hoist is on, where it rides the batch instead.
 _Avoid_: globals, resource attributes
+
+**Hoist**:
+Moving the common attributes off each item and onto the batch, as one flat dotted block. Gated by
+`kHoistBatchContext`; the immediate rail is never hoisted.
+_Avoid_: lift, dedupe, compress
+
+**Context block**:
+The hoisted half — the `context` key on the envelope. Flat dotted, so the server-side merge with an
+item's own bag is a plain map merge.
+_Avoid_: resource, common block, header
+
+**Mutable session counter**:
+A `session.*` attribute that re-measures on every snapshot (`session.event_count`,
+`session.duration_ms`, …). Cannot be batch-scoped, so under the hoist it leaves the wire on batched
+items and rides only the two bookends.
+_Avoid_: session stat, running total
 
 ### Rails
 
