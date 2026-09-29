@@ -355,7 +355,8 @@ class EdgeTelemetry {
     // host-supplied name carried in `event.name` (mapping §2).
     _wiring!.collector.add(EdgeEvent.event('custom_event',
         attributes: {'event.name': eventName, ...stringAttributes},
-        countsToSession: true));
+        countsToSession: true,
+        consumerAttributes: true));
 
     if (isLocalReportingEnabled && _currentSessionId != null) {
       final event = TelemetryEvent(
@@ -379,7 +380,9 @@ class EdgeTelemetry {
     final stringAttributes = _stringify(attributes);
 
     _wiring!.collector.add(EdgeEvent.metric(metricName, value,
-        attributes: stringAttributes, countsToSession: true));
+        attributes: stringAttributes,
+        countsToSession: true,
+        consumerAttributes: true));
 
     if (isLocalReportingEnabled && _currentSessionId != null) {
       final metric = TelemetryMetric(
@@ -448,7 +451,10 @@ class EdgeTelemetry {
   /// even in a sampled-out session (#25).
   void _emitProfileEvent(String eventName, Map<String, String> attributes) {
     _wiring!.collector.add(EdgeEvent.event(eventName,
-        attributes: attributes, countsToSession: false, bypassSampling: true));
+        attributes: attributes,
+        countsToSession: false,
+        bypassSampling: true,
+        consumerAttributes: true));
   }
 
   /// Clear user profile (but keep auto-generated user ID).

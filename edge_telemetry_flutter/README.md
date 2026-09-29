@@ -132,6 +132,12 @@ puts a wrong denominator under somebody's connect-time average.
 There is no retry key and there will not be one: at this seam a retry is a new
 independent request, indistinguishable from a double-tap or a poll.
 
+**TCP and TLS are never reported separately**, at any tier. Splitting them would mean
+handing the platform a socket this SDK upgraded itself, and `dart:io` offers no way to
+do that; their sum is `connect - dns` and neither half is guessed. Under an HTTPS proxy
+the handshake happens inside the platform's CONNECT tunnel, so TLS is out of reach there
+too and `http.connect_ms` measures the proxy connection only.
+
 Enabling HTTP capture installs a connection factory on every `HttpClient`, which is the
 only way the connect time and the reuse flag are reachable. The SDK threads your
 `SecurityContext`, `badCertificateCallback` and `keyLog` through it by hand, so
@@ -246,7 +252,7 @@ runApp(MyApp());
 
 The `Capture` member set is fixed here so no later release moves it, but a member only
 does something once its emitter ships. Live today: `http`, `httpQueryString`,
-`httpPhaseTiming`, `navigation`, `connectivity`, `frames`, `health`, `lifecycle`,
+`httpRequestPhases`, `navigation`, `connectivity`, `frames`, `health`, `lifecycle`,
 `lifecycleTransitions`, `accessibilityContext`. The rest are declared and inert until
 their own release.
 
@@ -270,9 +276,15 @@ PII partitions by **who chose the value**.
   REST app under this cap — untemplated, a typical session breaches 50 distinct URLs and
   the key degrades to a sentinel *after* the real ids have already shipped.
 - **The developer decides about what they supplied.** `redactAttribute` runs once per
-  item, over that item's own attributes only. It never sees the context snapshot (that
-  would be ~30 callbacks per item on the UI isolate for values the SDK chose itself) and
-  it never sees the session bookends, whose attributes are the session's identity.
+  item, over the attributes the *consumer* passed to `trackEvent`, `trackMetric` or a
+  profile update. It never sees the context snapshot (that would be ~30 callbacks per
+  item on the UI isolate for values the SDK chose itself) and never the SDK's own item
+  keys, so a hook returning null for a key it does not recognise cannot drop a span id
+  or a stack trace.
+
+The cap follows the same split: consumer-named keys, plus `http.url`, which is the one
+SDK key that is a label rather than a measurement. The SDK's ids, timestamps and
+durations are unique per item by design and are never capped.
 
 ### Delivery
 

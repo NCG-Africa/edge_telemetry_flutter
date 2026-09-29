@@ -26,13 +26,16 @@ class HttpCaptureHook implements CaptureHook {
   /// can run without one, in which case both are off.
   final CaptureGate? gate;
 
-  /// Resolved **once, at install** rather than per emission.
+  /// Resolved **once, at install** rather than per emission, so neither moves
+  /// when the budget governor sheds the `diagnostic` tier mid-session.
   ///
-  /// One of them has to be: the DNS split changes how the socket is made, so
-  /// it is decided before any request exists. The other follows it on purpose
-  /// — a URL policy that flipped mid-session would make one column mean two
-  /// different things inside one session, which is the invisible-meaning-drift
-  /// §8 rejects everywhere else.
+  /// One of them has to be fixed: the DNS split changes how the socket is
+  /// made, and a shed cannot un-measure a connection that already happened.
+  /// The URL policy follows it on purpose — a column that meant the full URL
+  /// for the first 250 items and the path for the rest would be the
+  /// invisible-meaning-drift §8 rejects everywhere else. Shedding is about
+  /// *items*, and these are fields on an item the shed already decided to
+  /// keep.
   bool _fullUrl = false;
   bool _phases = false;
 
@@ -44,7 +47,7 @@ class HttpCaptureHook implements CaptureHook {
   DisposeHandle start(EventSink sink) {
     if (!_installed) {
       _fullUrl = gate?.allows(Capture.httpQueryString) ?? false;
-      _phases = gate?.allows(Capture.httpPhaseTiming) ?? false;
+      _phases = gate?.allows(Capture.httpRequestPhases) ?? false;
       TelemetryHttpOverrides.installGlobal(
         onRequestComplete: (t) => _emit(sink, t),
         debugMode: debugMode,

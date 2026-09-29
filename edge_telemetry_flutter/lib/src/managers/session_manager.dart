@@ -286,7 +286,7 @@ class SessionManager {
           screenCount: _visitedScreens.length,
           journey: _screenJourney,
           dropped: _droppedByReason,
-          capped: _cardinalityCapped,
+          cardinalityCapped: _cardinalityCapped,
         )));
   }
 
@@ -316,7 +316,7 @@ class SessionManager {
           dropped: (r['dropped'] as Map?)
                   ?.map((k, v) => MapEntry('$k', (v as num?)?.toInt() ?? 0)) ??
               const {},
-          capped: (r['capped'] as num?)?.toInt() ?? 0,
+          cardinalityCapped: (r['capped'] as num?)?.toInt() ?? 0,
           recovered: true,
         )));
   }
@@ -332,7 +332,7 @@ class SessionManager {
     required int screenCount,
     required List<String> journey,
     required Map<String, int> dropped,
-    required int capped,
+    required int cardinalityCapped,
     bool recovered = false,
   }) {
     // Last 20 hops only, so a multi-hour session can't emit a giant attribute.
@@ -356,7 +356,8 @@ class SessionManager {
               ..sort((a, b) => a.key.compareTo(b.key)))
             .map((e) => '${e.key}=${e.value}')
             .join(','),
-      if (capped > 0) 'session.cardinality_capped_count': capped.toString(),
+      if (cardinalityCapped > 0)
+        'session.cardinality_capped_count': cardinalityCapped.toString(),
       if (recovered) 'session.recovered': 'true',
     };
   }

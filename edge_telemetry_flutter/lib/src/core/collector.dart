@@ -163,15 +163,13 @@ class Collector implements EventSink {
       ..addAll(event.attributes)
       ..removeWhere((k, _) => kForbiddenAttributes.contains(k));
 
-    // PII, at the one place every item passes. Scoped to the item's own keys:
-    // the ~30-key context snapshot is the SDK's own and running a consumer
-    // callback over all of it would be 30 callbacks per item on the UI
-    // isolate, for values the SDK already controls. The session bookends are
-    // out for the same reason one step further in — their *item* attributes
-    // are the session's identity (see `sdkOwnedAttributes`).
-    if (!event.sdkOwnedAttributes) {
-      policy?.apply(enriched, event.attributes.keys);
-    }
+    // PII, at the one place every item passes. Scoped to the item's own keys
+    // — the ~30-key context snapshot is the SDK's own, and running a consumer
+    // callback over all of it would be 30 callbacks per item on the UI isolate
+    // for values the SDK already controls — and, within those, split by who
+    // chose them (`EdgeEvent.consumerAttributes`).
+    policy?.apply(enriched, event.attributes.keys,
+        consumerSupplied: event.consumerAttributes);
 
     // Crash-scoped breadcrumb attach (spec #15 §5.5): the ring rides only on
     // `app.crash`, JSON-encoded (attributes are String-valued on the wire).

@@ -82,15 +82,33 @@ class TelemetryHttpOverrides extends HttpOverrides {
 }
 
 /// One measured connection setup, keyed by the local port its socket bound to.
-/// [claimed] is what makes the reuse flag *measured* rather than inferred: the
-/// first request over a socket claims its record, every later request on the
+/// [claim] is what makes the reuse flag *measured* rather than inferred: the
+/// first request over a socket claims the record, every later request on the
 /// same local port finds it claimed and is a reuse.
 class HttpConnectRecord {
-  HttpConnectRecord({required this.connectMs, this.dnsMs});
+  HttpConnectRecord({required this.connect, this.dns});
 
-  final int connectMs;
-  final int? dnsMs;
-  bool claimed = false;
+  final Duration connect;
+  final Duration? dns;
+  bool _claimed = false;
+
+  /// Report this connection to the request whose `openUrl` took [openMs], and
+  /// claim it if nobody has. The second and later requests over the socket get
+  /// the reuse flag and their queue wait, and no connect time — they connected
+  /// nothing, and a zero there would be a lie the backend cannot detect.
+  HttpPhases claim(int openMs) {
+    if (_claimed) {
+      return HttpPhases(queue: Duration(milliseconds: openMs), reused: true);
+    }
+    _claimed = true;
+    final queue = openMs - connect.inMilliseconds;
+    return HttpPhases(
+      connect: connect,
+      dns: dns,
+      queue: Duration(milliseconds: queue < 0 ? 0 : queue),
+      reused: false,
+    );
+  }
 }
 
 /// HTTP client wrapper that tracks all requests.
@@ -157,7 +175,7 @@ class TelemetryHttpClient implements HttpClient {
     final start = DateTime.now();
     final consumer = _consumerConnectionFactory;
 
-    int? dnsMs;
+    Duration? dns;
     ConnectionTask<Socket> task;
 
     if (consumer != null) {
@@ -172,7 +190,7 @@ class TelemetryHttpClient implements HttpClient {
       Object connectHost = host;
       if (measurePhases) {
         final addresses = await InternetAddress.lookup(host);
-        dnsMs = DateTime.now().difference(start).inMilliseconds;
+        dns = DateTime.now().difference(start);
         if (addresses.isNotEmpty) connectHost = addresses.first;
       }
 
@@ -192,8 +210,8 @@ class TelemetryHttpClient implements HttpClient {
     unawaited(task.socket.then((socket) {
       final localPort = socket.port;
       _connects[localPort] = HttpConnectRecord(
-        connectMs: DateTime.now().difference(start).inMilliseconds,
-        dnsMs: dnsMs,
+        connect: DateTime.now().difference(start),
+        dns: dns,
       );
       unawaited(socket.done
           .then((_) {}, onError: (_) {})
@@ -241,7 +259,7 @@ class TelemetryHttpClient implements HttpClient {
   @override
   Future<HttpClientRequest> open(
           String method, String host, int port, String path) =>
-      _track(method, Uri(scheme: 'http', host: host, port: port, path: path),
+      _track(method, _plainUri(host, port, path),
           () => _baseClient.open(method, host, port, path));
 
   @override
@@ -251,7 +269,7 @@ class TelemetryHttpClient implements HttpClient {
   @override
   Future<HttpClientRequest> get(String host, int port, String path) => _track(
       'GET',
-      Uri(scheme: 'http', host: host, port: port, path: path),
+      _plainUri(host, port, path),
       () => _baseClient.get(host, port, path));
 
   @override
@@ -261,7 +279,7 @@ class TelemetryHttpClient implements HttpClient {
   @override
   Future<HttpClientRequest> post(String host, int port, String path) => _track(
       'POST',
-      Uri(scheme: 'http', host: host, port: port, path: path),
+      _plainUri(host, port, path),
       () => _baseClient.post(host, port, path));
 
   @override
@@ -271,7 +289,7 @@ class TelemetryHttpClient implements HttpClient {
   @override
   Future<HttpClientRequest> put(String host, int port, String path) => _track(
       'PUT',
-      Uri(scheme: 'http', host: host, port: port, path: path),
+      _plainUri(host, port, path),
       () => _baseClient.put(host, port, path));
 
   @override
@@ -280,7 +298,7 @@ class TelemetryHttpClient implements HttpClient {
 
   @override
   Future<HttpClientRequest> delete(String host, int port, String path) =>
-      _track('DELETE', Uri(scheme: 'http', host: host, port: port, path: path),
+      _track('DELETE', _plainUri(host, port, path),
           () => _baseClient.delete(host, port, path));
 
   @override
@@ -290,7 +308,7 @@ class TelemetryHttpClient implements HttpClient {
   @override
   Future<HttpClientRequest> patch(String host, int port, String path) => _track(
       'PATCH',
-      Uri(scheme: 'http', host: host, port: port, path: path),
+      _plainUri(host, port, path),
       () => _baseClient.patch(host, port, path));
 
   @override
@@ -300,7 +318,7 @@ class TelemetryHttpClient implements HttpClient {
   @override
   Future<HttpClientRequest> head(String host, int port, String path) => _track(
       'HEAD',
-      Uri(scheme: 'http', host: host, port: port, path: path),
+      _plainUri(host, port, path),
       () => _baseClient.head(host, port, path));
 
   @override
@@ -367,6 +385,11 @@ class TelemetryHttpClient implements HttpClient {
     _baseClient.keyLog = callback;
   }
 
+  /// The URL shape the host/port/path overloads describe. They predate
+  /// `openUrl` and carry no scheme of their own.
+  static Uri _plainUri(String host, int port, String path) =>
+      Uri(scheme: 'http', host: host, port: port, path: path);
+
   /// Start the clock, open the connection, and hand the request wrapper
   /// everything it needs to resolve its phases at completion.
   Future<HttpClientRequest> _track(
@@ -380,14 +403,7 @@ class TelemetryHttpClient implements HttpClient {
       // could not report this at all: it started measuring only once `openUrl`
       // had already succeeded, so the whole offline case was invisible. The
       // re-based clock makes it a measured row.
-      _onRequestComplete(HttpRequestTelemetry(
-        url: url.toString(),
-        method: method,
-        statusCode: 0,
-        duration: DateTime.now().difference(callStart),
-        timestamp: callStart,
-        error: error.toString(),
-      ));
+      _onRequestComplete(_failed(url, method, callStart, error));
       rethrow;
     }
     return TelemetryHttpClientRequest(
@@ -407,11 +423,11 @@ class TelemetryHttpClient implements HttpClient {
 /// Every field is nullable and every null is **omitted** on the wire — a key
 /// the seam could not reach is absent, never zero and never sentinelled.
 class HttpPhases {
-  const HttpPhases({this.connectMs, this.dnsMs, this.queueMs, this.reused});
+  const HttpPhases({this.connect, this.dns, this.queue, this.reused});
 
-  final int? connectMs;
-  final int? dnsMs;
-  final int? queueMs;
+  final Duration? connect;
+  final Duration? dns;
+  final Duration? queue;
   final bool? reused;
 }
 
@@ -457,20 +473,7 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
   /// reuse flag is unknown rather than false, and is omitted.
   HttpPhases _resolvePhases() {
     final port = _localPort;
-    final record = port == null ? null : _connects[port];
-    if (record == null) return const HttpPhases();
-    if (record.claimed) {
-      // Someone else connected this socket; this request only waited for it.
-      return HttpPhases(queueMs: openMs, reused: true);
-    }
-    record.claimed = true;
-    final queue = openMs - record.connectMs;
-    return HttpPhases(
-      connectMs: record.connectMs,
-      dnsMs: record.dnsMs,
-      queueMs: queue < 0 ? 0 : queue,
-      reused: false,
-    );
+    return _connects[port]?.claim(openMs) ?? const HttpPhases();
   }
 
   // Forward all properties to base request
@@ -532,18 +535,7 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
       // A failed request still measures what it reached: the re-based clock
       // runs from before the call, so a connect failure now reports the
       // connect time it actually spent instead of a near-zero.
-      _onRequestComplete(HttpRequestTelemetry(
-        url: url.toString(),
-        method: method,
-        statusCode: 0,
-        duration: DateTime.now().difference(callStart),
-        timestamp: callStart,
-        error: error.toString(),
-        connectDuration: _ms(phases.connectMs),
-        dnsDuration: _ms(phases.dnsMs),
-        queueDuration: _ms(phases.queueMs),
-        connectionReused: phases.reused,
-      ));
+      _onRequestComplete(_failed(url, method, callStart, error, phases));
       rethrow;
     }
   }
@@ -591,8 +583,27 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
       _baseRequest.abort(exception, stackTrace);
 }
 
-Duration? _ms(int? value) =>
-    value == null ? null : Duration(milliseconds: value);
+/// The one shape a request that produced no response takes — a refused
+/// connection, a DNS failure, a socket that died mid-flight.
+HttpRequestTelemetry _failed(
+  Uri url,
+  String method,
+  DateTime callStart,
+  Object error, [
+  HttpPhases phases = const HttpPhases(),
+]) =>
+    HttpRequestTelemetry(
+      url: url.toString(),
+      method: method,
+      statusCode: 0,
+      duration: DateTime.now().difference(callStart),
+      timestamp: callStart,
+      error: error.toString(),
+      connectDuration: phases.connect,
+      dnsDuration: phases.dns,
+      queueDuration: phases.queue,
+      connectionReused: phases.reused,
+    );
 
 /// Response wrapper: counts the body, times the download tail, and emits the
 /// one `http.request` telemetry record when the body ends.
@@ -672,9 +683,9 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
           : declared >= 0
               ? kSizeFromContentLength
               : kSizeFromDecodedBytes,
-      connectDuration: _ms(phases.connectMs),
-      dnsDuration: _ms(phases.dnsMs),
-      queueDuration: _ms(phases.queueMs),
+      connectDuration: phases.connect,
+      dnsDuration: phases.dns,
+      queueDuration: phases.queue,
       connectionReused: phases.reused,
       redirectCount: _baseResponse.redirects.length,
     ));
@@ -871,7 +882,7 @@ class HttpRequestTelemetry {
   /// Convert to attributes map for telemetry.
   ///
   /// [fullUrl] and [phases] are the two `diagnostic` switches (`Capture
-  /// .httpQueryString` and `Capture.httpPhaseTiming`); the capture hook
+  /// .httpQueryString` and `Capture.httpRequestPhases`); the capture hook
   /// resolves both before calling, so the default-tier map is built once and
   /// carries only the default-tier keys.
   ///
@@ -884,7 +895,14 @@ class HttpRequestTelemetry {
     bool phases = false,
   }) {
     final uri = Uri.tryParse(url);
-    final sent = fullUrl || uri == null ? url : redactUrl(uri);
+    // A URL the platform will not parse is still not allowed to ship its query
+    // at the default tier — the flag would say `false` on the one row that
+    // needed it to say `true`.
+    final sent = fullUrl
+        ? url
+        : uri == null
+            ? url.split('#').first.split('?').first
+            : redactUrl(uri);
 
     return {
       'http.url': sent,

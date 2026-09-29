@@ -92,8 +92,8 @@ void main() {
       final (collector, _, pipeline, sender) = await wire();
 
       for (var i = 0; i < kCardinalityCap + 3; i++) {
-        collector
-            .add(EdgeEvent.event('custom_event', attributes: {'order': 'o$i'}));
+        collector.add(EdgeEvent.event('custom_event',
+            attributes: {'order': 'o$i'}, consumerAttributes: true));
       }
       await settle(pipeline);
 
@@ -122,21 +122,46 @@ void main() {
     test('the allowance is per key, and starts fresh on rotation', () {
       final policy = AttributePolicy();
       for (var i = 0; i < kCardinalityCap + 1; i++) {
-        policy.apply(<String, String>{'a': 'v$i'}, ['a']);
+        policy
+            .apply(<String, String>{'a': 'v$i'}, ['a'], consumerSupplied: true);
       }
 
       final other = <String, String>{'b': 'anything'};
-      policy.apply(other, ['b']);
+      policy.apply(other, ['b'], consumerSupplied: true);
       expect(other['b'], 'anything', reason: 'a different key, a fresh 50');
 
       final capped = <String, String>{'a': 'one-more'};
-      policy.apply(capped, ['a']);
+      policy.apply(capped, ['a'], consumerSupplied: true);
       expect(capped['a'], kCardinalitySentinel);
 
       policy.reset();
       final afterRotation = <String, String>{'a': 'brand-new'};
-      policy.apply(afterRotation, ['a']);
+      policy.apply(afterRotation, ['a'], consumerSupplied: true);
       expect(afterRotation['a'], 'brand-new');
+    });
+
+    test('the SDK\'s own per-item keys are never capped — http.url is',
+        () async {
+      final policy = AttributePolicy();
+      // The request the ticket exists to measure, 60 times over.
+      for (var i = 0; i < 60; i++) {
+        final attrs = <String, String>{
+          'http.url': 'https://api.test/v$i/thing',
+          'http.timestamp': '2026-01-01T09:00:${i.toString().padLeft(2, '0')}Z',
+          'http.duration_ms': '$i',
+          'span.id': 'deadbeef0000$i',
+        };
+        policy.apply(attrs, attrs.keys, consumerSupplied: false);
+        if (i < kCardinalityCap) continue;
+        expect(attrs['http.url'], kCardinalitySentinel,
+            reason: 'a REST app mints unbounded paths — that is what the cap '
+                'and the templating are both for');
+        expect(attrs['http.timestamp'], isNot(kCardinalitySentinel));
+        expect(attrs['http.duration_ms'], isNot(kCardinalitySentinel));
+        expect(attrs['span.id'], isNot(kCardinalitySentinel),
+            reason: 'unique by design — capping it destroys the measurement '
+                'the item exists to carry');
+      }
     });
 
     test('the session bookends are out of scope entirely', () async {
@@ -162,7 +187,8 @@ void main() {
       final (collector, _, pipeline, sender) = await wire(redact: redact);
 
       collector.add(const EdgeEvent.event('custom_event',
-          attributes: {'email': 'a@b.test', 'plan': 'gold'}));
+          attributes: {'email': 'a@b.test', 'plan': 'gold'},
+          consumerAttributes: true));
       await settle(pipeline);
 
       final attrs = sender.items
@@ -172,6 +198,25 @@ void main() {
       expect(attrs['plan'], 'GOLD');
     });
 
+    test('never runs over the SDK\'s own attributes', () async {
+      final seen = <String>[];
+      final (collector, _, pipeline, sender) = await wire(redact: (key, value) {
+        seen.add(key);
+        return null; // the careless hook: drop everything you do not know
+      });
+
+      collector.add(const EdgeEvent.event('http.request',
+          attributes: {'http.url': 'https://api.test/x', 'span.id': 'abc'}));
+      await settle(pipeline);
+
+      expect(seen, isEmpty);
+      final attrs = sender.items
+              .firstWhere((e) => e['eventName'] == 'http.request')['attributes']
+          as Map;
+      expect(attrs['http.url'], 'https://api.test/x');
+      expect(attrs['span.id'], 'abc');
+    });
+
     test('never runs over the context snapshot', () async {
       final seen = <String>[];
       final (collector, _, pipeline, sender) = await wire(redact: (key, value) {
@@ -179,8 +224,8 @@ void main() {
         return value;
       });
 
-      collector
-          .add(const EdgeEvent.event('custom_event', attributes: {'own': '1'}));
+      collector.add(const EdgeEvent.event('custom_event',
+          attributes: {'own': '1'}, consumerAttributes: true));
       await settle(pipeline);
 
       expect(seen, ['own']);

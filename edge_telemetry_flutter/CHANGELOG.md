@@ -15,7 +15,7 @@
   the request's local port to the connection's own connect record. Time to first
   byte is derived by subtraction and never emitted.
 - **`http.dns_ms`, `http.queue_ms` and `http.redirect_count` at the `diagnostic`
-  tier**, behind the new `Capture.httpPhaseTiming`. Splitting DNS out costs a
+  tier**, behind the new `Capture.httpRequestPhases`. Splitting DNS out costs a
   resolver call the platform does not make and gives up its try-every-address
   fallback, which is exactly why the fused number is what every default build
   gets. TCP and TLS cannot be separated at this seam at all — the platform's
@@ -45,37 +45,6 @@
   `__over_cardinality__`, counted on the new `session.cardinality_capped_count`
   — a counter of its own, because a replaced value is not a dropped item and must
   not corrupt `session.dropped_item_count`.
-
-### Changed
-
-- **`http.url` defaults to path-only, with an honesty flag.** Scheme, host and
-  path; no query string, no fragment, no userinfo. v2 shipped the **full query
-  string** on the highest-volume event in the system (~40 times per session),
-  eleven lines from the breadcrumb path that strips it *because* no PII should
-  ride the crash ring — the precedent was not missing, it was inverted. Path
-  segments that are all digits, a UUID, or 20+ hex characters become `{id}`, by
-  an exact enumerable rule rather than a heuristic no backend could reproduce.
-  Both facts fold into one `http.url_redacted` flag rather than minting a second
-  key. Turn `Capture.httpQueryString` on for the full URL at the `diagnostic`
-  tier.
-- **`http.success` conforms to 2xx only** (v2 counted 3xx as a success too). The
-  platform follows redirects by default, so almost no row changes while the
-  family's cross-SDK error rate stops disagreeing with itself on a shipped key.
-  `HttpRequestTelemetry.isSuccess` changes with it.
-- **HTTP capture installs a connection factory**, which is the only way connect
-  time and the reuse flag are reachable. Installing one makes the platform take a
-  branch that never reaches its own secure-socket call, so the SDK threads your
-  `SecurityContext`, `badCertificateCallback` and `keyLog` through it **by hand**
-  — without that, certificate pinning would break silently at init and the app
-  would keep working against any certificate. A `connectionFactory` you set
-  yourself is chained, not replaced.
-- **`http.request` is emitted when the response body ends, not when its headers
-  arrive**, which is what makes the download tail and the decoded-byte count
-  measurable. A response whose body is never read is therefore never reported;
-  `dart:io` requires the body be drained or the connection stalls, so every real
-  client already drains it.
-
-### Added
 
 - **The correlation spine: trace context now rides the context snapshot.** An
   open trace root (one of `launch`, `interaction`, `request`, `navigation`) puts
@@ -141,19 +110,6 @@
   device for the whole release and were found by audit rather than by telemetry;
   this is the fix for the silence, not for the drop.
 
-### Fixed
-
-- **Crashes are delivered.** The immediate rail POSTed a bare wire item with no
-  `events` array; the collector answered 400, and the payload parked in a
-  cap-exempt file that was re-POSTed after every successful batch for the life
-  of the install. **No consumer has received a crash since v2.0.0** — externally
-  indistinguishable from an app that does not crash, which is why the bug
-  survived a release. The rail now sends a one-item `telemetry_batch` envelope,
-  and a payload stored bare by an earlier version is re-wrapped when it drains,
-  so the backlog accumulated since v2.0.0 arrives as soon as v3 runs once.
-
-### Added
-
 - **gzip on every POST**, with a self-verifying one-shot downgrade: a 400 on a
   compressed body is re-POSTed once uncompressed, and compression stays off for
   the launch only if that succeeds. No config flag and no version endpoint — the
@@ -161,6 +117,33 @@
   launch until the collector registers decompression.
 
 ### Changed
+
+- **`http.url` defaults to path-only, with an honesty flag.** Scheme, host and
+  path; no query string, no fragment, no userinfo. v2 shipped the **full query
+  string** on the highest-volume event in the system (~40 times per session),
+  eleven lines from the breadcrumb path that strips it *because* no PII should
+  ride the crash ring — the precedent was not missing, it was inverted. Path
+  segments that are all digits, a UUID, or 20+ hex characters become `{id}`, by
+  an exact enumerable rule rather than a heuristic no backend could reproduce.
+  Both facts fold into one `http.url_redacted` flag rather than minting a second
+  key. Turn `Capture.httpQueryString` on for the full URL at the `diagnostic`
+  tier.
+- **`http.success` conforms to 2xx only** (v2 counted 3xx as a success too). The
+  platform follows redirects by default, so almost no row changes while the
+  family's cross-SDK error rate stops disagreeing with itself on a shipped key.
+  `HttpRequestTelemetry.isSuccess` changes with it.
+- **HTTP capture installs a connection factory**, which is the only way connect
+  time and the reuse flag are reachable. Installing one makes the platform take a
+  branch that never reaches its own secure-socket call, so the SDK threads your
+  `SecurityContext`, `badCertificateCallback` and `keyLog` through it **by hand**
+  — without that, certificate pinning would break silently at init and the app
+  would keep working against any certificate. A `connectionFactory` you set
+  yourself is chained, not replaced.
+- **`http.request` is emitted when the response body ends, not when its headers
+  arrive**, which is what makes the download tail and the decoded-byte count
+  measurable. A response whose body is never read is therefore never reported;
+  `dart:io` requires the body be drained or the connection stalls, so every real
+  client already drains it.
 
 - **A 4xx is dropped, never retried and never queued**, and counted on the
   existing session counter by status (`http_400=1`). A payload the collector
@@ -199,6 +182,17 @@
   keeps compiling and the bytes on the wire are unchanged. The `toJson()`
   reflection fallback is deleted — passing an arbitrary object is no longer a
   supported attribute shape.
+
+### Fixed
+
+- **Crashes are delivered.** The immediate rail POSTed a bare wire item with no
+  `events` array; the collector answered 400, and the payload parked in a
+  cap-exempt file that was re-POSTed after every successful batch for the life
+  of the install. **No consumer has received a crash since v2.0.0** — externally
+  indistinguishable from an app that does not crash, which is why the bug
+  survived a release. The rail now sends a one-item `telemetry_batch` envelope,
+  and a payload stored bare by an earlier version is re-wrapped when it drains,
+  so the backlog accumulated since v2.0.0 arrives as soon as v3 runs once.
 
 ### Removed
 

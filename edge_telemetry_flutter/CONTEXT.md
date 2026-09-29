@@ -176,14 +176,16 @@ _Avoid_: normalised URL, sanitised URL, route pattern
 **Cardinality cap**:
 50 distinct values per attribute key per session; the 51st and everything after becomes
 `__over_cardinality__` and is counted on `session.cardinality_capped_count`. A capped
-value is **not** a dropped item and never touches the dropped-item counter.
+value is **not** a dropped item and never touches the dropped-item counter. It applies
+to consumer-named keys plus `kCappedSdkKeys` — an **opt-in** list, because most of what
+the SDK mints per item is unique by design.
 _Avoid_: dimension limit, tag limit, truncation
 
 **Redaction hook** (`redactAttribute`):
-The consumer's one callback at the wire choke point, over an item's **own** attributes.
-Never the context snapshot (30 callbacks per item on the UI isolate for values the SDK
-chose itself) and never the session bookends (whose attributes are the session's
-identity).
+The consumer's one callback at the wire choke point, over the attributes the consumer
+themselves passed in (`EdgeEvent.consumerAttributes`). Never the context snapshot (30
+callbacks per item on the UI isolate for values the SDK chose itself) and never the
+SDK's own item keys.
 _Avoid_: scrubber, filter, sanitizer, processor
 
 ### Session
