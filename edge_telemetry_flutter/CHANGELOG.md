@@ -188,7 +188,64 @@
   probe *is* the capability check, and it costs at most one wasted POST per
   launch until the collector registers decompression.
 
+- **Per-screen load timing: one `screen.load` event per screen entry.** So a
+  consumer knows *which* route is slow rather than only that their app is.
+  `screen.load.first_frame_ms` is the first post-frame callback after the route
+  push, with the navigation transition **deliberately excluded** — a transition
+  duration the consumer chose is not a fact about their screen. Four outcomes on
+  `screen.load.outcome` and the event fires at the first one reached:
+  `settled`, `abandoned` (the user left), `deadline_exceeded`, `backgrounded`.
+  Only `settled` carries `screen.load.settled_ms`: "how long until the user gave
+  up" has no business in the same column as "how long the screen took". There is
+  **no slow/fast verdict on the wire** — banding is query-time against the Apdex
+  threshold, so it moves without a client release. **Two marks, not three**:
+  render-complete is rejected because Flutter composites one frame from one
+  widget tree and has no later paint to name, and time-to-interactive is rejected
+  because a Flutter route's gesture arena is live on frame one, so the number
+  would be first frame under a second name.
+- **`settled` is inferred by default, inverting the manual-first norm.** Inferred
+  from first frame reached, **no in-flight request carrying this screen id**, and
+  a 500 ms quiet window. The inversion is on evidence rather than taste: the
+  sibling rejected a manual API on its own recorded reason — the data is
+  silently missing wherever consumers do not call it — plus the measured finding
+  that they do not. It costs no new machinery, because the screen id is already
+  ambient, the request freezes it at call entry the same way it freezes its trace
+  context, and the global override seam sees every request app-wide. That is a
+  join the sibling cannot make: its HTTP interception is opt-in.
+  `EdgeTelemetry.instance.reportScreenSettled()` overrides the inference for a
+  last step it cannot see (a websocket, a local database, a cache), and
+  **`screen.load.source` rides every event** (`inferred` / `reported`) so an
+  inferred number is never read as a measured one.
+- **The 10-second deadline is pinned to the action-root cap**, not chosen: past
+  `TraceManager.rootCap` a load emits after its own `rum.action.id` has aged out,
+  so the row arrives unjoinable to the action that caused it.
+- **`session.last_screen_duration_ms` on `session.finalized`.** The final
+  screen's dwell has been silently lost on every session since v2 — the last
+  screen is never navigated away from, so nothing was ever there to emit it. It
+  now lands on a bookend that was being sent anyway, at **zero extra items**,
+  and survives a killed app through the recovery record.
+
 ### Changed
+
+- **Screen dwell folds onto the `navigation` event.** A navigation is now one
+  item, not two: the departing screen's time rides
+  `screen.previous_duration_ms` / `screen.previous_exit_method` on the same
+  synchronous emission. `previous`-prefixed because `screen.id` on that event is
+  the screen being *entered*, so an unprefixed key beside it would read as that
+  screen's. Dwell is also no longer emitted for a screen that **was never
+  visible** — a route pushed and superseded inside the same frame never painted,
+  and a row saying a user spent 0 ms somewhere they never were is worse than no
+  row.
+- **The identity-hashed route-name fallback is deleted.** An unnamed route was
+  named `screen_<Type>_<hashCode>`, which minted a fresh value on every visit,
+  so every screen-keyed dashboard carried cardinality equal to total navigations
+  across all users. It is now the route **type** (`unnamed_MaterialPageRoute`);
+  visit identity is what `screen.id` is for, and a grouping key that never
+  repeats groups nothing. Parameterised names (`/orders/8412`) are
+  **documented, not sanitized** — the SDK cannot tell a segment you meant as a
+  name from one you meant as an id, and guessing would silently rename screens.
+  `screen.name` joins `http.url` on the per-session distinct-value cap, which is
+  the guard.
 
 - **Every HTTP duration now comes off a monotonic `Stopwatch`** rather than two
   wall-clock reads. A request spanning an NTP correction or a user clock change
@@ -292,6 +349,11 @@
 - `withSpan()` / `withNetworkSpan()` — OTel-era no-ops that recorded nothing.
 
 ### Deprecated
+
+- **The `screen.duration` event is deprecated in place — removal in v4.0.0.** The
+  name stays on the wire allowlist (a canon name is never removed) and it is no
+  longer emitted: the same measurement now rides the `navigation` event as
+  `screen.previous_duration_ms`. One navigation, one item.
 
 Deprecated-in-place, still honoured as a fallback (the new key always wins), and
 **removed in v4.0.0** — annotated on the facade parameter *and* the

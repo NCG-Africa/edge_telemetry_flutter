@@ -7,6 +7,7 @@ import '../capture/lifecycle_capture_hook.dart';
 import '../capture/nav_capture_hook.dart';
 import '../capture/network_capture_hook.dart';
 import '../capture/perf_capture_hook.dart';
+import '../capture/screen_load_hook.dart';
 import '../capture/trace_injection.dart';
 import '../core/attribute_policy.dart';
 import '../core/capture_gate.dart';
@@ -64,6 +65,11 @@ class TelemetryWiring {
   final NavCaptureHook? navHook;
   final NetworkCaptureHook? networkHook;
 
+  /// Held so the facade's `reportScreenSettled()` has somewhere to go. Null
+  /// when `Capture.screenLoad` is off — the call is then a no-op, which is the
+  /// consumer's own choice rather than a silent failure.
+  final ScreenLoadHook? screenLoadHook;
+
   TelemetryWiring({
     required this.config,
     required this.session,
@@ -82,6 +88,7 @@ class TelemetryWiring {
     this.httpHook,
     this.navHook,
     this.networkHook,
+    this.screenLoadHook,
   })  : _disposers = disposers,
         gate = gate ?? CaptureGate(config),
         policy = policy ?? AttributePolicy(redact: config.redactAttribute),
@@ -193,9 +200,21 @@ class TelemetryWiring {
       );
       disposers.add(httpHook.start(collector));
     }
+    // Built before the nav hook that drives it, and started before it too:
+    // the very first route push must find a hook with a sink already bound.
+    ScreenLoadHook? screenLoadHook;
+    if (gate.allows(Capture.screenLoad)) {
+      screenLoadHook =
+          ScreenLoadHook(session: session, gate: gate, trace: trace);
+      disposers.add(screenLoadHook.start(collector));
+    }
     if (gate.allows(Capture.navigation)) {
       navHook = NavCaptureHook(
-          session: session, breadcrumbs: breadcrumbs, trace: trace);
+        session: session,
+        breadcrumbs: breadcrumbs,
+        trace: trace,
+        screenLoad: screenLoadHook,
+      );
       disposers.add(navHook.start(collector));
     }
     if (gate.allows(Capture.actions)) {
@@ -216,6 +235,7 @@ class TelemetryWiring {
         session: session,
         trace: trace,
         flush: pipeline.flush,
+        onPaused: screenLoadHook?.onPaused,
         breadcrumbs: breadcrumbs,
         gate: gate,
       ).start(collector),
@@ -238,6 +258,7 @@ class TelemetryWiring {
       httpHook: httpHook,
       navHook: navHook,
       networkHook: networkHook,
+      screenLoadHook: screenLoadHook,
     );
   }
 

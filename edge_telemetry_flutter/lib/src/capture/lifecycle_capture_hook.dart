@@ -33,6 +33,11 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
   /// Flushes the Pipeline buffer (wired to `pipeline.flush`).
   final void Function() flush;
 
+  /// `ScreenLoadHook.onPaused` — an open screen load has no honest way to
+  /// continue once the app stops painting, so backgrounding is one of its four
+  /// terminals. Null when `Capture.screenLoad` is off.
+  final void Function()? onPaused;
+
   /// Crash-context ring: each lifecycle transition drops a breadcrumb.
   final BreadcrumbManager? breadcrumbs;
 
@@ -45,6 +50,7 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
   LifecycleCaptureHook(
       {required this.session,
       required this.flush,
+      this.onPaused,
       this.trace,
       this.breadcrumbs,
       this.gate});
@@ -59,6 +65,9 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      // Before the flush, so the terminal `screen.load` leaves with this
+      // batch rather than waiting for a resume that may never come.
+      onPaused?.call();
       _emit(state);
       flush();
       session.handlePause();

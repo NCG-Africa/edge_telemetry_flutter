@@ -74,6 +74,12 @@ class SessionManager {
   /// The current screen *visit*, not the route — see [recordScreen].
   String? _currentScreenId;
 
+  /// When the current visit began. The final screen's dwell is otherwise lost
+  /// on every session — the last screen is never navigated away from, so the
+  /// navigation event that carries dwell never fires for it. It lands on the
+  /// finalize bookend instead, at **zero extra items**.
+  DateTime? _currentScreenStart;
+
   /// Items the SDK built but never sent, by reason. One counter, several
   /// clients: the off-canon allowlist gate today (#79), tier shedding / the
   /// action cap / the error caps later. Ships on `session.finalized` so a drop
@@ -229,6 +235,7 @@ class SessionManager {
     _visitedScreens.clear();
     _screenJourney.clear();
     _currentScreenId = null;
+    _currentScreenStart = null;
     _droppedByReason.clear();
     _cardinalityCapped = 0;
   }
@@ -258,6 +265,7 @@ class SessionManager {
     _visitedScreens.add(screenName);
     _screenJourney.add(screenName);
     _currentScreenId = secureHex16();
+    _currentScreenStart = _clock();
   }
 
   /// The current screen visit's id, or null before the first navigation.
@@ -287,6 +295,7 @@ class SessionManager {
           journey: _screenJourney,
           dropped: _droppedByReason,
           cardinalityCapped: _cardinalityCapped,
+          lastScreenStart: _currentScreenStart,
         )));
   }
 
@@ -317,6 +326,7 @@ class SessionManager {
                   ?.map((k, v) => MapEntry('$k', (v as num?)?.toInt() ?? 0)) ??
               const {},
           cardinalityCapped: (r['capped'] as num?)?.toInt() ?? 0,
+          lastScreenStart: DateTime.tryParse(r['screenStart'] as String? ?? ''),
           recovered: true,
         )));
   }
@@ -333,6 +343,7 @@ class SessionManager {
     required List<String> journey,
     required Map<String, int> dropped,
     required int cardinalityCapped,
+    DateTime? lastScreenStart,
     bool recovered = false,
   }) {
     // Last 20 hops only, so a multi-hour session can't emit a giant attribute.
@@ -358,6 +369,11 @@ class SessionManager {
             .join(','),
       if (cardinalityCapped > 0)
         'session.cardinality_capped_count': cardinalityCapped.toString(),
+      // The final screen's dwell. One key on an item that was being sent
+      // anyway, rather than a `screen.duration` nobody is there to emit.
+      if (lastScreenStart != null && !end.isBefore(lastScreenStart))
+        'session.last_screen_duration_ms':
+            end.difference(lastScreenStart).inMilliseconds.toString(),
       if (recovered) 'session.recovered': 'true',
     };
   }
@@ -381,6 +397,8 @@ class SessionManager {
         'httpCount': _httpRequestCount,
         'screenCount': _visitedScreens.length,
         'journey': _screenJourney,
+        if (_currentScreenStart != null)
+          'screenStart': _currentScreenStart!.toIso8601String(),
         'dropped': _droppedByReason,
         'capped': _cardinalityCapped,
       }),

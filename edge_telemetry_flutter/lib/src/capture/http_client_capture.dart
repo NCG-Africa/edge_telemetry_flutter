@@ -19,6 +19,7 @@ import 'dart:async';
 
 import 'package:http/http.dart' as http;
 
+import '../core/screen_inflight.dart';
 import 'http_overrides.dart';
 import 'trace_injection.dart';
 
@@ -89,6 +90,11 @@ class CapturedClient extends http.BaseClient {
       }
     }
 
+    // The screen this request belongs to, claimed at the call instant for the
+    // same reason the trace context is: the screen showing when it finishes is
+    // not the screen that asked. Released on every completion path below.
+    final screenId = beginScreenRequest();
+
     final callStart = DateTime.now();
     final clock = Stopwatch()..start();
 
@@ -110,6 +116,7 @@ class CapturedClient extends http.BaseClient {
       // every path through this seam. Guessing the socket's fate would make the
       // row claim a thing it cannot know, and a server span joined on this
       // `trace.id` would be orphaned by a wrong "not traced".
+      endScreenRequest(screenId);
       _onRequestComplete(HttpRequestTelemetry(
         url: request.url.toString(),
         method: request.method,
@@ -155,6 +162,7 @@ class CapturedClient extends http.BaseClient {
               '${response.statusCode} (${atHeaders.inMilliseconds}ms + '
               '${download.inMilliseconds}ms body) [$kSeamHttpClient]');
         }
+        endScreenRequest(screenId);
         _onRequestComplete(HttpRequestTelemetry(
           url: request.url.toString(),
           method: request.method,

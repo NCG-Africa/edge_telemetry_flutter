@@ -137,8 +137,9 @@ void main() {
   });
 
   group('Navigation route context', () {
-    test('route.has_arguments is a boolean on navigation + screen.duration',
-        () {
+    testWidgets(
+        'route.has_arguments is a boolean, and dwell folds onto '
+        'navigation', (tester) async {
       final events = <(String, Map<String, String>?)>[];
       final observer = EdgeNavigationObserver(
           onEvent: (name, {attributes}) => events.add((name, attributes)));
@@ -151,17 +152,21 @@ void main() {
           settings: const RouteSettings(name: '/b'));
 
       observer.didPush(withArgs, null);
-      observer.didPush(next, withArgs); // closes /a → screen.duration
+      await tester.pump(); // /a is now on screen
+      observer.didPush(next, withArgs); // closes /a → dwell on this navigation
 
-      final nav = events.firstWhere((e) => e.$1 == 'navigation').$2!;
+      final nav = events.first.$2!;
       expect(nav['route.has_arguments'], 'true');
       expect(nav['route.type'], 'MaterialPageRoute<void>');
       // Never the values.
       expect(nav.keys.any((k) => k.contains('arguments_type')), isFalse);
 
-      final dur = events.firstWhere((e) => e.$1 == 'screen.duration').$2!;
-      expect(dur['route.type'], 'MaterialPageRoute<void>');
-      expect(dur['route.has_arguments'], 'true');
+      // #88: one item per navigation — no second `screen.duration` event.
+      expect(events.map((e) => e.$1), everyElement('navigation'));
+      final second = events.last.$2!;
+      expect(second['navigation.from'], '/a');
+      expect(second['screen.previous_duration_ms'], isNotNull);
+      expect(second['screen.previous_exit_method'], 'push');
     });
   });
 }

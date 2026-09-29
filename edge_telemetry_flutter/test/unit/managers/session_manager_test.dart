@@ -182,5 +182,48 @@ void main() {
       expect(journey.first, '/s5');
       expect(journey.last, '/s24');
     });
+
+    // #88: the final screen is never navigated away from, so the `navigation`
+    // event that carries dwell never fires for it — it was silently lost on
+    // every session since v2.
+    test('the final screen dwell rides the bookend, no extra item', () async {
+      final sm = build();
+      await sm.recoverAndStart();
+
+      sm.recordScreen('/a');
+      sm.beforeEvent(); // the navigation event the Collector passes through
+      clock = clock.add(const Duration(seconds: 4));
+      sm.recordScreen('/b'); // /a's dwell folded onto its navigation event
+      sm.beforeEvent();
+      clock = clock.add(const Duration(seconds: 7));
+      sm.beforeEvent(); // last activity on /b
+
+      final before = emitted.length;
+      clock = clock.add(const Duration(minutes: 31));
+      sm.beforeEvent(); // rotate → finalize
+
+      final a = attrsOf(named('session.finalized').single);
+      // Backdated to last activity, which is when /b was entered + 7s.
+      expect(a['session.last_screen_duration_ms'], '7000');
+      // Exactly the bookend pair (finalize + the new session's started).
+      expect(emitted.length - before, 2);
+    });
+
+    test('a recovered (killed) session still reports its final dwell',
+        () async {
+      final sm = build();
+      await sm.recoverAndStart();
+      sm.recordScreen('/only');
+      clock = clock.add(const Duration(seconds: 3));
+      sm.handlePause(); // persists lastActivity + the screen start
+
+      emitted = [];
+      clock = clock.add(const Duration(hours: 2));
+      await build().recoverAndStart();
+
+      final a = attrsOf(named('session.finalized').single);
+      expect(a['session.recovered'], 'true');
+      expect(a['session.last_screen_duration_ms'], '3000');
+    });
   });
 }
