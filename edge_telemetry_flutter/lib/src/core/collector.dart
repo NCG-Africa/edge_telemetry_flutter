@@ -3,6 +3,7 @@
 import 'dart:convert';
 
 import '../capture/capture_hook.dart';
+import '../crash/error_category.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
 import '../managers/session_manager.dart';
@@ -22,6 +23,18 @@ import 'wire_canon.dart';
 /// attribution and only the behavioural record thins — and
 /// `session.action_count`, taken at the mint, still reports every action.
 const int kActionEventCap = 200;
+
+/// Per-session ceilings on **non-fatal** `app.crash` items (#90, §11). One error
+/// in a `build()` method or a loop is the flood these bound: five occurrences of
+/// one fault is enough to triage it, and fifty faults is more than any session
+/// has to report.
+///
+/// The dedup key is `exception_type` + top stack frame, and it is **client-local
+/// and never sent** — the server owns crash hashing, so this is a counter key,
+/// not a fingerprint. A fatal is exempt from both: it is `essential`, there is at
+/// most one, and it is the item the whole rail exists for.
+const int kErrorPerKeyCap = 5;
+const int kErrorSessionCap = 50;
 
 /// The single per-event gatekeeper. Every [EdgeEvent] — from a capture hook or a
 /// facade API call — passes through here: sample gate, context merge, session
@@ -58,9 +71,14 @@ class Collector implements EventSink {
   final bool hoistBatchContext;
 
   /// `ui.interaction` events admitted this session, against [kActionEventCap].
-  /// Reset by [resetActionCap] on rotation — the cap is per session, like the
-  /// governor's budget.
+  /// Reset by [resetPerSessionCaps] on rotation — the cap is per session, like
+  /// the governor's budget.
   int _actionEvents = 0;
+
+  /// Non-fatal `app.crash` items admitted this session, overall and per dedup
+  /// key. Both reset on rotation beside the action cap.
+  int _nonFatalErrors = 0;
+  final Map<String, int> _errorsByKey = {};
 
   Collector({
     required this.context,
@@ -128,6 +146,16 @@ class Collector implements EventSink {
       return;
     }
 
+    // The non-fatal error caps, same species and same position as the action
+    // cap: taken on the item's own attributes, before enrichment, counted on the
+    // wire. A fatal never reaches here — it is `essential`.
+    if (event.name == 'app.crash' &&
+        event.attributes['is_fatal'] == 'false' &&
+        !_admitNonFatal(event.attributes)) {
+      session.recordDropped('error_cap');
+      return;
+    }
+
     // Counters bump before enrichment so the event's own session counts
     // include itself (matches v1.5.2 recordEvent-before-enrich ordering).
     if (event.countsToSession) {
@@ -137,9 +165,16 @@ class Collector implements EventSink {
     // Journey counters by canon name (§2.3). app.crash counts as a crash, and
     // as a non-fatal error when is_fatal=false (all Dart errors); http.request
     // counts an HTTP hit. These feed the session.finalized summary.
+    //
+    // The SDK's own failures are exempt (#90): tagging them
+    // `crash.source = sdk` is only half the fix — left in the counters they
+    // still inflate the one error rate a consumer reads straight off the
+    // bookend, with no way to subtract them.
     if (event.name == 'app.crash') {
-      session.recordCrash();
-      if (event.attributes['is_fatal'] == 'false') session.recordError();
+      if (event.attributes['crash.source'] != kSdkCrashSource) {
+        session.recordCrash();
+        if (event.attributes['is_fatal'] == 'false') session.recordError();
+      }
     } else if (event.name == 'http.request') {
       session.recordHttpRequest();
     }
@@ -173,8 +208,14 @@ class Collector implements EventSink {
 
     // Crash-scoped breadcrumb attach (spec #15 §5.5): the ring rides only on
     // `app.crash`, JSON-encoded (attributes are String-valued on the wire).
+    //
+    // A fatal ships the whole 50-crumb ring; a non-fatal ships the newest ten
+    // (#90). An empty ring omits the key rather than sending `"[]"`.
     if (event.name == 'app.crash' && breadcrumbs != null) {
-      final crumbs = breadcrumbs!.getBreadcrumbsAsJson();
+      final crumbs = breadcrumbs!.getBreadcrumbsAsJson(
+          limit: event.attributes['is_fatal'] == 'false'
+              ? BreadcrumbManager.nonFatalBreadcrumbs
+              : null);
       if (crumbs.isNotEmpty) enriched['crash.breadcrumbs'] = jsonEncode(crumbs);
     }
 
@@ -213,10 +254,55 @@ class Collector implements EventSink {
     }
   }
 
-  /// Start a fresh action-cap allowance. Bound to `SessionManager
-  /// .onSessionStart` beside the governor's budget reset — both ceilings are
-  /// per session.
-  void resetActionCap() => _actionEvents = 0;
+  /// Start fresh allowances for every ceiling the Collector owns — the
+  /// `ui.interaction` cap and the two non-fatal error caps. Bound to
+  /// `SessionManager.onSessionStart` beside the governor's budget reset; all of
+  /// them are per session.
+  void resetPerSessionCaps() {
+    _actionEvents = 0;
+    _nonFatalErrors = 0;
+    _errorsByKey.clear();
+  }
+
+  /// Whether this non-fatal may be emitted: [kErrorPerKeyCap] per
+  /// exception-type-and-top-frame, [kErrorSessionCap] overall.
+  ///
+  /// The overall cap is checked first and, once reached, short-circuits before
+  /// the key is built — past 50 the answer is no whatever the key is, and the
+  /// `_errorsByKey` map must not keep growing after the gate has closed.
+  bool _admitNonFatal(Map<String, String> attributes) {
+    if (_nonFatalErrors >= kErrorSessionCap) {
+      if (debugMode) {
+        print('🚫 Dropped non-fatal app.crash — past the per-session cap of '
+            '$kErrorSessionCap errors');
+      }
+      return false;
+    }
+    final key = '${attributes['exception_type']}|'
+        '${_topFrame(attributes['stacktrace'])}';
+    final seen = _errorsByKey[key] ?? 0;
+    if (seen >= kErrorPerKeyCap) {
+      if (debugMode) {
+        print('🚫 Dropped non-fatal app.crash — past $kErrorPerKeyCap '
+            'occurrences of "$key" this session');
+      }
+      return false;
+    }
+    _errorsByKey[key] = seen + 1;
+    _nonFatalErrors++;
+    return true;
+  }
+
+  /// The first non-blank stack line — the half of the dedup key that separates
+  /// two different `StateError`s. Absent stack (a `trackError` with none) folds
+  /// every such error onto one key, which is the honest grouping: without a
+  /// frame there is nothing to tell them apart by.
+  static String _topFrame(String? stacktrace) =>
+      stacktrace
+          ?.split('\n')
+          .map((l) => l.trim())
+          .firstWhere((l) => l.isNotEmpty, orElse: () => '') ??
+      '';
 
   /// Split the batch-level context out of [enriched] **in place** — the same map
   /// object the wire item already holds — and return the hoisted block. Mutable

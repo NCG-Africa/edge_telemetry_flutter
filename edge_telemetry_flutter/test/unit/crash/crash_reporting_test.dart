@@ -52,8 +52,7 @@ void main() {
   const reporting = CrashReporting();
 
   group('buildCrashEvent — shape', () {
-    test('unprefixed keys, cause=Error, is_fatal=false, immediate app.crash',
-        () {
+    test('unprefixed keys, cause=Error, is_fatal=false, batched app.crash', () {
       final event = reporting.buildCrashEvent(
         StateError('boom'),
         stackTrace: StackTrace.fromString('#0 main'),
@@ -62,7 +61,10 @@ void main() {
 
       expect(event.type, 'event');
       expect(event.name, 'app.crash');
-      expect(event.priority, EventPriority.immediate);
+      // The rail moved in #90: a non-fatal's process lives, so it batches and
+      // gets the Pipeline's retries instead of one attempt.
+      expect(event.priority, EventPriority.batched);
+      expect(event.bypassSampling, isTrue); // rail and sampling are orthogonal
       expect(event.countsToSession, isFalse);
 
       final a = event.attributes;
@@ -147,8 +149,8 @@ void main() {
     });
   });
 
-  group('immediate routing', () {
-    Future<(Collector, _RecordingSender)> wire() async {
+  group('rail routing', () {
+    Future<(Collector, _RecordingSender, Pipeline)> wire() async {
       final sender = _RecordingSender();
       final session = SessionManager();
       await session.startSession('session_test');
@@ -163,14 +165,20 @@ void main() {
       final pipeline = Pipeline(transport: transport, batchSize: 999);
       final collector =
           Collector(context: context, session: session, pipeline: pipeline);
-      return (collector, sender);
+      return (collector, sender, pipeline);
     }
 
-    test('crash bypasses the batch and sends immediately', () async {
-      final (collector, sender) = await wire();
+    test('a non-fatal buffers on the batch rail, then flushes', () async {
+      final (collector, sender, pipeline) = await wire();
 
       collector.add(reporting.buildCrashEvent(StateError('boom'),
           source: 'platform_dispatcher'));
+      await Future<void>(() {});
+
+      // Nothing yet: batchSize is 999 and the non-fatal is no longer immediate.
+      expect(sender.items, isEmpty);
+
+      pipeline.flush();
       await Future<void>(() {});
 
       expect(sender.items, hasLength(1));
@@ -186,7 +194,7 @@ void main() {
 
     test('native crash reaches the wire as app.crash with tier asserted',
         () async {
-      final (collector, sender) = await wire();
+      final (collector, sender, _) = await wire();
 
       collector.add(reporting.buildNativeCrashEvent({
         'message': 'SIGSEGV',

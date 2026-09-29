@@ -224,6 +224,29 @@
   screen is never navigated away from, so nothing was ever there to emit it. It
   now lands on a bookend that was being sent anyway, at **zero extra items**,
   and survives a killed app through the recovery record.
+- **A non-fatal error taxonomy: `error.category` plus `error.category_source`.**
+  `network` / `timeout` / `auth` / `parse` / `storage` / `business` / `unknown`,
+  on a **new dotted key** rather than the shipped `cause` — the sibling's `cause`
+  is free text and Flutter's is an enum, both shipped, so the no-renames rule
+  keeps the taxonomy out of it. The category is inferred from the error's **exact
+  platform type — never its message**: a `TimeoutException` is `timeout`, a
+  `SocketException` or `HttpException` `network`, a `FormatException` `parse`, a
+  `FileSystemException` `storage`. A message is a string a library author rewords
+  in a patch release; a type is a compile-time fact. `auth` and `business` have no
+  platform type that means them, so they are **declared-only**, through a new
+  additive `category:` parameter on `trackError` — declared-only for *everything*
+  was rejected on the measured finding that consumers do not call helpers, so an
+  app that never passes it still gets four categories for free.
+  `error.category_source` says which it was, `inferred` or `declared`.
+- **`handled` on `app.crash`** — `"true"` for `trackError` and the SDK's own
+  self-diagnostics, `"false"` for the four auto-installed handlers and every
+  native crash. A **string**, matching the shipped `is_fatal`, rather than the
+  sibling's JSON bool: retyping a shipped key is a rename wearing a correction's
+  clothes.
+- **SDK-internal failures are tagged `crash.source: "sdk"`** and kept off
+  `session.error_count` / `session.crash_count`. Until now the SDK's own capture-
+  hook failures were indistinguishable from the host app's errors and inflated
+  the one error rate a consumer reads straight off the session bookend.
 
 ### Changed
 
@@ -320,6 +343,26 @@
   with `captureOverrides: {Capture.lifecycleTransitions: true}`. The
   lifecycle→session bridge is unchanged and unconditional — only the event is
   tiered.
+- **Non-fatal errors move from the immediate rail to the batch rail.** The
+  immediate rail exists because a fatal's process is dying; a non-fatal's process
+  lives, so the Pipeline's retries and the offline queue can deliver it instead of
+  one attempt. One error thrown from a `build()` method was **N single-attempt
+  POSTs, each carrying the whole breadcrumb ring**; it is now items in a batch.
+  A fatal — native crash, ANR, iOS hang — still POSTs immediately. **Sampling
+  bypass is kept on both**: rail and sampling are orthogonal axes, so a non-fatal
+  is batched-but-bypass, like `user.profile.update`.
+- **Per-session caps on non-fatals: 5 per exception-type-and-top-frame, 50
+  overall.** The overflow is **counted on `session.finalized`** under the
+  `error_cap` reason, not dropped silently. The dedup key is client-local and
+  never sent — there is still **no error id and no client-side fingerprint**,
+  because the server owns crash hashing in both SDKs. A fatal is exempt from both
+  caps.
+- **The breadcrumb ring grows from 20 to 50, and what a crash ships depends on its
+  fatality.** A fatal ships all 50; a non-fatal ships the newest 10. Twenty was
+  measured too small once actions are captured — ~20 taps evicted every navigation
+  and network crumb from crash triage, which is the half a stack trace does not
+  already tell you. Fifty non-fatals × 50 crumbs would be ~110 KB against a 120 KB
+  session ceiling, which is why the non-fatal slice exists.
 - **`trackEvent` / `trackMetric` take `Map<String, Object?>?`** instead of
   `dynamic`. Values are stringified as before, so `{'count': 3, 'ok': true}`
   keeps compiling and the bytes on the wire are unchanged. The `toJson()`
@@ -328,6 +371,11 @@
 
 ### Fixed
 
+- **An HTTP failure no longer emits an `app.crash`.** A 4xx, a 5xx or a timeout is
+  already a row: the status code and `http.error` ride `http.request`, so
+  auth-vs-server is a status-code query rather than a second item and a failed
+  request stops being counted twice. `error.category` is for errors the app
+  *throws*.
 - **Crashes are delivered.** The immediate rail POSTed a bare wire item with no
   `events` array; the collector answered 400, and the payload parked in a
   cap-exempt file that was re-POSTed after every successful batch for the life

@@ -191,21 +191,28 @@ void main() {
         reason: 'orphan events must stay on the wire allowlist');
   });
 
-  test('cross-phase: trackError fires the immediate app.crash rail on its own',
+  test('cross-phase: trackError takes the batch rail, never the immediate one',
       () async {
-    // batchSize 100 → a batched event will NOT flush; only the immediate rail can.
+    // batchSize 100 → nothing flushes by size; only the immediate rail sends on
+    // its own, which since #90 a non-fatal no longer does.
     final (telemetry, sender, wiring) = await _facade();
 
     telemetry.trackEvent('buffered.event'); // buffers, no flush
     telemetry.trackError(StateError('boom'), stackTrace: StackTrace.current);
     await Future<void>(() {});
 
-    // Exactly one payload on the wire — the crash — while the event still
-    // buffers. Crashes ride the immediate rail, which since #81 sends its own
-    // one-item `telemetry_batch` rather than a bare item.
-    expect(sender.items, hasLength(1));
-    final crash = sender.items.single;
-    expect(crash['eventName'], 'app.crash');
+    // Nothing on the wire yet. The immediate rail exists for a dying process;
+    // a handled error's process lives, so it rides the buffer and earns the
+    // Pipeline's retries and the offline queue instead of one attempt.
+    expect(sender.sent, isEmpty);
+
+    wiring.pipeline.flush();
+    await Future<void>(() {});
+
+    // One payload, both items in it — not N single-attempt POSTs.
+    expect(sender.sent, hasLength(1));
+    final crash =
+        sender.items.singleWhere((i) => i['eventName'] == 'app.crash');
     final a = crash['attributes'] as Map;
     // Unprefixed payload keys the rum_crash_events extractors read verbatim.
     expect(a['message'], contains('boom'));
@@ -213,11 +220,10 @@ void main() {
     expect(a['cause'], 'Error');
     expect(a['is_fatal'], 'false');
     expect(a.containsKey('crash_hash'), isFalse); // server-derived, never sent
-
-    // The buffered event is still pending; a flush drains it separately.
-    wiring.pipeline.flush();
-    await Future<void>(() {});
-    expect(sender.sent, hasLength(2));
+    // v3 taxonomy (#90): inferred category, honesty flag, handled flag.
+    expect(a['error.category'], 'unknown'); // StateError infers nothing
+    expect(a['error.category_source'], 'inferred');
+    expect(a['handled'], 'true'); // a live catch, spelled like is_fatal
     wiring.disposeAll();
   });
 
@@ -233,7 +239,8 @@ void main() {
     await Future<void>(() {});
 
     expect(sender.items, hasLength(1));
-    expect(sender.items.single['eventName'], 'app.crash'); // immediate rail
+    // Batched-but-bypass: batchSize 1 flushes it on its own.
+    expect(sender.items.single['eventName'], 'app.crash');
     wiring.disposeAll();
   });
 

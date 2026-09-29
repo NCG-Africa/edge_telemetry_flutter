@@ -1,11 +1,15 @@
 // lib/src/core/edge_event.dart
 
+import '../crash/error_category.dart';
+
 /// Send priority for an [EdgeEvent] — one of four orthogonal axes (the others
 /// are [EdgeEvent.bypassSampling], [EdgeEvent.countsToSession] and
 /// [EdgeEvent.ownsTraceContext]).
 ///
 /// - [batched]: buffered by the Pipeline and sent in a `type:"batch"` envelope.
-/// - [immediate]: sent straight away, bypassing the batch (crash rail).
+/// - [immediate]: sent straight away, bypassing the batch. Reserved for a
+///   process that will not survive to the next flush — a **fatal** crash and
+///   the session bookends. A non-fatal error batches (#90).
 enum EventPriority { batched, immediate }
 
 /// Internal, pre-enrichment event model handed from a capture hook or a facade
@@ -38,9 +42,9 @@ class EdgeEvent {
   /// Sampling axis, orthogonal to [priority]. When true the event bypasses the
   /// per-session sample gate (`session.sampled`) and always reaches the wire.
   ///
-  /// `app.crash` and the `session.*` bookends are bypass (they ride the immediate
-  /// rail too); `user.profile.update` is **batched-but-bypass** — an identity
-  /// mutation that isn't time-critical but must never be sampled away.
+  /// `app.crash` and the `session.*` bookends are bypass. Rail and sampling are
+  /// orthogonal: `user.profile.update` and a **non-fatal** `app.crash` are both
+  /// batched-but-bypass — never time-critical, never sampled away.
   final bool bypassSampling;
 
   /// Whether this event bumps the session event/metric counters.
@@ -109,27 +113,50 @@ class EdgeEvent {
   /// Every Dart error path (facade `trackError`, the auto-installed
   /// `FlutterError.onError` / `PlatformDispatcher.onError` / isolate handlers,
   /// and the SDK's own capture-hook self-diagnostics) funnels through here, so
-  /// they all produce one immediate `app.crash` event with **unprefixed** keys
+  /// they all produce one `app.crash` event with **unprefixed** keys
   /// (`message`, `stacktrace`, `exception_type`, `cause`, `is_fatal`) — the
   /// backend `rum_crash_events` extractors read these verbatim. `cause` is a
   /// clean fatal/non-fatal taxonomy (all Dart errors are `Error`/non-fatal); the
   /// specific handler goes in the secondary `crash.source`. The client never
-  /// sends `crash_hash`/`severity`/`breadcrumbs` — the server derives those.
+  /// sends `crash_hash`/`severity`/`breadcrumbs`, and mints **no error id and no
+  /// fingerprint** — the server owns crash hashing in both SDKs.
+  ///
+  /// Three v3 keys join them (#90): the dotted `error.category` taxonomy and its
+  /// `error.category_source` honesty flag, plus `handled`, spelled as a string
+  /// to match the shipped `is_fatal` rather than retyping a sibling's bool.
+  ///
+  /// Because every Dart error is non-fatal, this factory's product rides the
+  /// **batch rail** — the immediate rail exists for a dying process, and a
+  /// non-fatal's process lives. Sampling bypass is kept: rail and sampling are
+  /// orthogonal axes.
   factory EdgeEvent.error(
     Object error, {
     StackTrace? stackTrace,
     String? source,
     Map<String, String>? attributes,
-  }) =>
-      EdgeEvent._crash({
-        'message': error.toString(),
-        if (stackTrace != null) 'stacktrace': stackTrace.toString(),
-        'exception_type': error.runtimeType.toString(),
-        'cause': 'Error',
-        'is_fatal': 'false',
-        if (source != null) 'crash.source': source,
-        ...?attributes,
-      });
+    ErrorCategory? category,
+  }) {
+    // An SDK-internal failure is exempt from inference: the category describes
+    // what the *host app* did wrong, and the SDK's own `SocketException` is not
+    // the host's network problem.
+    final resolved = category ??
+        (source == kSdkCrashSource
+            ? ErrorCategory.unknown
+            : inferErrorCategory(error));
+    return EdgeEvent._crash({
+      'message': error.toString(),
+      if (stackTrace != null) 'stacktrace': stackTrace.toString(),
+      'exception_type': error.runtimeType.toString(),
+      'cause': 'Error',
+      'is_fatal': 'false',
+      'handled': _handled(source).toString(),
+      'error.category': resolved.wire,
+      'error.category_source':
+          category != null ? kCategoryDeclared : kCategoryInferred,
+      if (source != null) 'crash.source': source,
+      ...?attributes,
+    });
+  }
 
   /// The native-crash leg of the same `app.crash` rail (spec #15 Phase 4, #29).
   ///
@@ -138,10 +165,32 @@ class EdgeEvent {
   /// `is_fatal:"true"`, `crash.source`, and the `sdk.native_capture_tier`
   /// passthrough — so this factory carries the map verbatim onto the immediate
   /// rail (no `cause`/`is_fatal` synthesis; those come from the OS, not us).
+  ///
+  /// `handled:"false"` is defaulted here rather than added to the channel
+  /// payload: an OS-reported crash is unhandled by definition, so the Dart side
+  /// can state it without a three-language lockstep change. A payload that
+  /// carries its own value wins.
   factory EdgeEvent.nativeCrash(Map<String, String> payload) =>
-      EdgeEvent._crash(Map<String, String>.unmodifiable(payload));
+      EdgeEvent._crash(
+          Map<String, String>.unmodifiable({'handled': 'false', ...payload}));
 
-  const EdgeEvent._crash(this.attributes)
+  /// Whether the app kept running *because someone caught this*. The four
+  /// auto-installed handlers catch what nobody else did, so they are unhandled;
+  /// `trackError` and the SDK's own self-diagnostics are a live `catch`.
+  static bool _handled(String? source) => !const {
+        'flutter_error',
+        'platform_dispatcher',
+        'isolate',
+        'zone'
+      }.contains(source);
+
+  /// The rail is chosen by fatality and nothing else. A fatal — every native
+  /// crash, ANR and hang — takes the immediate rail because its process is
+  /// dying and the pipeline will not get another tick. A non-fatal batches: its
+  /// process lives, so the Pipeline and the offline queue can deliver it with
+  /// retries instead of one attempt, and one error in a `build()` becomes items
+  /// in a batch rather than N single-attempt POSTs.
+  EdgeEvent._crash(this.attributes)
       : type = 'event',
         // The consumer's extra `trackError` attributes are merged into the
         // same map as `message` / `stacktrace`, which the backend extractors
@@ -157,7 +206,9 @@ class EdgeEvent {
         stackTrace = null,
         countsToSession = false,
         bypassSampling = true,
-        priority = EventPriority.immediate;
+        priority = attributes['is_fatal'] == 'false'
+            ? EventPriority.batched
+            : EventPriority.immediate;
 
   /// The session bookends (`session.started` / `session.finalized`). Immediate
   /// rail + bypass: they always reach the wire (never batched away, never

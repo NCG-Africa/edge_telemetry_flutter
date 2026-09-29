@@ -153,11 +153,12 @@ class TelemetryWiring {
       policy: policy,
     );
 
-    // Both per-session ceilings start a fresh allowance on rotation: the
-    // governor's item budget and the Collector's `ui.interaction` cap.
+    // Every per-session ceiling starts a fresh allowance on rotation: the
+    // governor's item budget, the Collector's `ui.interaction` and non-fatal
+    // error caps, and the cardinality counters.
     session.onSessionStart = () {
       gate.resetBudget();
-      collector.resetActionCap();
+      collector.resetPerSessionCaps();
       policy.reset();
     };
 

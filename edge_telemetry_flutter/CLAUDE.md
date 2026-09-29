@@ -68,7 +68,10 @@ whenever the block changes — one batch is structurally one session and one use
 
 Attribute spelling is deliberately mixed and must not be "normalized": dotted for identity/domain keys
 (`session.id`, `http.url`), **unprefixed** on `app.crash` (`message`, `stacktrace`, `exception_type`,
-`cause`, `is_fatal`) because the backend extractors read those verbatim.
+`cause`, `is_fatal`, `handled`) because the backend extractors read those verbatim. The v3 error
+taxonomy is the one addition there and it is **dotted** (`error.category`,
+`error.category_source`), beside the already-dotted `crash.source` / `crash.breadcrumbs` — `cause`
+is a shipped enum here and free text in the sibling, so no-renames keeps the taxonomy out of it.
 
 ### Six rules govern the canon
 
@@ -100,13 +103,20 @@ Read the sibling's source or spec directly before building on a claim about it.
 
 ### Two rails, orthogonal to sampling
 
-Crashes take the immediate rail (`EventPriority.immediate` → its own one-item batch, single
-attempt, then persisted with a `crash_` prefix under its own 50-file cap). Everything else
+The rail is chosen by **fatality, not by being a crash**: a fatal — every native crash, ANR and
+hang — takes the immediate rail (`EventPriority.immediate` → its own one-item batch, single
+attempt, then persisted with a `crash_` prefix under its own 50-file cap), because its process
+will not survive to the next flush. **A non-fatal error batches** (#90): its process lives, so it
+earns the pipeline's retries and the offline queue, and one error in a `build()` method is items
+in a batch rather than N single-attempt POSTs each carrying the whole crumb ring. Everything else
 batches. **Nothing on the wire is exempt from a cap or an attempt ceiling** — a 4xx is dropped
 and counted by status, never retried, never queued, because an undeliverable payload that
-cannot die is what re-POSTed the whole v2 crash backlog after every successful send.
-Separately, the sampling roll happens **once per session**; crashes, session bookends, and
-`user.profile.update` bypass it. Priority and bypass are independent — check both when adding an event.
+cannot die is what re-POSTed the whole v2 crash backlog after every successful send. Non-fatals
+have their own two: 5 per exception-type-and-top-frame, 50 per session, overflow counted as
+`error_cap` on the bookend; the dedup key is client-local and **never sent**, because the server
+owns crash hashing. Separately, the sampling roll happens **once per session**; crashes (both
+rails), session bookends, and `user.profile.update` bypass it. Priority and bypass are
+independent — check both when adding an event.
 
 ### Tiers gate at the capture hook
 

@@ -80,8 +80,9 @@ _Avoid_: session stat, running total
 ### Rails
 
 **Immediate rail**:
-The path a crash takes — POSTed alone the moment it happens, bypassing the buffer, single
-attempt, then persisted if it fails.
+The path a **fatal** crash and the session bookends take — POSTed alone the moment it
+happens, bypassing the buffer, single attempt, then persisted if it fails. Reserved for a
+process that will not survive to the next flush; a non-fatal error batches.
 _Avoid_: priority queue, fast path
 
 **Batched rail**:
@@ -228,13 +229,29 @@ _Avoid_: session stats, funnel
 
 **Crash**:
 Any captured failure, Dart or native, emitted as the `app.crash` event. Dart errors are
-non-fatal crashes (`is_fatal:"false"`); the app survived them.
+non-fatal crashes (`is_fatal:"false"`); the app survived them, so they ride the batch rail.
 _Avoid_: error report, exception event
 
 **Cause**:
 The crash taxonomy — `Error` (all Dart entry points), `NativeCrash`, `ANR`, `Hang`. The
-specific Dart handler goes in the secondary `crash.source`, never in `cause`.
+specific Dart handler goes in the secondary `crash.source`, never in `cause`. It is **not**
+the error category: the sibling's `cause` is free text and this one is an enum, both
+shipped, so the taxonomy got its own key instead.
 _Avoid_: kind, category, severity
+
+**Error category**:
+The non-fatal taxonomy on its own dotted key, `error.category` —
+`network`/`timeout`/`auth`/`parse`/`storage`/`business`/`unknown`, with
+`error.category_source` saying whether the SDK inferred it from the error's exact type or
+the developer declared it. `auth` and `business` are declared-only: no platform type means
+either. Named `ErrorCategory`.
+_Avoid_: error type, error kind, severity, cause
+
+**Handled**:
+Whether the app kept running because someone caught the error — `"true"` for `trackError`
+and the SDK's own self-diagnostics, `"false"` for the four auto-installed handlers and
+every native crash. A string, matching the shipped `is_fatal`.
+_Avoid_: caught, recovered, is_handled
 
 **Drain**:
 The one-shot pull of crashes the native plugin recorded before the process died, called
@@ -248,8 +265,9 @@ API 30+, `jvm_only` below it.
 _Avoid_: capability, support level
 
 **Breadcrumb**:
-A short trail entry (navigation, request, lifecycle, or host-added) kept in a 20-slot ring
-and attached to a crash as context. Never sent on ordinary events.
+A short trail entry (navigation, request, lifecycle, or host-added) kept in a 50-slot ring
+and attached to a crash as context. A fatal ships all 50; a non-fatal ships the newest 10.
+Never sent on ordinary events.
 _Avoid_: trail, log line
 
 ### Identity

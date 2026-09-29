@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../core/edge_event.dart';
+import '../crash/error_category.dart';
 import 'capture_hook.dart';
 
 /// Frame timing, memory, and startup capture. Ports v1.5.2
@@ -120,7 +121,9 @@ class PerfCaptureHook implements CaptureHook {
         _trackMemoryPressure(sink, memoryUsage);
       }
     } catch (e) {
-      sink.add(EdgeEvent.error(e, attributes: {
+      // The SDK's own failure, tagged as the SDK's (#90) — it is not the host
+      // app's error, and untagged it inflates the host's error rate.
+      sink.add(EdgeEvent.error(e, source: kSdkCrashSource, attributes: {
         'error.context': 'memory_usage_tracking',
         'error.component': 'performance_monitor',
       }));

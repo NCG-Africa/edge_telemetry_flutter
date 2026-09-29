@@ -203,10 +203,13 @@ throw Exception('Something went wrong');
 
 // Gets automatically tracked with:
 // - Full stack trace (grouping hash computed server-side)
-// - Rich context via breadcrumbs (navigation, requests, lifecycle)
+// - An `error.category` taxonomy inferred from the error's exact type
+// - Rich context via breadcrumbs (navigation, requests, lifecycle) — a 50-entry
+//   ring; a fatal ships all 50, a non-fatal the newest 10
 // - User and session context
 // - Device information
-// - Sent immediately; persisted to disk if the network is down
+// - Batched with retries (a fatal crash is sent immediately); persisted to disk
+//   if the network is down
 ```
 
 ### 📱 Navigation (One Line Setup)
@@ -594,6 +597,20 @@ try {
     attributes: {'context': 'payment_processing'});
 }
 
+// `error.category` is inferred from the error's exact type — a SocketException is
+// `network`, a TimeoutException `timeout`, a FormatException `parse`, a
+// FileSystemException `storage`. Two categories have no platform type that means
+// them, so declare those:
+try {
+  await transfer();
+} on UnauthorizedException catch (error, stackTrace) {
+  EdgeTelemetry.instance.trackError(error,
+    stackTrace: stackTrace,
+    category: ErrorCategory.auth);      // or ErrorCategory.business
+}
+// The wire records which it was: `error.category_source` is `inferred` or
+// `declared`, never silently one dressed as the other.
+
 // Add custom breadcrumbs for crash context
 EdgeTelemetry.instance.addUserActionBreadcrumb('payment_initiated');
 EdgeTelemetry.instance.addCustomBreadcrumb('Processing payment', 
@@ -655,8 +672,12 @@ EdgeTelemetry.instance.clearBreadcrumbs();
 
 ### 🚨 Crash Reports
 ```dart
-// Every captured failure — Dart error, native crash, ANR, iOS hang — is sent
-// immediately as one `app.crash` event, bypassing the batch:
+// Every captured failure — Dart error, native crash, ANR, iOS hang — is one
+// `app.crash` event. A **fatal** (native crash, ANR, hang) is POSTed immediately,
+// because its process is dying. A **non-fatal** Dart error batches, so it earns
+// the pipeline's retries and the offline queue instead of one attempt — and one
+// error thrown from a `build()` method becomes items in a batch rather than a
+// POST per throw. Neither is ever sampled away.
 {
   "type": "event",
   "eventName": "app.crash",
@@ -667,13 +688,24 @@ EdgeTelemetry.instance.clearBreadcrumbs();
     "exception_type": "_Exception",
     "cause": "Error",              // Error | NativeCrash | ANR | Hang
     "is_fatal": "false",           // Dart errors are non-fatal — the app survived
+    "handled": "true",             // a live catch, not an uncaught handler
+    "error.category": "network",   // network|timeout|auth|parse|storage|business|unknown
+    "error.category_source": "inferred",   // inferred | declared
     "crash.source": "flutter_error",
     "crash.breadcrumbs": "[{\"message\":\"Navigated to /checkout\",\"category\":\"navigation\"}]"
     // + session, user and device context
   }
 }
 
-// Grouping hash and severity are computed server-side — the SDK does not send them.
+// Grouping hash and severity are computed server-side — the SDK sends no error id
+// and no client-side fingerprint.
+//
+// Per session a non-fatal is capped at 5 per exception-type-and-top-frame and 50
+// overall; the overflow is counted on `session.finalized` rather than dropped
+// silently. An HTTP failure emits no crash event at all — the status code and
+// `http.error` already ride `http.request`, so 4xx-vs-5xx is a query, not a
+// second item. The SDK's own internal failures are tagged `crash.source: "sdk"`
+// and stay off your session error and crash counts.
 ```
 
 ### 💾 Offline Queue
