@@ -64,12 +64,27 @@ class EdgeEvent {
   /// was in flight.
   final bool ownsTraceContext;
 
+  /// Whether the **consumer** chose this item's own attribute keys and values.
+  ///
+  /// Not a fifth behavioural axis — it is provenance, and it buys one thing:
+  /// `AttributePolicy` acts on the consumer's half of the bag and leaves the
+  /// SDK's alone. PII partitions by who chose the value, so the partition has
+  /// to be recorded where the value enters.
+  ///
+  /// It defaults to **false**, which is the fail-safe direction. An SDK-minted
+  /// attribute is often unique per item — a span id, a timestamp, a duration —
+  /// and capping one at 50 distinct values per session would sentinel exactly
+  /// the measurements the item exists to carry. A consumer key is the opposite:
+  /// arbitrary, unbounded, and the thing the cap was built for.
+  final bool consumerAttributes;
+
   const EdgeEvent.event(
     this.name, {
     this.attributes = const {},
     this.countsToSession = false,
     this.bypassSampling = false,
     this.ownsTraceContext = false,
+    this.consumerAttributes = false,
   })  : type = 'event',
         value = null,
         error = null,
@@ -82,6 +97,7 @@ class EdgeEvent {
     this.attributes = const {},
     this.countsToSession = false,
     this.ownsTraceContext = false,
+    this.consumerAttributes = false,
   })  : type = 'metric',
         error = null,
         stackTrace = null,
@@ -127,6 +143,11 @@ class EdgeEvent {
 
   const EdgeEvent._crash(this.attributes)
       : type = 'event',
+        // The consumer's extra `trackError` attributes are merged into the
+        // same map as `message` / `stacktrace`, which the backend extractors
+        // read verbatim. One flag cannot split them, so the whole bag stays
+        // the SDK's — the safe half to be wrong about.
+        consumerAttributes = false,
         // A crash mints no span and freezes nothing — it inherits the ambient
         // keys, which is exactly the attribution the action id already gives.
         ownsTraceContext = false,
@@ -145,6 +166,7 @@ class EdgeEvent {
   /// journey summary is pre-built by [SessionManager]).
   const EdgeEvent.session(this.name, this.attributes)
       : type = 'event',
+        consumerAttributes = false,
         ownsTraceContext = false,
         value = null,
         error = null,

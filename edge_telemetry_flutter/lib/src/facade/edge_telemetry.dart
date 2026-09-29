@@ -101,6 +101,7 @@ class EdgeTelemetry {
     int? flushIntervalMs,
     CollectionTier tier = CollectionTier.standard,
     Map<Capture, bool> captureOverrides = const {},
+    String? Function(String key, String value)? redactAttribute,
     @Deprecated(
         'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
     bool enableNetworkMonitoring = true,
@@ -129,6 +130,7 @@ class EdgeTelemetry {
       flushIntervalMs: flushIntervalMs ?? 5000,
       tier: tier,
       captureOverrides: captureOverrides,
+      redactAttribute: redactAttribute,
       // ignore: deprecated_member_use_from_same_package
       enableNetworkMonitoring: enableNetworkMonitoring,
       // ignore: deprecated_member_use_from_same_package
@@ -353,7 +355,8 @@ class EdgeTelemetry {
     // host-supplied name carried in `event.name` (mapping §2).
     _wiring!.collector.add(EdgeEvent.event('custom_event',
         attributes: {'event.name': eventName, ...stringAttributes},
-        countsToSession: true));
+        countsToSession: true,
+        consumerAttributes: true));
 
     if (isLocalReportingEnabled && _currentSessionId != null) {
       final event = TelemetryEvent(
@@ -377,7 +380,9 @@ class EdgeTelemetry {
     final stringAttributes = _stringify(attributes);
 
     _wiring!.collector.add(EdgeEvent.metric(metricName, value,
-        attributes: stringAttributes, countsToSession: true));
+        attributes: stringAttributes,
+        countsToSession: true,
+        consumerAttributes: true));
 
     if (isLocalReportingEnabled && _currentSessionId != null) {
       final metric = TelemetryMetric(
@@ -446,7 +451,10 @@ class EdgeTelemetry {
   /// even in a sampled-out session (#25).
   void _emitProfileEvent(String eventName, Map<String, String> attributes) {
     _wiring!.collector.add(EdgeEvent.event(eventName,
-        attributes: attributes, countsToSession: false, bypassSampling: true));
+        attributes: attributes,
+        countsToSession: false,
+        bypassSampling: true,
+        consumerAttributes: true));
   }
 
   /// Clear user profile (but keep auto-generated user ID).

@@ -6,6 +6,7 @@ import '../capture/capture_hook.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
 import '../managers/session_manager.dart';
+import 'attribute_policy.dart';
 import 'capture_gate.dart';
 import 'edge_event.dart';
 import 'pipeline.dart';
@@ -47,6 +48,10 @@ class Collector implements EventSink {
   /// sheds a whole tier at the capture hooks.
   final CaptureGate? gate;
 
+  /// The PII policy: the one redaction hook plus the per-key cardinality cap.
+  /// Optional so a faked collector can skip it.
+  final AttributePolicy? policy;
+
   /// The batch-context hoist flip (#82). Injected so the wire seam is testable;
   /// it defaults to the compile-time [kHoistBatchContext] and is **never** a
   /// config field — see that constant for the silent-failure mode.
@@ -64,6 +69,7 @@ class Collector implements EventSink {
     this.breadcrumbs,
     this.debugMode = false,
     this.gate,
+    this.policy,
     this.hoistBatchContext = kHoistBatchContext,
   });
 
@@ -156,6 +162,14 @@ class Collector implements EventSink {
     enriched
       ..addAll(event.attributes)
       ..removeWhere((k, _) => kForbiddenAttributes.contains(k));
+
+    // PII, at the one place every item passes. Scoped to the item's own keys
+    // — the ~30-key context snapshot is the SDK's own, and running a consumer
+    // callback over all of it would be 30 callbacks per item on the UI isolate
+    // for values the SDK already controls — and, within those, split by who
+    // chose them (`EdgeEvent.consumerAttributes`).
+    policy?.apply(enriched, event.attributes.keys,
+        consumerSupplied: event.consumerAttributes);
 
     // Crash-scoped breadcrumb attach (spec #15 §5.5): the ring rides only on
     // `app.crash`, JSON-encoded (attributes are String-valued on the wire).

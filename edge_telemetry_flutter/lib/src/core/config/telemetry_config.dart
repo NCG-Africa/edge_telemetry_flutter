@@ -52,6 +52,17 @@ class TelemetryConfig {
   /// standard one. Wins over [tier] **and** over the deprecated booleans below.
   final Map<Capture, bool> captureOverrides;
 
+  /// The one redaction hook, run at the single wire choke point over an
+  /// item's **own** attributes — never the ~30-key context snapshot, which
+  /// would be 30 consumer callbacks per item on the UI isolate for values the
+  /// SDK chose itself.
+  ///
+  /// Return the value to send, or null to drop the key entirely. PII
+  /// partitions by who chose the value: the SDK redacts what it collected
+  /// (URLs), caps what the developer named (cardinality), and hands the
+  /// developer this hook over what they supplied.
+  final String? Function(String key, String value)? redactAttribute;
+
   /// Enable automatic network monitoring (connectivity changes)
   @Deprecated('Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
   final bool enableNetworkMonitoring;
@@ -103,6 +114,7 @@ class TelemetryConfig {
     this.maxQueueSize = 200,
     this.tier = CollectionTier.standard,
     this.captureOverrides = const {},
+    this.redactAttribute,
     @Deprecated(
         'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
     this.enableNetworkMonitoring = true,
@@ -134,6 +146,7 @@ class TelemetryConfig {
     int? maxQueueSize,
     CollectionTier? tier,
     Map<Capture, bool>? captureOverrides,
+    String? Function(String key, String value)? redactAttribute,
     @Deprecated(
         'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
     bool? enableNetworkMonitoring,
@@ -163,6 +176,7 @@ class TelemetryConfig {
       maxQueueSize: maxQueueSize ?? this.maxQueueSize,
       tier: tier ?? this.tier,
       captureOverrides: captureOverrides ?? this.captureOverrides,
+      redactAttribute: redactAttribute ?? this.redactAttribute,
       // ignore: deprecated_member_use_from_same_package
       enableNetworkMonitoring:
           // ignore: deprecated_member_use_from_same_package

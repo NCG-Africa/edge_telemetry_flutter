@@ -111,14 +111,39 @@ class MyApp extends StatelessWidget {
 ### 🌐 HTTP Requests (Zero Setup Required)
 ```dart
 // This request is automatically tracked with full details:
-final response = await http.get(Uri.parse('https://api.example.com/users'));
+final response = await http.get(Uri.parse('https://api.example.com/users/42'));
 
 // EdgeTelemetry captures:
-// - URL, Method, Status Code
-// - Response time, Size
-// - Success/Error status
-// - Performance category
+// - http.url        → 'https://api.example.com/users/{id}'  (path only, id templated)
+// - http.method, http.status_code, http.success  (2xx only)
+// - http.duration_ms   → before the call, to headers received
+// - http.download_ms   → headers received, to the last byte of the body
+// - http.connect_ms    → DNS + TCP + TLS, on requests that made a connection
+// - http.connection_reused  → measured, not inferred
+// - http.response_size + http.response_size_source  (content-length, or decoded bytes)
+// - http.seam          → which capture seam saw it
 ```
+
+The total wall clock is `duration + download`. Time to first byte is
+`duration - connect - queue`. Both are derivable, so neither is sent. **A key the seam
+could not reach is omitted** — never zeroed, never sentinelled — because a false zero
+puts a wrong denominator under somebody's connect-time average.
+
+There is no retry key and there will not be one: at this seam a retry is a new
+independent request, indistinguishable from a double-tap or a poll.
+
+**TCP and TLS are never reported separately**, at any tier. Splitting them would mean
+handing the platform a socket this SDK upgraded itself, and `dart:io` offers no way to
+do that; their sum is `connect - dns` and neither half is guessed. Under an HTTPS proxy
+the handshake happens inside the platform's CONNECT tunnel, so TLS is out of reach there
+too and `http.connect_ms` measures the proxy connection only.
+
+Enabling HTTP capture installs a connection factory on every `HttpClient`, which is the
+only way the connect time and the reuse flag are reachable. The SDK threads your
+`SecurityContext`, `badCertificateCallback` and `keyLog` through it by hand, so
+**certificate pinning keeps working**, and it chains rather than replaces a
+`connectionFactory` you set yourself. Under an HTTPS proxy the TLS handshake happens
+inside the platform's CONNECT tunnel, so TLS time is unreachable at any tier.
 
 ### 🚨 Enhanced Crash & Error Reporting (Zero Setup Required)
 ```dart
@@ -202,6 +227,10 @@ await EdgeTelemetry.initialize(
   enableLocalReporting: true,        // Store data locally for reports (a sink, not a
                                      // capture — it never touches the wire)
 
+  // 🙈 One redaction hook, over each item's own attributes. Return the value to
+  //    send, or null to drop the key. It never sees the ~30-key context snapshot.
+  redactAttribute: (key, value) => key == 'checkout.email' ? null : value,
+
   // 🏷️ Global attributes added to all telemetry
   globalAttributes: {
     'app.environment': 'production',
@@ -222,14 +251,40 @@ runApp(MyApp());
 | `diagnostic` | Everything above plus the high-volume / privacy-sensitive variants: swipes, tap coordinates, full HTTP URLs (query included), device fingerprint, accessibility context, extra lifecycle states, long tasks, per-screen frame summaries. |
 
 The `Capture` member set is fixed here so no later release moves it, but a member only
-does something once its emitter ships. Live today: `http`, `navigation`, `connectivity`,
-`frames`, `health`, `lifecycle`, `lifecycleTransitions`, `accessibilityContext`. The rest
-are declared and inert until their own release.
+does something once its emitter ships. Live today: `http`, `httpQueryString`,
+`httpRequestPhases`, `navigation`, `connectivity`, `frames`, `health`, `lifecycle`,
+`lifecycleTransitions`, `accessibilityContext`. The rest are declared and inert until
+their own release.
 
 A tier is an **on/off plus a shed rank**, never a sampling axis — `sampleRate` stays the
 one roll over the whole session. If a session blows through its item budget the SDK
 sheds a *whole tier* (`diagnostic`, then `standard`, never `essential`) and reports
 every shed on `session.dropped_item_count` / `session.dropped_reasons`.
+
+### Privacy
+
+PII partitions by **who chose the value**.
+
+- **The SDK redacts what it collected.** `http.url` defaults to scheme, host and path
+  — no query string, no fragment, no userinfo — and every request says so in
+  `http.url_redacted`. Path segments that are all digits, a UUID, or 20+ hex characters
+  become `{id}`. Turn `Capture.httpQueryString` on to get the full URL back at the
+  `diagnostic` tier.
+- **The SDK caps what the developer named.** Any one attribute key may carry 50 distinct
+  values per session; the 51st and everything after it becomes `__over_cardinality__`,
+  counted on `session.cardinality_capped_count`. URL templating exists mostly to keep a
+  REST app under this cap — untemplated, a typical session breaches 50 distinct URLs and
+  the key degrades to a sentinel *after* the real ids have already shipped.
+- **The developer decides about what they supplied.** `redactAttribute` runs once per
+  item, over the attributes the *consumer* passed to `trackEvent`, `trackMetric` or a
+  profile update. It never sees the context snapshot (that would be ~30 callbacks per
+  item on the UI isolate for values the SDK chose itself) and never the SDK's own item
+  keys, so a hook returning null for a key it does not recognise cannot drop a span id
+  or a stack trace.
+
+The cap follows the same split: consumer-named keys, plus `http.url`, which is the one
+SDK key that is a label rather than a measurement. The SDK's ids, timestamps and
+durations are unique per item by design and are never capped.
 
 ### Delivery
 
@@ -482,7 +537,9 @@ Map<String, String> connectivity = EdgeTelemetry.instance.getConnectivityInfo();
 
 ## 🔒 Privacy & Security
 
-- **No PII by default**: Only collects technical telemetry and user-provided profile data
+- **No PII by default**: URLs ship path-only with ids templated, and only technical
+  telemetry plus user-provided profile data leaves the device. See
+  [Privacy](#privacy) for the three-way split and `redactAttribute`.
 - **Local-first option**: Store data locally instead of sending to backend
 - **Configurable**: Disable any monitoring component you don't need
 - **Transparent**: Full control over what data is collected and sent
@@ -510,6 +567,8 @@ print('Session: ${EdgeTelemetry.instance.currentSessionInfo}');
 **HTTP requests not being tracked:**
 - Ensure EdgeTelemetry is initialized before any HTTP calls
 - Don't set custom `HttpOverrides.global` after initialization
+- A response whose body is never read is never reported — `dart:io` requires the body
+  be drained or the connection stalls, so drain it (`package:http` and Dio already do)
 
 **Navigation not tracked:**
 - Add `EdgeTelemetry.instance.navigationObserver` to `MaterialApp.navigatorObservers`

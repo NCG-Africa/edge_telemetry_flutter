@@ -51,6 +51,9 @@ enum Capture {
   swipes(CollectionTier.diagnostic),
   interactionCoordinates(CollectionTier.diagnostic),
   httpQueryString(CollectionTier.diagnostic),
+  // Named for phases, not timing: it also carries the redirect count, which
+  // is a fact about the request's chain rather than a duration.
+  httpRequestPhases(CollectionTier.diagnostic),
   deviceFingerprint(CollectionTier.diagnostic),
   accessibilityContext(CollectionTier.diagnostic),
   lifecycleTransitions(CollectionTier.diagnostic),

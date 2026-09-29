@@ -4,6 +4,48 @@
 
 ### Added
 
+- **HTTP request timing is re-based, and the phases are measured.**
+  `http.duration_ms` now runs from **before the call to headers received** — v2
+  started its clock after the connection was already established, so it measured
+  neither connection setup nor content download and under-reported a cold request
+  by 3.5-4x (509 ms connect, 149 ms reported, 10 ms download, measured).
+  `http.download_ms` carries the tail separately; total wall clock is the sum,
+  derivable, never guessed. The default tier also gets `http.connect_ms` (DNS +
+  TCP + TLS **fused**) and a `http.connection_reused` flag **measured** by joining
+  the request's local port to the connection's own connect record. Time to first
+  byte is derived by subtraction and never emitted.
+- **`http.dns_ms`, `http.queue_ms` and `http.redirect_count` at the `diagnostic`
+  tier**, behind the new `Capture.httpRequestPhases`. Splitting DNS out costs a
+  resolver call the platform does not make and gives up its try-every-address
+  fallback, which is exactly why the fused number is what every default build
+  gets. TCP and TLS cannot be separated at this seam at all — the platform's
+  `ConnectionTask` has no public constructor, so a connection factory cannot hand
+  back a task wrapped around a socket it upgraded itself; their sum is
+  `connect - dns` and neither is guessed. Under an HTTPS proxy the handshake
+  happens inside the platform's CONNECT tunnel, so TLS time is unreachable at any
+  tier.
+- **`http.response_size_source`** — `content_length` when the server declared one,
+  else `decoded_bytes`. The two were measured **9x apart on one response**, and the
+  platform reports no length at all on chunked encoding, i.e. on most modern JSON
+  APIs. An unknown size is omitted, never sent as a false zero.
+- **`http.seam`** on every request, naming the capture seam that saw it. Absence
+  alone conflates "never measurable" with "measurable and missing" and leaves a
+  backend's connect-time denominator wrong.
+- **A connection that never opened is now a measured row.** A refused connection,
+  a DNS failure or no network at all emits `http.request` with status 0 and
+  `http.error`; v2 started measuring only once the connection had succeeded, so
+  the whole offline case was invisible.
+- **`redactAttribute`** — one redaction hook, run at the single wire choke point
+  over each item's **own** attributes. Return the value to send, or null to drop
+  the key. It never sees the ~30-key context snapshot (that would be 30 consumer
+  callbacks per item on the UI isolate for values the SDK chose itself), and it
+  never sees the session bookends, whose attributes are the session's identity.
+- **A per-key cardinality cap of 50 distinct values per session.** The 51st
+  distinct value for a key and everything after it becomes
+  `__over_cardinality__`, counted on the new `session.cardinality_capped_count`
+  — a counter of its own, because a replaced value is not a dropped item and must
+  not corrupt `session.dropped_item_count`.
+
 - **The correlation spine: trace context now rides the context snapshot.** An
   open trace root (one of `launch`, `interaction`, `request`, `navigation`) puts
   exactly three keys — `trace.id`, `rum.action.id`, `trace.root_type` — on every
@@ -68,19 +110,6 @@
   device for the whole release and were found by audit rather than by telemetry;
   this is the fix for the silence, not for the drop.
 
-### Fixed
-
-- **Crashes are delivered.** The immediate rail POSTed a bare wire item with no
-  `events` array; the collector answered 400, and the payload parked in a
-  cap-exempt file that was re-POSTed after every successful batch for the life
-  of the install. **No consumer has received a crash since v2.0.0** — externally
-  indistinguishable from an app that does not crash, which is why the bug
-  survived a release. The rail now sends a one-item `telemetry_batch` envelope,
-  and a payload stored bare by an earlier version is re-wrapped when it drains,
-  so the backlog accumulated since v2.0.0 arrives as soon as v3 runs once.
-
-### Added
-
 - **gzip on every POST**, with a self-verifying one-shot downgrade: a 400 on a
   compressed body is re-POSTed once uncompressed, and compression stays off for
   the launch only if that succeeds. No config flag and no version endpoint — the
@@ -88,6 +117,33 @@
   launch until the collector registers decompression.
 
 ### Changed
+
+- **`http.url` defaults to path-only, with an honesty flag.** Scheme, host and
+  path; no query string, no fragment, no userinfo. v2 shipped the **full query
+  string** on the highest-volume event in the system (~40 times per session),
+  eleven lines from the breadcrumb path that strips it *because* no PII should
+  ride the crash ring — the precedent was not missing, it was inverted. Path
+  segments that are all digits, a UUID, or 20+ hex characters become `{id}`, by
+  an exact enumerable rule rather than a heuristic no backend could reproduce.
+  Both facts fold into one `http.url_redacted` flag rather than minting a second
+  key. Turn `Capture.httpQueryString` on for the full URL at the `diagnostic`
+  tier.
+- **`http.success` conforms to 2xx only** (v2 counted 3xx as a success too). The
+  platform follows redirects by default, so almost no row changes while the
+  family's cross-SDK error rate stops disagreeing with itself on a shipped key.
+  `HttpRequestTelemetry.isSuccess` changes with it.
+- **HTTP capture installs a connection factory**, which is the only way connect
+  time and the reuse flag are reachable. Installing one makes the platform take a
+  branch that never reaches its own secure-socket call, so the SDK threads your
+  `SecurityContext`, `badCertificateCallback` and `keyLog` through it **by hand**
+  — without that, certificate pinning would break silently at init and the app
+  would keep working against any certificate. A `connectionFactory` you set
+  yourself is chained, not replaced.
+- **`http.request` is emitted when the response body ends, not when its headers
+  arrive**, which is what makes the download tail and the decoded-byte count
+  measurable. A response whose body is never read is therefore never reported;
+  `dart:io` requires the body be drained or the connection stalls, so every real
+  client already drains it.
 
 - **A 4xx is dropped, never retried and never queued**, and counted on the
   existing session counter by status (`http_400=1`). A payload the collector
@@ -126,6 +182,17 @@
   keeps compiling and the bytes on the wire are unchanged. The `toJson()`
   reflection fallback is deleted — passing an arbitrary object is no longer a
   supported attribute shape.
+
+### Fixed
+
+- **Crashes are delivered.** The immediate rail POSTed a bare wire item with no
+  `events` array; the collector answered 400, and the payload parked in a
+  cap-exempt file that was re-POSTed after every successful batch for the life
+  of the install. **No consumer has received a crash since v2.0.0** — externally
+  indistinguishable from an app that does not crash, which is why the bug
+  survived a release. The rail now sends a one-item `telemetry_batch` envelope,
+  and a payload stored bare by an earlier version is re-wrapped when it drains,
+  so the backlog accumulated since v2.0.0 arrives as soon as v3 runs once.
 
 ### Removed
 
