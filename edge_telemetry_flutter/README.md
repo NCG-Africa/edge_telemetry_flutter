@@ -80,9 +80,11 @@ become paths, memory becomes a different quantity, lifecycle fires twice rather
 than six times, iOS `device.name` goes, route names stop being fabricated per
 visit, and **crash volume goes from zero to real**).
 
-Four hard compile breaks (`enableCrashReporting`, `enableErrorReporting`,
-`useJsonFormat`, the batch-tuning no-ops), two platform-floor corrections, and a
-dated errata register for telemetry you have **already drawn conclusions from**.
+Eight symbols are hard compile breaks: `enableCrashReporting`,
+`enableErrorReporting`, `useJsonFormat`, `batchTimeout`, `maxBatchSize`,
+`eventBatchSize`, `withSpan` and `withNetworkSpan`. Plus two platform-floor
+corrections, and a dated errata register for telemetry you have **already drawn
+conclusions from**.
 
 **Whoever owns your pipeline needs one sentence before ship day:** crashes
 accumulated undeliverable since v2.0.0 arrive **in volume, backdated by weeks** —

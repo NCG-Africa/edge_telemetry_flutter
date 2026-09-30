@@ -50,9 +50,12 @@ numeric/uuid path segments are gone (`https://api.x.com/orders/8412?token=abc`
 unchanged column, and it carries an in-band flag: `http.url_redacted`.
 
 **Do:** any dashboard grouping by full URL now groups by path template — usually
-an improvement, always a different key space. There is **no `http.host`**: the
-host is not on the wire at all, so per-host grouping is gone rather than moved.
-`service.name` is the only service-identity key.
+an improvement, always a different key space. There is **no `http.host`**, and no
+other key carries the host either — per-host grouping is gone rather than moved.
+Nor is there a service-identity key to fall back on: `serviceName` rides
+`telemetry.initialized`, which is off-canon and hard-dropped by the allowlist, so
+it has never reached the wire. If you call more than one backend and need them
+apart, the path templates are what distinguishes them.
 
 ### 1.3 Memory becomes a different quantity
 
@@ -289,9 +292,12 @@ A deprecation-in-place is four things:
 
 Names are retained; emission stops or changes. **No v2 name is ever renamed**, and
 no v2 name has its meaning changed under the same backend columns except where
-the v2 meaning was *wrong* — four such carve-outs exist in v3, each carrying an
-in-band flag (`http.url_redacted`, `memory.source`), each recorded as errata, and
-none of them a precedent.
+the v2 meaning was *wrong* — four such carve-outs exist in v3, each recorded here
+and none of them a precedent. **Two of the four carry an in-band flag**
+(`http.url_redacted`, `memory.source`); the `http.duration_ms` re-base and the
+`http.success` narrowing to 2xx carry none, because there is no honest per-row
+value to put one on — the change is in what the number measures, not in whether
+this row was treated specially.
 
 **Every v3 deprecation names v4.0.0.** Currently deprecated in place:
 
@@ -306,7 +312,15 @@ none of them a precedent.
 | `captureAccessibilityContext` | `captureOverrides: {Capture.accessibilityContext: true}` |
 
 The five config booleans are still honoured as a fallback; `captureOverrides`
-always wins. `enableLocalReporting` is **not** deprecated — it gates a sink (the
+always wins.
+
+**`user.interaction` and `resource_timing` are deliberately not on that table.**
+CLAUDE.md lists them among the deprecated-in-place names, and that classification
+is being corrected here: a deprecation-in-place stops or changes an *emission*,
+and neither name has ever been emitted by this SDK (§2). There is nothing to
+deprecate and no removal version to name — they are allowlist entries kept for
+family conformance, because a canon name is never removed. They are errata, not
+deprecations. `enableLocalReporting` is **not** deprecated — it gates a sink (the
 on-device report store), not a capture, and never touches the wire.
 
 ---
