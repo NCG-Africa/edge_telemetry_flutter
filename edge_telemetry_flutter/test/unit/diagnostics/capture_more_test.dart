@@ -69,15 +69,15 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('Breadcrumb ring', () {
-    test('caps at 20 (oldest dropped)', () {
+    test('caps at 50 (oldest dropped)', () {
       final ring = BreadcrumbManager();
-      for (var i = 0; i < 25; i++) {
+      for (var i = 0; i < 55; i++) {
         ring.addCustom('crumb_$i');
       }
-      expect(ring.count, 20);
-      // Most-recent-first; crumb_5..crumb_24 survive, crumb_0..4 dropped.
+      expect(ring.count, 50);
+      // Most-recent-first; crumb_5..crumb_54 survive, crumb_0..4 dropped.
       final messages = ring.getBreadcrumbs().map((b) => b.message).toList();
-      expect(messages.first, 'crumb_24');
+      expect(messages.first, 'crumb_54');
       expect(messages.contains('crumb_4'), isFalse);
     });
 
@@ -89,7 +89,8 @@ void main() {
       collector.add(EdgeEvent.error(StateError('boom')));
       await Future<void>(() {});
 
-      // app.crash rides the immediate rail: bare event, not a batch envelope.
+      // A non-fatal batches since #90, and `_wire` uses batchSize 1, so the
+      // one item flushes on its own.
       final crashAttrs = sender.items.single['attributes'] as Map;
       expect(crashAttrs.containsKey('crash.breadcrumbs'), isTrue);
       final decoded =

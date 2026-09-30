@@ -12,8 +12,9 @@
 
 import 'clock_skew.dart';
 
-/// The 16 canon event names (§2). `app.crash` rides the immediate crash rail,
-/// not the batch, but is listed here for completeness.
+/// The 16 canon event names (§2). `app.crash` takes **either** rail — a fatal
+/// goes immediate and skips this gate, a non-fatal batches and passes it (#90) —
+/// so its presence on this list is load-bearing, not completeness.
 ///
 /// v3 adds four (#79): `ui.interaction`, `frame.summary`, `screen.load`,
 /// `task.complete`. Deliberately **not** added:
