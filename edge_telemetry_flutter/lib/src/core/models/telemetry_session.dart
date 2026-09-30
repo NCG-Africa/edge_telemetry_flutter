@@ -45,25 +45,24 @@ class TelemetrySession {
 
   /// Convert to JSON for storage
   Map<String, dynamic> toJson() => {
-        'sessionId': sessionId,
-        'startTime': startTime.toIso8601String(),
-        'endTime': endTime?.toIso8601String(),
-        'duration': duration?.inMilliseconds,
-        'userId': userId,
-        'deviceAttributes': deviceAttributes,
-        'appAttributes': appAttributes,
-      };
+    'sessionId': sessionId,
+    'startTime': startTime.toIso8601String(),
+    'endTime': endTime?.toIso8601String(),
+    'duration': duration?.inMilliseconds,
+    'userId': userId,
+    'deviceAttributes': deviceAttributes,
+    'appAttributes': appAttributes,
+  };
 
   /// Create from JSON (from storage)
-  factory TelemetrySession.fromJson(Map<String, dynamic> json) =>
-      TelemetrySession(
-        sessionId: json['sessionId'],
-        startTime: DateTime.parse(json['startTime']),
-        endTime:
-            json['endTime'] != null ? DateTime.parse(json['endTime']) : null,
-        userId: json['userId'],
-        deviceAttributes:
-            Map<String, String>.from(json['deviceAttributes'] ?? {}),
-        appAttributes: Map<String, String>.from(json['appAttributes'] ?? {}),
-      );
+  factory TelemetrySession.fromJson(
+    Map<String, dynamic> json,
+  ) => TelemetrySession(
+    sessionId: json['sessionId'],
+    startTime: DateTime.parse(json['startTime']),
+    endTime: json['endTime'] != null ? DateTime.parse(json['endTime']) : null,
+    userId: json['userId'],
+    deviceAttributes: Map<String, String>.from(json['deviceAttributes'] ?? {}),
+    appAttributes: Map<String, String>.from(json['appAttributes'] ?? {}),
+  );
 }

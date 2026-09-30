@@ -20,23 +20,23 @@ class TelemetryEvent {
 
   /// Convert to JSON for storage
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'sessionId': sessionId,
-        'eventName': eventName,
-        'timestamp': timestamp.toIso8601String(),
-        'attributes': attributes,
-        'userId': userId,
-      };
+    'id': id,
+    'sessionId': sessionId,
+    'eventName': eventName,
+    'timestamp': timestamp.toIso8601String(),
+    'attributes': attributes,
+    'userId': userId,
+  };
 
   /// Create from JSON (from storage)
   factory TelemetryEvent.fromJson(Map<String, dynamic> json) => TelemetryEvent(
-        id: json['id'],
-        sessionId: json['sessionId'],
-        eventName: json['eventName'],
-        timestamp: DateTime.parse(json['timestamp']),
-        attributes: Map<String, String>.from(json['attributes'] ?? {}),
-        userId: json['userId'],
-      );
+    id: json['id'],
+    sessionId: json['sessionId'],
+    eventName: json['eventName'],
+    timestamp: DateTime.parse(json['timestamp']),
+    attributes: Map<String, String>.from(json['attributes'] ?? {}),
+    userId: json['userId'],
+  );
 }
 
 /// Represents a single telemetry metric (response time, frame rate, etc.)
@@ -61,14 +61,14 @@ class TelemetryMetric {
 
   /// Convert to JSON for storage
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'sessionId': sessionId,
-        'metricName': metricName,
-        'value': value,
-        'timestamp': timestamp.toIso8601String(),
-        'attributes': attributes,
-        'userId': userId,
-      };
+    'id': id,
+    'sessionId': sessionId,
+    'metricName': metricName,
+    'value': value,
+    'timestamp': timestamp.toIso8601String(),
+    'attributes': attributes,
+    'userId': userId,
+  };
 
   /// Create from JSON (from storage)
   factory TelemetryMetric.fromJson(Map<String, dynamic> json) =>

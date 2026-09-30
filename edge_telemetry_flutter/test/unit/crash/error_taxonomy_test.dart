@@ -30,9 +30,9 @@ class _RecordingSender {
   /// Wire items, unwrapped from their `telemetry_batch` envelope — both rails
   /// envelope since #81.
   List<Map<String, dynamic>> get items => [
-        for (final p in sent)
-          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
-      ];
+    for (final p in sent)
+      ...?(p['events'] as List?)?.cast<Map<String, dynamic>>(),
+  ];
 
   List<Map<String, dynamic>> named(String name) =>
       items.where((i) => i['eventName'] == name).toList();
@@ -47,13 +47,14 @@ class _NoopQueue extends OfflineQueue {
   @override
   Future<void> initialize() async {}
   @override
-  Future<String?> persist(Map<String, dynamic> p,
-          {bool isCrash = false}) async =>
-      null;
+  Future<String?> persist(
+    Map<String, dynamic> p, {
+    bool isCrash = false,
+  }) async => null;
   @override
   Future<int> drain(
-          Future<DrainResult> Function(Map<String, dynamic>) s) async =>
-      0;
+    Future<DrainResult> Function(Map<String, dynamic>) s,
+  ) async => 0;
 }
 
 void main() {
@@ -83,23 +84,28 @@ void main() {
     final sender = _RecordingSender();
     var ids = 0;
     final session = SessionManager(
-        newSessionId: () => 'session_${++ids}',
-        clock: () => clock,
-        idleTimeout: idle);
-    final context =
-        ContextManager(sessionManager: session, global: {'device.id': 'd_1'});
+      newSessionId: () => 'session_${++ids}',
+      clock: () => clock,
+      idleTimeout: idle,
+    );
+    final context = ContextManager(
+      sessionManager: session,
+      global: {'device.id': 'd_1'},
+    );
     final pipeline = Pipeline(
       transport: RetryTransport(
-          endpoint: 'https://api.example.test',
-          queue: _NoopQueue(),
-          sender: sender.call),
+        endpoint: 'https://api.example.test',
+        queue: _NoopQueue(),
+        sender: sender.call,
+      ),
       batchSize: 10000,
     );
     final collector = Collector(
-        context: context,
-        session: session,
-        pipeline: pipeline,
-        breadcrumbs: breadcrumbs);
+      context: context,
+      session: session,
+      pipeline: pipeline,
+      breadcrumbs: breadcrumbs,
+    );
     session.bindSink(collector);
     await session.recoverAndStart();
     return (collector, session, pipeline, sender);
@@ -108,15 +114,25 @@ void main() {
   group('error.category — inferred from exact platform types only', () {
     test('the whole inference table', () {
       expect(
-          inferErrorCategory(TimeoutException('slow')), ErrorCategory.timeout);
-      expect(inferErrorCategory(const SocketException('no route')),
-          ErrorCategory.network);
-      expect(inferErrorCategory(const HttpException('bad')),
-          ErrorCategory.network);
-      expect(inferErrorCategory(const FileSystemException('disk')),
-          ErrorCategory.storage);
-      expect(inferErrorCategory(const FormatException('json')),
-          ErrorCategory.parse);
+        inferErrorCategory(TimeoutException('slow')),
+        ErrorCategory.timeout,
+      );
+      expect(
+        inferErrorCategory(const SocketException('no route')),
+        ErrorCategory.network,
+      );
+      expect(
+        inferErrorCategory(const HttpException('bad')),
+        ErrorCategory.network,
+      );
+      expect(
+        inferErrorCategory(const FileSystemException('disk')),
+        ErrorCategory.storage,
+      );
+      expect(
+        inferErrorCategory(const FormatException('json')),
+        ErrorCategory.parse,
+      );
     });
 
     test('anything unlisted is unknown — inference never guesses', () {
@@ -125,20 +141,25 @@ void main() {
       expect(inferErrorCategory(ArgumentError('x')), ErrorCategory.unknown);
     });
 
-    test('a message that names a category does not make one — no string match',
-        () {
-      // The exact defect the type table exists to prevent: an author rewording
-      // this message in a patch release must not reclassify the error.
-      for (final message in [
-        'connection timed out',
-        'auth failed: 401 unauthorized',
-        'failed to parse response',
-        'socket closed',
-      ]) {
-        expect(inferErrorCategory(StateError(message)), ErrorCategory.unknown,
-            reason: message);
-      }
-    });
+    test(
+      'a message that names a category does not make one — no string match',
+      () {
+        // The exact defect the type table exists to prevent: an author rewording
+        // this message in a patch release must not reclassify the error.
+        for (final message in [
+          'connection timed out',
+          'auth failed: 401 unauthorized',
+          'failed to parse response',
+          'socket closed',
+        ]) {
+          expect(
+            inferErrorCategory(StateError(message)),
+            ErrorCategory.unknown,
+            reason: message,
+          );
+        }
+      },
+    );
 
     test('auth and business are declared-only — no type infers them', () {
       const declaredOnly = {ErrorCategory.auth, ErrorCategory.business};
@@ -156,40 +177,47 @@ void main() {
     });
 
     test('the event carries the category plus its source flag', () {
-      final inferred =
-          reporting.buildCrashEvent(const SocketException('no route'));
+      final inferred = reporting.buildCrashEvent(
+        const SocketException('no route'),
+      );
       expect(inferred.attributes['error.category'], 'network');
       expect(inferred.attributes['error.category_source'], 'inferred');
 
       // Declared wins over what the type would have inferred — the consumer
       // knows things the type does not.
-      final declared = reporting.buildCrashEvent(const HttpException('401'),
-          category: ErrorCategory.auth);
+      final declared = reporting.buildCrashEvent(
+        const HttpException('401'),
+        category: ErrorCategory.auth,
+      );
       expect(declared.attributes['error.category'], 'auth');
       expect(declared.attributes['error.category_source'], 'declared');
     });
 
     test('the taxonomy is a new key — cause is untouched', () {
-      final a = reporting
-          .buildCrashEvent(const SocketException('x'),
-              category: ErrorCategory.business)
-          .attributes;
+      final a =
+          reporting
+              .buildCrashEvent(
+                const SocketException('x'),
+                category: ErrorCategory.business,
+              )
+              .attributes;
       expect(a['cause'], 'Error'); // shipped enum, never the taxonomy
       expect(a['error.category'], 'business');
     });
 
     test('every wire value is the enum name, spelled out', () {
-      expect([
-        for (final c in ErrorCategory.values) c.wire
-      ], [
-        'network',
-        'timeout',
-        'auth',
-        'parse',
-        'storage',
-        'business',
-        'unknown',
-      ]);
+      expect(
+        [for (final c in ErrorCategory.values) c.wire],
+        [
+          'network',
+          'timeout',
+          'auth',
+          'parse',
+          'storage',
+          'business',
+          'unknown',
+        ],
+      );
     });
   });
 
@@ -201,23 +229,27 @@ void main() {
         'isolate',
       ]) {
         expect(
-            reporting
-                .buildCrashEvent(Exception('x'), source: source)
-                .attributes['handled'],
-            'false',
-            reason: source);
+          reporting
+              .buildCrashEvent(Exception('x'), source: source)
+              .attributes['handled'],
+          'false',
+          reason: source,
+        );
       }
       // Host trackError: no source token, a live catch.
-      expect(reporting.buildCrashEvent(Exception('x')).attributes['handled'],
-          'true');
+      expect(
+        reporting.buildCrashEvent(Exception('x')).attributes['handled'],
+        'true',
+      );
     });
 
     test('a native crash is unhandled without a channel-contract change', () {
-      final a = reporting.buildNativeCrashEvent({
-        'message': 'SIGSEGV',
-        'cause': 'NativeCrash',
-        'is_fatal': 'true',
-      }).attributes;
+      final a =
+          reporting.buildNativeCrashEvent({
+            'message': 'SIGSEGV',
+            'cause': 'NativeCrash',
+            'is_fatal': 'true',
+          }).attributes;
       expect(a['handled'], 'false');
       expect(a['is_fatal'], 'true'); // same string spelling, not a bool
       // The facet covers the fatal half; nothing was inferred or declared, so
@@ -231,8 +263,9 @@ void main() {
     test('a non-fatal does not POST on its own; a flush carries it', () async {
       final (collector, _, pipeline, sender) = await wire();
 
-      collector.add(reporting.buildCrashEvent(StateError('boom'),
-          source: 'flutter_error'));
+      collector.add(
+        reporting.buildCrashEvent(StateError('boom'), source: 'flutter_error'),
+      );
       await Future<void>(() {});
 
       // The bookend rode the immediate rail; the error did not.
@@ -246,35 +279,41 @@ void main() {
     test('a fatal still POSTs immediately — its process is dying', () async {
       final (collector, _, _, sender) = await wire();
 
-      collector.add(reporting.buildNativeCrashEvent({
-        'message': 'SIGSEGV',
-        'cause': 'NativeCrash',
-        'is_fatal': 'true',
-        'crash.source': 'metrickit',
-      }));
+      collector.add(
+        reporting.buildNativeCrashEvent({
+          'message': 'SIGSEGV',
+          'cause': 'NativeCrash',
+          'is_fatal': 'true',
+          'crash.source': 'metrickit',
+        }),
+      );
       await Future<void>(() {});
 
       expect(sender.named('app.crash'), hasLength(1));
     });
 
-    test(
-        'rail and sampling are orthogonal: a sampled-out session still '
+    test('rail and sampling are orthogonal: a sampled-out session still '
         'reports its non-fatals', () async {
       final sender = _RecordingSender();
       final session = SessionManager(
-          newSessionId: () => 'session_test',
-          clock: () => clock,
-          sampledRoll: () => false);
+        newSessionId: () => 'session_test',
+        clock: () => clock,
+        sampledRoll: () => false,
+      );
       final context = ContextManager(sessionManager: session);
       final pipeline = Pipeline(
         transport: RetryTransport(
-            endpoint: 'https://api.example.test',
-            queue: _NoopQueue(),
-            sender: sender.call),
+          endpoint: 'https://api.example.test',
+          queue: _NoopQueue(),
+          sender: sender.call,
+        ),
         batchSize: 10000,
       );
-      final collector =
-          Collector(context: context, session: session, pipeline: pipeline);
+      final collector = Collector(
+        context: context,
+        session: session,
+        pipeline: pipeline,
+      );
       session.bindSink(collector);
       await session.recoverAndStart();
 
@@ -296,19 +335,27 @@ void main() {
       // One fault, one call site: the same exception type and the same top
       // frame every time — exactly what a failing build() produces.
       final stack = StackTrace.fromString(
-          '#0 _MyWidgetState.build (package:app/my_widget.dart:42:7)\n'
-          '#1 StatefulElement.build (package:flutter/src/widgets/framework.dart)');
+        '#0 _MyWidgetState.build (package:app/my_widget.dart:42:7)\n'
+        '#1 StatefulElement.build (package:flutter/src/widgets/framework.dart)',
+      );
       for (var i = 0; i < 40; i++) {
-        collector.add(reporting.buildCrashEvent(StateError('boom'),
-            stackTrace: stack, source: 'flutter_error'));
+        collector.add(
+          reporting.buildCrashEvent(
+            StateError('boom'),
+            stackTrace: stack,
+            source: 'flutter_error',
+          ),
+        );
       }
       pipeline.flush();
       await Future<void>(() {});
 
       expect(sender.named('app.crash'), hasLength(kErrorPerKeyCap));
       // One POST for the batch (the bookend's own is a separate payload).
-      expect(sender.sent.where((p) => (p['events'] as List).length > 1),
-          hasLength(1));
+      expect(
+        sender.sent.where((p) => (p['events'] as List).length > 1),
+        hasLength(1),
+      );
 
       // And the overflow is visible rather than silent.
       rotate(session);
@@ -322,69 +369,90 @@ void main() {
       expect(attrs['session.error_count'], '40');
     });
 
-    test('the dedup key is type + top frame — a different frame is a new key',
-        () async {
-      final (collector, _, pipeline, sender) = await wire();
+    test(
+      'the dedup key is type + top frame — a different frame is a new key',
+      () async {
+        final (collector, _, pipeline, sender) = await wire();
 
-      for (var call = 0; call < 3; call++) {
-        for (var i = 0; i < 8; i++) {
-          collector.add(reporting.buildCrashEvent(StateError('boom'),
-              stackTrace:
-                  StackTrace.fromString('#0 siteNumber$call (file.dart:$call)'),
-              source: 'flutter_error'));
+        for (var call = 0; call < 3; call++) {
+          for (var i = 0; i < 8; i++) {
+            collector.add(
+              reporting.buildCrashEvent(
+                StateError('boom'),
+                stackTrace: StackTrace.fromString(
+                  '#0 siteNumber$call (file.dart:$call)',
+                ),
+                source: 'flutter_error',
+              ),
+            );
+          }
         }
-      }
-      pipeline.flush();
-      await Future<void>(() {});
+        pipeline.flush();
+        await Future<void>(() {});
 
-      // Three distinct faults, five each — not five in total.
-      expect(sender.named('app.crash'), hasLength(3 * kErrorPerKeyCap));
-    });
+        // Three distinct faults, five each — not five in total.
+        expect(sender.named('app.crash'), hasLength(3 * kErrorPerKeyCap));
+      },
+    );
 
-    test('the overall cap bounds a session that keeps minting new keys',
-        () async {
-      final (collector, _, pipeline, sender) = await wire();
+    test(
+      'the overall cap bounds a session that keeps minting new keys',
+      () async {
+        final (collector, _, pipeline, sender) = await wire();
 
-      for (var i = 0; i < 80; i++) {
-        collector.add(reporting.buildCrashEvent(StateError('boom'),
-            stackTrace: StackTrace.fromString('#0 site$i (file.dart:$i)'),
-            source: 'flutter_error'));
-      }
-      pipeline.flush();
-      await Future<void>(() {});
+        for (var i = 0; i < 80; i++) {
+          collector.add(
+            reporting.buildCrashEvent(
+              StateError('boom'),
+              stackTrace: StackTrace.fromString('#0 site$i (file.dart:$i)'),
+              source: 'flutter_error',
+            ),
+          );
+        }
+        pipeline.flush();
+        await Future<void>(() {});
 
-      expect(sender.named('app.crash'), hasLength(kErrorSessionCap));
-    });
+        expect(sender.named('app.crash'), hasLength(kErrorSessionCap));
+      },
+    );
 
-    test('a consumer attribute cannot route a non-fatal onto the fatal rail',
-        () async {
-      final (collector, _, pipeline, sender) = await wire();
+    test(
+      'a consumer attribute cannot route a non-fatal onto the fatal rail',
+      () async {
+        final (collector, _, pipeline, sender) = await wire();
 
-      // `is_fatal` selects the rail now, so the SDK's value has to win.
-      collector.add(reporting.buildCrashEvent(StateError('boom'),
-          attributes: {'is_fatal': 'true', 'handled': 'false'}));
-      await Future<void>(() {});
+        // `is_fatal` selects the rail now, so the SDK's value has to win.
+        collector.add(
+          reporting.buildCrashEvent(
+            StateError('boom'),
+            attributes: {'is_fatal': 'true', 'handled': 'false'},
+          ),
+        );
+        await Future<void>(() {});
 
-      // Nothing POSTed on its own — only the session.started bookend is out.
-      expect(sender.named('app.crash'), isEmpty);
+        // Nothing POSTed on its own — only the session.started bookend is out.
+        expect(sender.named('app.crash'), isEmpty);
 
-      pipeline.flush();
-      await Future<void>(() {});
+        pipeline.flush();
+        await Future<void>(() {});
 
-      final a = sender.named('app.crash').single['attributes'] as Map;
-      expect(a['is_fatal'], 'false'); // the SDK's value, not the consumer's
-      expect(a['handled'], 'true');
-    });
+        final a = sender.named('app.crash').single['attributes'] as Map;
+        expect(a['is_fatal'], 'false'); // the SDK's value, not the consumer's
+        expect(a['handled'], 'true');
+      },
+    );
 
     test('a fatal is exempt from both caps', () async {
       final (collector, _, _, sender) = await wire();
 
       for (var i = 0; i < 60; i++) {
-        collector.add(reporting.buildNativeCrashEvent({
-          'message': 'SIGSEGV',
-          'cause': 'NativeCrash',
-          'is_fatal': 'true',
-        }));
+        collector.add(
+          reporting.buildNativeCrashEvent({
+            'message': 'SIGSEGV',
+            'cause': 'NativeCrash',
+            'is_fatal': 'true',
+          }),
+        );
       }
       await Future<void>(() {});
       expect(sender.named('app.crash'), hasLength(60));
@@ -396,8 +464,13 @@ void main() {
 
       void flood() {
         for (var i = 0; i < 10; i++) {
-          collector.add(reporting.buildCrashEvent(StateError('boom'),
-              stackTrace: stack, source: 'flutter_error'));
+          collector.add(
+            reporting.buildCrashEvent(
+              StateError('boom'),
+              stackTrace: stack,
+              source: 'flutter_error',
+            ),
+          );
         }
       }
 
@@ -435,21 +508,26 @@ void main() {
       }
       final (collector, _, pipeline, sender) = await wire(breadcrumbs: ring);
 
-      collector.add(reporting.buildNativeCrashEvent({
-        'message': 'SIGSEGV',
-        'cause': 'NativeCrash',
-        'is_fatal': 'true',
-      }));
-      collector.add(reporting.buildCrashEvent(StateError('boom'),
-          source: 'flutter_error'));
+      collector.add(
+        reporting.buildNativeCrashEvent({
+          'message': 'SIGSEGV',
+          'cause': 'NativeCrash',
+          'is_fatal': 'true',
+        }),
+      );
+      collector.add(
+        reporting.buildCrashEvent(StateError('boom'), source: 'flutter_error'),
+      );
       pipeline.flush();
       await Future<void>(() {});
 
       final crashes = sender.named('app.crash');
-      final fatal = crashes
-          .firstWhere((c) => (c['attributes'] as Map)['is_fatal'] == 'true');
-      final nonFatal = crashes
-          .firstWhere((c) => (c['attributes'] as Map)['is_fatal'] == 'false');
+      final fatal = crashes.firstWhere(
+        (c) => (c['attributes'] as Map)['is_fatal'] == 'true',
+      );
+      final nonFatal = crashes.firstWhere(
+        (c) => (c['attributes'] as Map)['is_fatal'] == 'false',
+      );
 
       expect(crumbsOnWire(fatal), hasLength(50));
       expect(crumbsOnWire(nonFatal), hasLength(10));
@@ -458,8 +536,9 @@ void main() {
     });
 
     test('an empty ring omits the key rather than sending "[]"', () async {
-      final (collector, _, pipeline, sender) =
-          await wire(breadcrumbs: BreadcrumbManager());
+      final (collector, _, pipeline, sender) = await wire(
+        breadcrumbs: BreadcrumbManager(),
+      );
       collector.add(reporting.buildCrashEvent(StateError('boom')));
       pipeline.flush();
       await Future<void>(() {});
@@ -471,11 +550,14 @@ void main() {
 
   group('attribution and absences', () {
     test('unprefixed spelling survives the taxonomy addition', () async {
-      final a = reporting
-          .buildCrashEvent(StateError('boom'),
-              stackTrace: StackTrace.fromString('#0 main'),
-              source: 'flutter_error')
-          .attributes;
+      final a =
+          reporting
+              .buildCrashEvent(
+                StateError('boom'),
+                stackTrace: StackTrace.fromString('#0 main'),
+                source: 'flutter_error',
+              )
+              .attributes;
       // The backend extractors read these verbatim — a dotted taxonomy key
       // beside them must not have renamed any of them.
       expect(a['message'], 'Bad state: boom');
@@ -486,10 +568,13 @@ void main() {
     });
 
     test('no error id and no client-side fingerprint', () {
-      final a = reporting
-          .buildCrashEvent(StateError('boom'),
-              stackTrace: StackTrace.fromString('#0 main'))
-          .attributes;
+      final a =
+          reporting
+              .buildCrashEvent(
+                StateError('boom'),
+                stackTrace: StackTrace.fromString('#0 main'),
+              )
+              .attributes;
       for (final absent in [
         'error_id',
         'error.id',
@@ -502,39 +587,47 @@ void main() {
       }
     });
 
-    test('an SDK-internal failure is tagged and stays off the host error rate',
-        () async {
-      final (collector, session, pipeline, sender) = await wire();
+    test(
+      'an SDK-internal failure is tagged and stays off the host error rate',
+      () async {
+        final (collector, session, pipeline, sender) = await wire();
 
-      collector.add(EdgeEvent.error(const SocketException('sdk socket'),
-          source: kSdkCrashSource,
-          attributes: {'error.component': 'flutter_network_monitor'}));
-      pipeline.flush();
-      await Future<void>(() {});
+        collector.add(
+          EdgeEvent.error(
+            const SocketException('sdk socket'),
+            source: kSdkCrashSource,
+            attributes: {'error.component': 'flutter_network_monitor'},
+          ),
+        );
+        pipeline.flush();
+        await Future<void>(() {});
 
-      final attrs = sender.named('app.crash').single['attributes']
-          as Map<String, dynamic>;
-      expect(attrs['crash.source'], 'sdk');
-      // Exempt from inference: a SocketException inside the SDK is not the host
-      // app's network problem — and the source flag is omitted rather than
-      // claiming an inference that never ran.
-      expect(attrs['error.category'], 'unknown');
-      expect(attrs.containsKey('error.category_source'), isFalse);
+        final attrs =
+            sender.named('app.crash').single['attributes']
+                as Map<String, dynamic>;
+        expect(attrs['crash.source'], 'sdk');
+        // Exempt from inference: a SocketException inside the SDK is not the host
+        // app's network problem — and the source flag is omitted rather than
+        // claiming an inference that never ran.
+        expect(attrs['error.category'], 'unknown');
+        expect(attrs.containsKey('error.category_source'), isFalse);
 
-      rotate(session);
-      await Future<void>(() {});
-      final finalize =
-          (sender.named('session.finalized').last['attributes'] as Map)
-              .cast<String, String>();
-      expect(finalize['session.error_count'], '0');
-      expect(finalize['session.crash_count'], '0');
-    });
+        rotate(session);
+        await Future<void>(() {});
+        final finalize =
+            (sender.named('session.finalized').last['attributes'] as Map)
+                .cast<String, String>();
+        expect(finalize['session.error_count'], '0');
+        expect(finalize['session.crash_count'], '0');
+      },
+    );
 
     test('a host error does count on the bookend', () async {
       final (collector, session, pipeline, sender) = await wire();
 
-      collector.add(reporting.buildCrashEvent(StateError('boom'),
-          source: 'flutter_error'));
+      collector.add(
+        reporting.buildCrashEvent(StateError('boom'), source: 'flutter_error'),
+      );
       pipeline.flush();
       rotate(session);
       await Future<void>(() {});
@@ -566,8 +659,7 @@ void main() {
       HttpOverrides.global = saved;
     });
 
-    test('a refused connection is one http.request, not an app.crash',
-        () async {
+    test('a refused connection is one http.request, not an app.crash', () async {
       // A port nothing listens on: the request fails at connect, which is the
       // path that would have double-counted as both a request row and a crash.
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
@@ -575,8 +667,9 @@ void main() {
       await server.close();
 
       await expectLater(
-          HttpClient().getUrl(Uri.parse('http://127.0.0.1:$port/fail')),
-          throwsA(isA<SocketException>()));
+        HttpClient().getUrl(Uri.parse('http://127.0.0.1:$port/fail')),
+        throwsA(isA<SocketException>()),
+      );
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(sink.events.map((e) => e.name), ['http.request']);

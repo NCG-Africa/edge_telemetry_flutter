@@ -27,9 +27,9 @@ class _RecordingSender {
 
   /// Wire items, unwrapped from their `telemetry_batch` envelope.
   List<Map<String, dynamic>> get items => [
-        for (final p in sent)
-          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
-      ];
+    for (final p in sent)
+      ...?(p['events'] as List?)?.cast<Map<String, dynamic>>(),
+  ];
 
   Map<String, String> attributesOf(String eventName) =>
       (items.firstWhere((i) => i['eventName'] == eventName)['attributes']
@@ -46,13 +46,14 @@ class _NoopQueue extends OfflineQueue {
   @override
   Future<void> initialize() async {}
   @override
-  Future<String?> persist(Map<String, dynamic> p,
-          {bool isCrash = false}) async =>
-      null;
+  Future<String?> persist(
+    Map<String, dynamic> p, {
+    bool isCrash = false,
+  }) async => null;
   @override
   Future<int> drain(
-          Future<DrainResult> Function(Map<String, dynamic>) s) async =>
-      0;
+    Future<DrainResult> Function(Map<String, dynamic>) s,
+  ) async => 0;
 }
 
 /// One assembled stack in the strict construction order the facade uses:
@@ -71,13 +72,17 @@ class _Rig {
     );
     pipeline = Pipeline(
       transport: RetryTransport(
-          endpoint: 'https://example.test',
-          queue: _NoopQueue(),
-          sender: sender.call),
+        endpoint: 'https://example.test',
+        queue: _NoopQueue(),
+        sender: sender.call,
+      ),
       batchSize: 50,
     );
-    collector =
-        Collector(context: context, session: session, pipeline: pipeline);
+    collector = Collector(
+      context: context,
+      session: session,
+      pipeline: pipeline,
+    );
   }
 
   int _rotations = 0;
@@ -147,25 +152,27 @@ void main() {
       expect(rig.trace.startChild(), isNull);
     });
 
-    test('a child span extends the idle window; the hard cap still ends it',
-        () {
-      var now = DateTime(2026, 1, 1, 12);
-      final rig = _Rig(clock: () => now);
-      rig.trace.mint(TraceRootType.interaction);
-      final traceId = rig.trace.current()['trace.id'];
+    test(
+      'a child span extends the idle window; the hard cap still ends it',
+      () {
+        var now = DateTime(2026, 1, 1, 12);
+        final rig = _Rig(clock: () => now);
+        rig.trace.mint(TraceRootType.interaction);
+        final traceId = rig.trace.current()['trace.id'];
 
-      // Six 1.5 s steps, each with a child span: 9 s of activity that would
-      // have aged out six times over on idle alone.
-      for (var i = 0; i < 6; i++) {
+        // Six 1.5 s steps, each with a child span: 9 s of activity that would
+        // have aged out six times over on idle alone.
+        for (var i = 0; i < 6; i++) {
+          now = now.add(const Duration(milliseconds: 1500));
+          expect(rig.trace.startChild(), isNotNull);
+        }
+        expect(rig.trace.current()['trace.id'], traceId);
+
+        // Past 10 s from the mint, the cap ends it regardless of activity.
         now = now.add(const Duration(milliseconds: 1500));
-        expect(rig.trace.startChild(), isNotNull);
-      }
-      expect(rig.trace.current()['trace.id'], traceId);
-
-      // Past 10 s from the mint, the cap ends it regardless of activity.
-      now = now.add(const Duration(milliseconds: 1500));
-      expect(rig.trace.startChild(), isNull);
-    });
+        expect(rig.trace.startChild(), isNull);
+      },
+    );
 
     test('clear() drops the root — the load-bearing pause path', () {
       final rig = _Rig();
@@ -176,35 +183,39 @@ void main() {
   });
 
   group('startChild', () {
-    test('freezes one immutable record: child span, parent link, session',
-        () async {
-      final rig = _Rig();
-      await rig.session.startSession('session_1');
-      rig.trace.mint(TraceRootType.interaction);
-      final ambient = rig.trace.current();
+    test(
+      'freezes one immutable record: child span, parent link, session',
+      () async {
+        final rig = _Rig();
+        await rig.session.startSession('session_1');
+        rig.trace.mint(TraceRootType.interaction);
+        final ambient = rig.trace.current();
 
-      final frozen = rig.trace.startChild()!;
-      expect(frozen.traceId, ambient['trace.id']);
-      expect(frozen.spanId, matches(RegExp(r'^[0-9a-f]{16}$')));
-      // The root's span id under both names: `rum.action.id` is the join key,
-      // `parent.span.id` the tree pointer. Never an independent identifier.
-      expect(frozen.parentSpanId, ambient['rum.action.id']);
-      expect(frozen.attributes['rum.action.id'], frozen.parentSpanId);
-      expect(frozen.attributes['parent.span.id'], frozen.parentSpanId);
-      expect(frozen.rootType, TraceRootType.interaction);
-      expect(frozen.sessionId, 'session_1');
-    });
+        final frozen = rig.trace.startChild()!;
+        expect(frozen.traceId, ambient['trace.id']);
+        expect(frozen.spanId, matches(RegExp(r'^[0-9a-f]{16}$')));
+        // The root's span id under both names: `rum.action.id` is the join key,
+        // `parent.span.id` the tree pointer. Never an independent identifier.
+        expect(frozen.parentSpanId, ambient['rum.action.id']);
+        expect(frozen.attributes['rum.action.id'], frozen.parentSpanId);
+        expect(frozen.attributes['parent.span.id'], frozen.parentSpanId);
+        expect(frozen.rootType, TraceRootType.interaction);
+        expect(frozen.sessionId, 'session_1');
+      },
+    );
 
-    test('every child gets its own span id; the root span id does not move',
-        () {
-      final rig = _Rig();
-      rig.trace.mint(TraceRootType.interaction);
-      final a = rig.trace.startChild()!;
-      final b = rig.trace.startChild()!;
+    test(
+      'every child gets its own span id; the root span id does not move',
+      () {
+        final rig = _Rig();
+        rig.trace.mint(TraceRootType.interaction);
+        final a = rig.trace.startChild()!;
+        final b = rig.trace.startChild()!;
 
-      expect(a.spanId, isNot(b.spanId));
-      expect(a.parentSpanId, b.parentSpanId);
-    });
+        expect(a.spanId, isNot(b.spanId));
+        expect(a.parentSpanId, b.parentSpanId);
+      },
+    );
 
     test('null when no root is open — the legal unattributed case', () {
       expect(_Rig().trace.startChild(), isNull);
@@ -212,25 +223,31 @@ void main() {
   });
 
   group('wire seam', () {
-    test('ambient keys land on an event that never touches trace context',
-        () async {
-      final rig = _Rig();
-      await rig.session.startSession('session_1');
-      rig.trace.mint(TraceRootType.launch);
+    test(
+      'ambient keys land on an event that never touches trace context',
+      () async {
+        final rig = _Rig();
+        await rig.session.startSession('session_1');
+        rig.trace.mint(TraceRootType.launch);
 
-      // network_change is emitted by a hook with no knowledge of tracing.
-      rig.collector.add(const EdgeEvent.event('network_change',
-          attributes: {'network.type': 'wifi'}));
-      rig.flush();
+        // network_change is emitted by a hook with no knowledge of tracing.
+        rig.collector.add(
+          const EdgeEvent.event(
+            'network_change',
+            attributes: {'network.type': 'wifi'},
+          ),
+        );
+        rig.flush();
 
-      final attrs = rig.sender.attributesOf('network_change');
-      expect(attrs['trace.id'], isNotNull);
-      expect(attrs['rum.action.id'], isNotNull);
-      expect(attrs['trace.root_type'], 'launch');
-      // Never ambient: they are minted per referenceable item.
-      expect(attrs.containsKey('span.id'), isFalse);
-      expect(attrs.containsKey('parent.span.id'), isFalse);
-    });
+        final attrs = rig.sender.attributesOf('network_change');
+        expect(attrs['trace.id'], isNotNull);
+        expect(attrs['rum.action.id'], isNotNull);
+        expect(attrs['trace.root_type'], 'launch');
+        // Never ambient: they are minted per referenceable item.
+        expect(attrs.containsKey('span.id'), isFalse);
+        expect(attrs.containsKey('parent.span.id'), isFalse);
+      },
+    );
 
     test('ownsTraceContext strips exactly the three ambient keys', () async {
       final rig = _Rig();
@@ -242,12 +259,13 @@ void main() {
       rig.trace.mint(TraceRootType.interaction);
       final live = rig.trace.current();
 
-      rig.collector.add(EdgeEvent.event('http.request',
+      rig.collector.add(
+        EdgeEvent.event(
+          'http.request',
           ownsTraceContext: true,
-          attributes: {
-            'http.url': 'https://api.test/v1',
-            ...frozen.attributes
-          }));
+          attributes: {'http.url': 'https://api.test/v1', ...frozen.attributes},
+        ),
+      );
       rig.flush();
 
       final attrs = rig.sender.attributesOf('http.request');
@@ -262,8 +280,7 @@ void main() {
       expect(attrs['device.id'], 'device_1');
     });
 
-    test(
-        'a frozen-empty item carries no trace keys — absence cannot lose to a '
+    test('a frozen-empty item carries no trace keys — absence cannot lose to a '
         'later tap', () async {
       final rig = _Rig();
       await rig.session.startSession('session_1');
@@ -274,15 +291,22 @@ void main() {
       // A tap 50 ms later opens one, and the request completes after it.
       rig.trace.mint(TraceRootType.interaction);
 
-      rig.collector.add(const EdgeEvent.event('http.request',
+      rig.collector.add(
+        const EdgeEvent.event(
+          'http.request',
           ownsTraceContext: true,
-          attributes: {'http.url': 'https://api.test/v1'}));
+          attributes: {'http.url': 'https://api.test/v1'},
+        ),
+      );
       rig.flush();
 
       final attrs = rig.sender.attributesOf('http.request');
       for (final key in kAmbientTraceAttributes) {
-        expect(attrs.containsKey(key), isFalse,
-            reason: '$key was stamped onto a request that started before it');
+        expect(
+          attrs.containsKey(key),
+          isFalse,
+          reason: '$key was stamped onto a request that started before it',
+        );
       }
     });
 
@@ -293,10 +317,10 @@ void main() {
 
       // The always-on lifecycle hook, clearing beside its session pause.
       LifecycleCaptureHook(
-        session: rig.session,
-        trace: rig.trace,
-        flush: rig.flush,
-      )
+          session: rig.session,
+          trace: rig.trace,
+          flush: rig.flush,
+        )
         ..start(rig.collector)
         ..didChangeAppLifecycleState(AppLifecycleState.paused);
 
@@ -329,20 +353,22 @@ void main() {
   });
 
   group('screen.id', () {
-    test('minted per entry, on the snapshot, and a revisit is a new visit',
-        () async {
-      final rig = _Rig();
-      await rig.session.startSession('session_1');
+    test(
+      'minted per entry, on the snapshot, and a revisit is a new visit',
+      () async {
+        final rig = _Rig();
+        await rig.session.startSession('session_1');
 
-      rig.session.recordScreen('/home');
-      final first = rig.session.currentScreenId;
-      expect(first, matches(RegExp(r'^[0-9a-f]{16}$')));
-      expect(rig.context.snapshot()['screen.id'], first);
+        rig.session.recordScreen('/home');
+        final first = rig.session.currentScreenId;
+        expect(first, matches(RegExp(r'^[0-9a-f]{16}$')));
+        expect(rig.context.snapshot()['screen.id'], first);
 
-      rig.session.recordScreen('/cart');
-      rig.session.recordScreen('/home'); // back-navigation
-      expect(rig.session.currentScreenId, isNot(first));
-    });
+        rig.session.recordScreen('/cart');
+        rig.session.recordScreen('/home'); // back-navigation
+        expect(rig.session.currentScreenId, isNot(first));
+      },
+    );
 
     test('resets on session rotation', () async {
       var now = DateTime(2026, 1, 1, 12);
@@ -361,8 +387,11 @@ void main() {
     test('is per-item: the batch hoist must never lift it', () {
       expect(isHoistedContextKey('screen.id'), isFalse);
       for (final key in kAmbientTraceAttributes) {
-        expect(isHoistedContextKey(key), isFalse,
-            reason: '$key varies per item');
+        expect(
+          isHoistedContextKey(key),
+          isFalse,
+          reason: '$key varies per item',
+        );
       }
     });
   });

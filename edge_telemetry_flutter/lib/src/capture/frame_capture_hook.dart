@@ -98,8 +98,8 @@ class FrameCaptureHook implements CaptureHook {
     this.aggregate = true,
     DateTime Function()? clock,
     double? Function()? refreshRate,
-  })  : _clock = clock ?? DateTime.now,
-        _refreshRate = refreshRate ?? _platformRefreshRate;
+  }) : _clock = clock ?? DateTime.now,
+       _refreshRate = refreshRate ?? _platformRefreshRate;
 
   @override
   DisposeHandle start(EventSink sink) {
@@ -139,13 +139,14 @@ class FrameCaptureHook implements CaptureHook {
     if (!aggregate) return;
 
     final atMicros = timing.timestampInMicroseconds(FramePhase.rasterFinish);
-    final window = _open ??= _FrameWindow(
-      start: _clock(),
-      startMicros: atMicros,
-      screenId: session.currentScreenId,
-      screenName: session.currentScreenName,
-      refreshRate: _refreshRate(),
-    );
+    final window =
+        _open ??= _FrameWindow(
+          start: _clock(),
+          startMicros: atMicros,
+          screenId: session.currentScreenId,
+          screenName: session.currentScreenName,
+          refreshRate: _refreshRate(),
+        );
 
     window.totalFrames++;
     if (totalMs > kSlowFrameMs) {
@@ -246,45 +247,48 @@ class FrameCaptureHook implements CaptureHook {
   void _emit(_FrameWindow window) {
     final sink = _sink;
     if (sink == null) return;
-    sink.add(EdgeEvent.event(
-      'frame.summary',
-      attributes: {
-        'frame.total_frames': window.totalFrames.toString(),
-        'frame.slow_frames': window.slowFrames.toString(),
-        'frame.frozen_frames': window.frozenFrames.toString(),
-        'frame.slow_frame_rate':
-            (window.slowFrames / window.totalFrames).toStringAsFixed(4),
-        'frame.max_total_duration_ms': window.maxTotalMs.toStringAsFixed(2),
-        'frame.max_build_duration_ms': window.maxBuildMs.toStringAsFixed(2),
-        'frame.max_raster_duration_ms': window.maxRasterMs.toStringAsFixed(2),
-        'frame.window_duration_ms':
-            ((window.endMicros - window.startMicros) / 1000).toStringAsFixed(2),
-        // Omitted, never zeroed, when no view has reported one: a 0 Hz row is
-        // indistinguishable from a real reading.
-        if (window.refreshRate != null)
-          'display.refresh_rate': window.refreshRate!.toStringAsFixed(1),
-        // Frozen at window start, overriding the ambient snapshot: by the time
-        // the reservoir flushes, the current screen is whichever one the user
-        // happens to be on. A window opened before the first route push
-        // carries neither key and inherits the ambient id — in an app that is
-        // the launch window of the first screen, which is the screen those
-        // frames belong to anyway.
-        if (window.screenName != null) 'screen.name': window.screenName!,
-        if (window.screenId != null) 'screen.id': window.screenId!,
-      },
-      // **No trace keys at all** — neither frozen nor ambient. A window spans
-      // up to ten seconds and, under a two-second action TTL, routinely covers
-      // several actions and the gaps between them. Freezing whichever root was
-      // open at frame one attributes the whole window to an arbitrary one of
-      // them; letting the ambient snapshot supply them at emit time attributes
-      // it to a root that opened minutes later. Both are false precision on
-      // the one event whose subject is a span of time rather than a thing the
-      // user did. *A window is not an action*, and this flag with no frozen
-      // copy behind it is how the wire says so.
-      ownsTraceContext: true,
-      // The item is sent at the flush, but it describes the window.
-      occurredAt: window.start,
-    ));
+    sink.add(
+      EdgeEvent.event(
+        'frame.summary',
+        attributes: {
+          'frame.total_frames': window.totalFrames.toString(),
+          'frame.slow_frames': window.slowFrames.toString(),
+          'frame.frozen_frames': window.frozenFrames.toString(),
+          'frame.slow_frame_rate': (window.slowFrames / window.totalFrames)
+              .toStringAsFixed(4),
+          'frame.max_total_duration_ms': window.maxTotalMs.toStringAsFixed(2),
+          'frame.max_build_duration_ms': window.maxBuildMs.toStringAsFixed(2),
+          'frame.max_raster_duration_ms': window.maxRasterMs.toStringAsFixed(2),
+          'frame.window_duration_ms': ((window.endMicros - window.startMicros) /
+                  1000)
+              .toStringAsFixed(2),
+          // Omitted, never zeroed, when no view has reported one: a 0 Hz row is
+          // indistinguishable from a real reading.
+          if (window.refreshRate != null)
+            'display.refresh_rate': window.refreshRate!.toStringAsFixed(1),
+          // Frozen at window start, overriding the ambient snapshot: by the time
+          // the reservoir flushes, the current screen is whichever one the user
+          // happens to be on. A window opened before the first route push
+          // carries neither key and inherits the ambient id — in an app that is
+          // the launch window of the first screen, which is the screen those
+          // frames belong to anyway.
+          if (window.screenName != null) 'screen.name': window.screenName!,
+          if (window.screenId != null) 'screen.id': window.screenId!,
+        },
+        // **No trace keys at all** — neither frozen nor ambient. A window spans
+        // up to ten seconds and, under a two-second action TTL, routinely covers
+        // several actions and the gaps between them. Freezing whichever root was
+        // open at frame one attributes the whole window to an arbitrary one of
+        // them; letting the ambient snapshot supply them at emit time attributes
+        // it to a root that opened minutes later. Both are false precision on
+        // the one event whose subject is a span of time rather than a thing the
+        // user did. *A window is not an action*, and this flag with no frozen
+        // copy behind it is how the wire says so.
+        ownsTraceContext: true,
+        // The item is sent at the flush, but it describes the window.
+        occurredAt: window.start,
+      ),
+    );
   }
 
   /// Per-occurrence detail behind `frame.frozen_frames`, joinable to it on
@@ -298,11 +302,17 @@ class FrameCaptureHook implements CaptureHook {
   void _emitLongTask(double totalMs, double buildMs, double rasterMs) {
     if (!(gate?.allows(Capture.longTask) ?? false)) return;
     if (++_longTasks > kLongTaskCap) return;
-    _sink?.add(EdgeEvent.metric('long_task', totalMs, attributes: {
-      'frame.build_duration_ms': buildMs.toStringAsFixed(2),
-      'frame.raster_duration_ms': rasterMs.toStringAsFixed(2),
-      'frame.total_duration_ms': totalMs.toStringAsFixed(2),
-    }));
+    _sink?.add(
+      EdgeEvent.metric(
+        'long_task',
+        totalMs,
+        attributes: {
+          'frame.build_duration_ms': buildMs.toStringAsFixed(2),
+          'frame.raster_duration_ms': rasterMs.toStringAsFixed(2),
+          'frame.total_duration_ms': totalMs.toStringAsFixed(2),
+        },
+      ),
+    );
   }
 
   /// The display's *actual* rate, not a target — the budget above stays at

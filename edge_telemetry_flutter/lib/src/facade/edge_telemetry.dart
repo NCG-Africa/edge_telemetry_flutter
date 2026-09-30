@@ -105,17 +105,20 @@ class EdgeTelemetry {
     Map<Capture, bool> captureOverrides = const {},
     String? Function(String key, String value)? redactAttribute,
     @Deprecated(
-        'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
+      'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.',
+    )
     bool enableNetworkMonitoring = true,
     @Deprecated(
-        'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.')
+      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.',
+    )
     bool enablePerformanceMonitoring = true,
     @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
     bool enableNavigationTracking = true,
     @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
     bool enableHttpMonitoring = true,
     @Deprecated(
-        'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.')
+      'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.',
+    )
     bool captureAccessibilityContext = false,
     bool enableLocalReporting = false,
     String? reportStoragePath,
@@ -167,9 +170,10 @@ class EdgeTelemetry {
       // there's no roll → no `session.sampled` on the wire (byte-identical).
       _sessionManager = SessionManager(
         newSessionId: _generateSessionId,
-        sampledRoll: config.sampleRate >= 1.0
-            ? null
-            : () => Random().nextDouble() < config.sampleRate,
+        sampledRoll:
+            config.sampleRate >= 1.0
+                ? null
+                : () => Random().nextDouble() < config.sampleRate,
       );
 
       await _loadProfileVersion();
@@ -192,8 +196,9 @@ class EdgeTelemetry {
         sessionManager: _sessionManager!,
         trace: trace,
         global: _globalAttributes,
-        captureAccessibilityContext:
-            config.capturesEnabled(Capture.accessibilityContext),
+        captureAccessibilityContext: config.capturesEnabled(
+          Capture.accessibilityContext,
+        ),
       );
 
       // Build + start the graph (binds the session bookend sink to the
@@ -228,25 +233,30 @@ class EdgeTelemetry {
       _initialized = true;
 
       // Emitted direct (no counter bump), matching v1.5.2.
-      _wiring!.collector
-          .add(EdgeEvent.event('telemetry.initialized', attributes: {
-        'service_name': config.serviceName,
-        'debug_mode': config.debugMode.toString(),
-        'tier': config.tier.name,
-        'captures': config.enabledFeatures.entries
-            .where((e) => e.value)
-            .map((e) => e.key)
-            .join(','),
-        'user_id_auto_generated': 'true',
-        'initialization_timestamp': DateTime.now().toIso8601String(),
-      }));
+      _wiring!.collector.add(
+        EdgeEvent.event(
+          'telemetry.initialized',
+          attributes: {
+            'service_name': config.serviceName,
+            'debug_mode': config.debugMode.toString(),
+            'tier': config.tier.name,
+            'captures': config.enabledFeatures.entries
+                .where((e) => e.value)
+                .map((e) => e.key)
+                .join(','),
+            'user_id_auto_generated': 'true',
+            'initialization_timestamp': DateTime.now().toIso8601String(),
+          },
+        ),
+      );
 
       if (config.debugMode) {
         print('✅ EdgeTelemetry initialized successfully');
         print('📱 Service: ${config.serviceName}');
         print('🔗 Endpoint: ${config.endpoint}');
         print(
-            '🆔 Device ID: ${_globalAttributes['device.id'] ?? 'Not available'}');
+          '🆔 Device ID: ${_globalAttributes['device.id'] ?? 'Not available'}',
+        );
         print('👤 User ID: $_currentUserId');
         print('🔄 Session ID: ${_sessionManager!.currentSessionId}');
       }
@@ -270,8 +280,9 @@ class EdgeTelemetry {
   Future<void> _drainNativeCrashes() async {
     final crashes = await _wiring!.nativeCrash.drainNativeCrashes();
     for (final crash in crashes) {
-      _wiring!.collector
-          .add(_wiring!.crashReporting.buildNativeCrashEvent(crash));
+      _wiring!.collector.add(
+        _wiring!.crashReporting.buildNativeCrashEvent(crash),
+      );
     }
     if (_config?.debugMode == true && crashes.isNotEmpty) {
       print('📥 Drained ${crashes.length} native crash(es) → app.crash');
@@ -286,8 +297,11 @@ class EdgeTelemetry {
   void _installGlobalCrashHandler() {
     FlutterError.onError = (FlutterErrorDetails details) {
       FlutterError.presentError(details);
-      _emitCrash(details.exception,
-          stackTrace: details.stack, source: 'flutter_error');
+      _emitCrash(
+        details.exception,
+        stackTrace: details.stack,
+        source: 'flutter_error',
+      );
     };
     PlatformDispatcher.instance.onError = (error, stack) {
       _emitCrash(error, stackTrace: stack, source: 'platform_dispatcher');
@@ -300,9 +314,10 @@ class EdgeTelemetry {
       final pair = (message as List).cast<String?>();
       _emitCrash(
         pair.isNotEmpty ? (pair[0] ?? 'Isolate error') : 'Isolate error',
-        stackTrace: (pair.length > 1 && pair[1] != null)
-            ? StackTrace.fromString(pair[1]!)
-            : null,
+        stackTrace:
+            (pair.length > 1 && pair[1] != null)
+                ? StackTrace.fromString(pair[1]!)
+                : null,
         source: 'isolate',
       );
     });
@@ -313,17 +328,23 @@ class EdgeTelemetry {
   /// The one internal crash entry point — builds the `app.crash` event via
   /// [CrashReporting] and hands it to the Collector, which picks the rail from
   /// the item's fatality (batched for a non-fatal, immediate for a fatal).
-  void _emitCrash(Object error,
-      {StackTrace? stackTrace,
-      String? source,
-      Map<String, String>? attributes,
-      ErrorCategory? category}) {
+  void _emitCrash(
+    Object error, {
+    StackTrace? stackTrace,
+    String? source,
+    Map<String, String>? attributes,
+    ErrorCategory? category,
+  }) {
     if (_wiring == null) return;
-    _wiring!.collector.add(_wiring!.crashReporting.buildCrashEvent(error,
+    _wiring!.collector.add(
+      _wiring!.crashReporting.buildCrashEvent(
+        error,
         stackTrace: stackTrace,
         source: source,
         attributes: attributes,
-        category: category));
+        category: category,
+      ),
+    );
   }
 
   // ==================== CORE TRACKING API ====================
@@ -472,10 +493,14 @@ class EdgeTelemetry {
 
     // Host names are arbitrary → wrap into the canon `custom_event` with the
     // host-supplied name carried in `event.name` (mapping §2).
-    _wiring!.collector.add(EdgeEvent.event('custom_event',
+    _wiring!.collector.add(
+      EdgeEvent.event(
+        'custom_event',
         attributes: {'event.name': eventName, ...stringAttributes},
         countsToSession: true,
-        consumerAttributes: true));
+        consumerAttributes: true,
+      ),
+    );
 
     if (isLocalReportingEnabled && _currentSessionId != null) {
       final event = TelemetryEvent(
@@ -493,15 +518,23 @@ class EdgeTelemetry {
   }
 
   /// Track a custom metric with flexible attribute support.
-  void trackMetric(String metricName, double value,
-      {Map<String, Object?>? attributes}) {
+  void trackMetric(
+    String metricName,
+    double value, {
+    Map<String, Object?>? attributes,
+  }) {
     _ensureInitialized();
     final stringAttributes = _stringify(attributes);
 
-    _wiring!.collector.add(EdgeEvent.metric(metricName, value,
+    _wiring!.collector.add(
+      EdgeEvent.metric(
+        metricName,
+        value,
         attributes: stringAttributes,
         countsToSession: true,
-        consumerAttributes: true));
+        consumerAttributes: true,
+      ),
+    );
 
     if (isLocalReportingEnabled && _currentSessionId != null) {
       final metric = TelemetryMetric(
@@ -528,13 +561,19 @@ class EdgeTelemetry {
   /// gets `network` / `timeout` / `parse` / `storage` for free — declared-only
   /// for everything was rejected on the measured finding that consumers do not
   /// call helpers.
-  void trackError(Object error,
-      {StackTrace? stackTrace,
-      Map<String, String>? attributes,
-      ErrorCategory? category}) {
+  void trackError(
+    Object error, {
+    StackTrace? stackTrace,
+    Map<String, String>? attributes,
+    ErrorCategory? category,
+  }) {
     _ensureInitialized();
-    _emitCrash(error,
-        stackTrace: stackTrace, attributes: attributes, category: category);
+    _emitCrash(
+      error,
+      stackTrace: stackTrace,
+      attributes: attributes,
+      category: category,
+    );
   }
 
   // ==================== USER PROFILE API ====================
@@ -580,11 +619,15 @@ class EdgeTelemetry {
   /// Batched-but-bypass: an identity mutation isn't time-critical, but must land
   /// even in a sampled-out session (#25).
   void _emitProfileEvent(String eventName, Map<String, String> attributes) {
-    _wiring!.collector.add(EdgeEvent.event(eventName,
+    _wiring!.collector.add(
+      EdgeEvent.event(
+        eventName,
         attributes: attributes,
         countsToSession: false,
         bypassSampling: true,
-        consumerAttributes: true));
+        consumerAttributes: true,
+      ),
+    );
   }
 
   /// Clear user profile (but keep auto-generated user ID).
@@ -640,7 +683,8 @@ class EdgeTelemetry {
     final observer = _wiring!.navigationObserver;
     if (observer == null) {
       throw StateError(
-          'Navigation tracking is disabled. Set enableNavigationTracking: true.');
+        'Navigation tracking is disabled. Set enableNavigationTracking: true.',
+      );
     }
     return observer;
   }
@@ -669,8 +713,12 @@ class EdgeTelemetry {
     Map<String, String>? data,
   }) {
     _ensureInitialized();
-    _wiring!.breadcrumbs
-        .addBreadcrumb(message, category: category, level: level, data: data);
+    _wiring!.breadcrumbs.addBreadcrumb(
+      message,
+      category: category,
+      level: level,
+      data: data,
+    );
   }
 
   void addNavigationBreadcrumb(String route, {Map<String, String>? data}) {
@@ -683,16 +731,20 @@ class EdgeTelemetry {
     _wiring!.breadcrumbs.addUserAction(action, data: data);
   }
 
-  void addSystemBreadcrumb(String event,
-      {BreadcrumbLevel level = BreadcrumbLevel.info,
-      Map<String, String>? data}) {
+  void addSystemBreadcrumb(
+    String event, {
+    BreadcrumbLevel level = BreadcrumbLevel.info,
+    Map<String, String>? data,
+  }) {
     _ensureInitialized();
     _wiring!.breadcrumbs.addSystemEvent(event, level: level, data: data);
   }
 
-  void addNetworkBreadcrumb(String event,
-      {BreadcrumbLevel level = BreadcrumbLevel.info,
-      Map<String, String>? data}) {
+  void addNetworkBreadcrumb(
+    String event, {
+    BreadcrumbLevel level = BreadcrumbLevel.info,
+    Map<String, String>? data,
+  }) {
     _ensureInitialized();
     _wiring!.breadcrumbs.addNetworkEvent(event, level: level, data: data);
   }
@@ -702,9 +754,11 @@ class EdgeTelemetry {
     _wiring!.breadcrumbs.addUIEvent(event, data: data);
   }
 
-  void addCustomBreadcrumb(String message,
-      {BreadcrumbLevel level = BreadcrumbLevel.info,
-      Map<String, String>? data}) {
+  void addCustomBreadcrumb(
+    String message, {
+    BreadcrumbLevel level = BreadcrumbLevel.info,
+    Map<String, String>? data,
+  }) {
     _ensureInitialized();
     _wiring!.breadcrumbs.addCustom(message, level: level, data: data);
   }
@@ -754,7 +808,10 @@ class EdgeTelemetry {
   }) async {
     _ensureReportingEnabled();
     return await _reportGenerator!.generateSummaryReport(
-        startTime: startTime, endTime: endTime, title: title);
+      startTime: startTime,
+      endTime: endTime,
+      title: title,
+    );
   }
 
   Future<GeneratedReport> generatePerformanceReport({
@@ -764,7 +821,10 @@ class EdgeTelemetry {
   }) async {
     _ensureReportingEnabled();
     return await _reportGenerator!.generatePerformanceReport(
-        startTime: startTime, endTime: endTime, title: title);
+      startTime: startTime,
+      endTime: endTime,
+      title: title,
+    );
   }
 
   Future<GeneratedReport> generateUserBehaviorReport({
@@ -774,15 +834,21 @@ class EdgeTelemetry {
   }) async {
     _ensureReportingEnabled();
     return await _reportGenerator!.generateUserBehaviorReport(
-        startTime: startTime, endTime: endTime, title: title);
+      startTime: startTime,
+      endTime: endTime,
+      title: title,
+    );
   }
 
   Future<String> exportReportToFile(
-      GeneratedReport report, String filePath) async {
+    GeneratedReport report,
+    String filePath,
+  ) async {
     _ensureReportingEnabled();
-    final content = report.format == 'json'
-        ? report.toJson().toString()
-        : report.data.toString();
+    final content =
+        report.format == 'json'
+            ? report.toJson().toString()
+            : report.data.toString();
     await File(filePath).writeAsString(content);
     return filePath;
   }
@@ -859,7 +925,8 @@ class EdgeTelemetry {
   void _ensureInitialized() {
     if (!_initialized) {
       throw StateError(
-          'EdgeTelemetry is not initialized. Call EdgeTelemetry.initialize() first.');
+        'EdgeTelemetry is not initialized. Call EdgeTelemetry.initialize() first.',
+      );
     }
   }
 

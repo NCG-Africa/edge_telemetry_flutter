@@ -34,25 +34,39 @@ class NetworkCaptureHook implements CaptureHook {
   Future<void> _init(EventSink sink) async {
     try {
       _handleConnectivityChange(sink, await _connectivity.checkConnectivity());
-      _subscription = _connectivity.onConnectivityChanged
-          .listen((results) => _handleConnectivityChange(sink, results));
+      _subscription = _connectivity.onConnectivityChanged.listen(
+        (results) => _handleConnectivityChange(sink, results),
+      );
 
-      sink.add(EdgeEvent.event('network.monitor_initialized', attributes: {
-        'initial_network_type': _currentNetworkType,
-        'monitor.type': 'flutter_connectivity_plus',
-      }));
+      sink.add(
+        EdgeEvent.event(
+          'network.monitor_initialized',
+          attributes: {
+            'initial_network_type': _currentNetworkType,
+            'monitor.type': 'flutter_connectivity_plus',
+          },
+        ),
+      );
     } catch (e) {
       // The SDK's own failure, tagged as the SDK's (#90) — it is not the host
       // app's error, and untagged it inflates the host's error rate.
-      sink.add(EdgeEvent.error(e, source: kSdkCrashSource, attributes: {
-        'error.context': 'network_monitor_initialization',
-        'error.component': 'flutter_network_monitor',
-      }));
+      sink.add(
+        EdgeEvent.error(
+          e,
+          source: kSdkCrashSource,
+          attributes: {
+            'error.context': 'network_monitor_initialization',
+            'error.component': 'flutter_network_monitor',
+          },
+        ),
+      );
     }
   }
 
   void _handleConnectivityChange(
-      EventSink sink, List<ConnectivityResult> results) {
+    EventSink sink,
+    List<ConnectivityResult> results,
+  ) {
     final primary =
         results.isNotEmpty ? results.first : ConnectivityResult.none;
     final newType = _mapConnectivityResult(primary);
@@ -62,21 +76,31 @@ class NetworkCaptureHook implements CaptureHook {
     _currentNetworkType = newType;
     context.networkType = newType;
 
-    sink.add(EdgeEvent.event('network_change', attributes: {
-      'network.previous_type': previous,
-      'network.current_type': newType,
-      'network.change_timestamp': DateTime.now().toIso8601String(),
-      'network.available': newType != 'none' ? 'true' : 'false',
-      'network.change_direction': _getChangeDirection(previous, newType),
-    }));
+    sink.add(
+      EdgeEvent.event(
+        'network_change',
+        attributes: {
+          'network.previous_type': previous,
+          'network.current_type': newType,
+          'network.change_timestamp': DateTime.now().toIso8601String(),
+          'network.available': newType != 'none' ? 'true' : 'false',
+          'network.change_direction': _getChangeDirection(previous, newType),
+        },
+      ),
+    );
 
     final qualityScore = getNetworkQualityScore(newType);
     sink.add(
-        EdgeEvent.metric('network.quality_score', qualityScore, attributes: {
-      'network.type': newType,
-      'network.quality_level': _getNetworkQualityLevel(qualityScore),
-      'metric.source': 'connectivity_estimation',
-    }));
+      EdgeEvent.metric(
+        'network.quality_score',
+        qualityScore,
+        attributes: {
+          'network.type': newType,
+          'network.quality_level': _getNetworkQualityLevel(qualityScore),
+          'metric.source': 'connectivity_estimation',
+        },
+      ),
+    );
   }
 
   String _mapConnectivityResult(ConnectivityResult result) {
@@ -131,12 +155,13 @@ class NetworkCaptureHook implements CaptureHook {
   bool get isNetworkAvailable => _currentNetworkType != 'none';
 
   Map<String, String> getConnectivityInfo() => {
-        'network.type': _currentNetworkType,
-        'network.available': isNetworkAvailable.toString(),
-        'network.quality_score':
-            getNetworkQualityScore(_currentNetworkType).toString(),
-        'network.quality_level': _getNetworkQualityLevel(
-            getNetworkQualityScore(_currentNetworkType)),
-        'network.last_check': DateTime.now().toIso8601String(),
-      };
+    'network.type': _currentNetworkType,
+    'network.available': isNetworkAvailable.toString(),
+    'network.quality_score':
+        getNetworkQualityScore(_currentNetworkType).toString(),
+    'network.quality_level': _getNetworkQualityLevel(
+      getNetworkQualityScore(_currentNetworkType),
+    ),
+    'network.last_check': DateTime.now().toIso8601String(),
+  };
 }

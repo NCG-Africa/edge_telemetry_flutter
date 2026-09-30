@@ -26,9 +26,10 @@ class Breadcrumb {
         orElse: () => BreadcrumbLevel.info,
       ),
       timestamp: DateTime.parse(json['timestamp'] as String),
-      data: json['data'] != null
-          ? Map<String, String>.from(json['data'] as Map)
-          : null,
+      data:
+          json['data'] != null
+              ? Map<String, String>.from(json['data'] as Map)
+              : null,
     );
   }
 
@@ -50,13 +51,7 @@ class Breadcrumb {
 }
 
 /// Breadcrumb severity levels
-enum BreadcrumbLevel {
-  debug,
-  info,
-  warning,
-  error,
-  critical,
-}
+enum BreadcrumbLevel { debug, info, warning, error, critical }
 
 /// Predefined breadcrumb categories
 class BreadcrumbCategory {

@@ -44,16 +44,18 @@ void main() {
     int status = 200,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    unawaited(server.forEach((req) async {
-      await req.drain<void>();
-      final res = req.response..statusCode = status;
-      if (declareLength) res.contentLength = body.length;
-      res.write(body.substring(0, 1));
-      await res.flush();
-      if (bodyGap > Duration.zero) await Future<void>.delayed(bodyGap);
-      res.write(body.substring(1));
-      await res.close();
-    }));
+    unawaited(
+      server.forEach((req) async {
+        await req.drain<void>();
+        final res = req.response..statusCode = status;
+        if (declareLength) res.contentLength = body.length;
+        res.write(body.substring(0, 1));
+        await res.flush();
+        if (bodyGap > Duration.zero) await Future<void>.delayed(bodyGap);
+        res.write(body.substring(1));
+        await res.close();
+      }),
+    );
     return server;
   }
 
@@ -80,8 +82,11 @@ void main() {
 
     final record = records.single;
     expect(record.connectDuration!.inMilliseconds, greaterThanOrEqualTo(70));
-    expect(record.duration.inMilliseconds, greaterThanOrEqualTo(70),
-        reason: 'v2 started the clock after openUrl and reported ~0 here');
+    expect(
+      record.duration.inMilliseconds,
+      greaterThanOrEqualTo(70),
+      reason: 'v2 started the clock after openUrl and reported ~0 here',
+    );
   });
 
   test('download time carries the tail, separately from the total', () async {
@@ -94,9 +99,11 @@ void main() {
 
     final record = records.single;
     expect(record.downloadDuration!.inMilliseconds, greaterThanOrEqualTo(110));
-    expect(record.duration.inMilliseconds,
-        lessThan(record.downloadDuration!.inMilliseconds),
-        reason: 'headers arrived with the first byte, long before the last');
+    expect(
+      record.duration.inMilliseconds,
+      lessThan(record.downloadDuration!.inMilliseconds),
+      reason: 'headers arrived with the first byte, long before the last',
+    );
   });
 
   test('connection reuse is measured by the local-port join', () async {
@@ -114,8 +121,11 @@ void main() {
     expect(records[0].connectDuration, isNotNull);
 
     expect(records[1].connectionReused, isTrue);
-    expect(records[1].connectDuration, isNull,
-        reason: 'a reused request connected nothing — omit, never zero');
+    expect(
+      records[1].connectDuration,
+      isNull,
+      reason: 'a reused request connected nothing — omit, never zero',
+    );
   });
 
   test('response size names its source', () async {
@@ -161,40 +171,56 @@ void main() {
     late Uri url;
 
     setUp(() async {
-      final serverContext = SecurityContext()
-        ..useCertificateChain(_certPath)
-        ..usePrivateKey(_keyPath);
+      final serverContext =
+          SecurityContext()
+            ..useCertificateChain(_certPath)
+            ..usePrivateKey(_keyPath);
       server = await HttpServer.bindSecure(
-          InternetAddress.loopbackIPv4, 0, serverContext);
-      unawaited(server.forEach((req) async {
-        await req.drain<void>();
-        req.response.write('ok');
-        await req.response.close();
-      }));
+        InternetAddress.loopbackIPv4,
+        0,
+        serverContext,
+      );
+      unawaited(
+        server.forEach((req) async {
+          await req.drain<void>();
+          req.response.write('ok');
+          await req.response.close();
+        }),
+      );
       url = Uri.parse('https://localhost:${server.port}/pinned');
     });
 
     tearDown(() => server.close(force: true));
 
-    test('the bad-certificate callback still fires, and its no still holds',
-        () async {
-      var asked = 0;
-      final client = HttpClient()
-        ..badCertificateCallback = (cert, host, port) {
-          asked++;
-          return false;
-        };
-      addTearDown(() => client.close(force: true));
+    test(
+      'the bad-certificate callback still fires, and its no still holds',
+      () async {
+        var asked = 0;
+        final client =
+            HttpClient()
+              ..badCertificateCallback = (cert, host, port) {
+                asked++;
+                return false;
+              };
+        addTearDown(() => client.close(force: true));
 
-      await expectLater(fetch(client, url), throwsA(isA<HandshakeException>()));
-      expect(asked, 1,
-          reason: 'a dropped callback fails the same way, silently — the '
-              'count is what distinguishes threaded from bypassed');
-    });
+        await expectLater(
+          fetch(client, url),
+          throwsA(isA<HandshakeException>()),
+        );
+        expect(
+          asked,
+          1,
+          reason:
+              'a dropped callback fails the same way, silently — the '
+              'count is what distinguishes threaded from bypassed',
+        );
+      },
+    );
 
     test('the bad-certificate callback can still say yes', () async {
-      final client = HttpClient()
-        ..badCertificateCallback = (cert, host, port) => true;
+      final client =
+          HttpClient()..badCertificateCallback = (cert, host, port) => true;
       addTearDown(() => client.close(force: true));
 
       await fetch(client, url);
@@ -209,9 +235,13 @@ void main() {
       addTearDown(() => client.close(force: true));
 
       await fetch(client, url);
-      expect(lines, isNotEmpty,
-          reason: 'the platform never reaches its own secure-socket call once '
-              'a connection factory exists');
+      expect(
+        lines,
+        isNotEmpty,
+        reason:
+            'the platform never reaches its own secure-socket call once '
+            'a connection factory exists',
+      );
     });
 
     test(
@@ -228,12 +258,13 @@ void main() {
         await fetch(client, url);
         expect(records.single.statusCode, 200);
       },
-      skip: Platform.isMacOS || Platform.isIOS
-          ? 'Apple platforms delegate trust evaluation to the OS and ignore '
-              'setTrustedCertificates (dart-lang/sdk#37812), so pinning there '
-              'goes through badCertificateCallback — covered above. Runs on '
-              'the Linux CI runner.'
-          : null,
+      skip:
+          Platform.isMacOS || Platform.isIOS
+              ? 'Apple platforms delegate trust evaluation to the OS and ignore '
+                  'setTrustedCertificates (dart-lang/sdk#37812), so pinning there '
+                  'goes through badCertificateCallback — covered above. Runs on '
+                  'the Linux CI runner.'
+              : null,
     );
   });
 }

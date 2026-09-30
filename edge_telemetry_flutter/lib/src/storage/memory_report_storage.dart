@@ -61,22 +61,23 @@ class MemoryReportStorage implements ReportStorage {
   }) async {
     _ensureInitialized();
 
-    var filtered = _events.where((event) {
-      // Filter by time range
-      if (startTime != null && event.timestamp.isBefore(startTime)) {
-        return false;
-      }
-      if (endTime != null && event.timestamp.isAfter(endTime)) {
-        return false;
-      }
+    var filtered =
+        _events.where((event) {
+          // Filter by time range
+          if (startTime != null && event.timestamp.isBefore(startTime)) {
+            return false;
+          }
+          if (endTime != null && event.timestamp.isAfter(endTime)) {
+            return false;
+          }
 
-      // Filter by event type
-      if (eventType != null && event.eventName != eventType) {
-        return false;
-      }
+          // Filter by event type
+          if (eventType != null && event.eventName != eventType) {
+            return false;
+          }
 
-      return true;
-    }).toList();
+          return true;
+        }).toList();
 
     // Sort by timestamp (newest first)
     filtered.sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -99,22 +100,23 @@ class MemoryReportStorage implements ReportStorage {
   }) async {
     _ensureInitialized();
 
-    var filtered = _metrics.where((metric) {
-      // Filter by time range
-      if (startTime != null && metric.timestamp.isBefore(startTime)) {
-        return false;
-      }
-      if (endTime != null && metric.timestamp.isAfter(endTime)) {
-        return false;
-      }
+    var filtered =
+        _metrics.where((metric) {
+          // Filter by time range
+          if (startTime != null && metric.timestamp.isBefore(startTime)) {
+            return false;
+          }
+          if (endTime != null && metric.timestamp.isAfter(endTime)) {
+            return false;
+          }
 
-      // Filter by metric name
-      if (metricName != null && metric.metricName != metricName) {
-        return false;
-      }
+          // Filter by metric name
+          if (metricName != null && metric.metricName != metricName) {
+            return false;
+          }
 
-      return true;
-    }).toList();
+          return true;
+        }).toList();
 
     // Sort by timestamp (newest first)
     filtered.sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -145,8 +147,9 @@ class MemoryReportStorage implements ReportStorage {
 
     // Remove old sessions
     final oldSessionCount = _sessions.length;
-    _sessions
-        .removeWhere((key, session) => session.startTime.isBefore(cutoffDate));
+    _sessions.removeWhere(
+      (key, session) => session.startTime.isBefore(cutoffDate),
+    );
 
     print('🧹 Cleanup complete:');
     print('  Events: $oldEventCount → ${_events.length}');
@@ -185,7 +188,8 @@ class MemoryReportStorage implements ReportStorage {
   void _ensureInitialized() {
     if (!_initialized) {
       throw StateError(
-          'Memory storage not initialized. Call initialize() first.');
+        'Memory storage not initialized. Call initialize() first.',
+      );
     }
   }
 }

@@ -39,22 +39,32 @@ class PerfCaptureHook implements CaptureHook {
     final startupMs = DateTime.now().difference(_appStartTime!).inMilliseconds;
     final startupType = _determineStartupType(startupMs);
 
-    sink.add(EdgeEvent.event('page_load', attributes: {
-      'startup.type': startupType,
-      // SDK-init-relative (undercounts anything before initialize()); documented
-      // caveat in README. Measured from hook start → first post-frame callback.
-      'startup.time_to_first_frame_ms': startupMs.toString(),
-      // Kept for backward-compat (== time_to_first_frame_ms); the split is
-      // purely additive — no existing key dropped.
-      'startup.duration_ms': startupMs.toString(),
-      'startup.timestamp': DateTime.now().toIso8601String(),
-      'startup.first_frame': 'true',
-    }));
-    sink.add(EdgeEvent.metric('performance.startup_time', startupMs.toDouble(),
+    sink.add(
+      EdgeEvent.event(
+        'page_load',
+        attributes: {
+          'startup.type': startupType,
+          // SDK-init-relative (undercounts anything before initialize()); documented
+          // caveat in README. Measured from hook start → first post-frame callback.
+          'startup.time_to_first_frame_ms': startupMs.toString(),
+          // Kept for backward-compat (== time_to_first_frame_ms); the split is
+          // purely additive — no existing key dropped.
+          'startup.duration_ms': startupMs.toString(),
+          'startup.timestamp': DateTime.now().toIso8601String(),
+          'startup.first_frame': 'true',
+        },
+      ),
+    );
+    sink.add(
+      EdgeEvent.metric(
+        'performance.startup_time',
+        startupMs.toDouble(),
         attributes: {
           'startup.type': startupType,
           'metric.unit': 'milliseconds',
-        }));
+        },
+      ),
+    );
   }
 
   // Canon startup taxonomy is cold | warm (glossary §4). This hook only runs at

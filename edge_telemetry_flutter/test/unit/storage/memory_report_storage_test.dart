@@ -67,19 +67,23 @@ void main() {
       final twoHoursAgo = now.subtract(const Duration(hours: 2));
 
       // Store events at different times
-      await storage.storeEvent(TelemetryEvent(
-        id: 'old_event',
-        sessionId: 'session_1',
-        eventName: 'old_event',
-        timestamp: twoHoursAgo,
-      ));
+      await storage.storeEvent(
+        TelemetryEvent(
+          id: 'old_event',
+          sessionId: 'session_1',
+          eventName: 'old_event',
+          timestamp: twoHoursAgo,
+        ),
+      );
 
-      await storage.storeEvent(TelemetryEvent(
-        id: 'recent_event',
-        sessionId: 'session_1',
-        eventName: 'recent_event',
-        timestamp: now,
-      ));
+      await storage.storeEvent(
+        TelemetryEvent(
+          id: 'recent_event',
+          sessionId: 'session_1',
+          eventName: 'recent_event',
+          timestamp: now,
+        ),
+      );
 
       // Query events from last hour only
       final recentEvents = await storage.getEvents(
@@ -115,20 +119,24 @@ void main() {
 
     test('should provide storage statistics', () async {
       // Add some test data
-      await storage.storeEvent(TelemetryEvent(
-        id: 'event_1',
-        sessionId: 'session_1',
-        eventName: 'test_event',
-        timestamp: DateTime.now(),
-      ));
+      await storage.storeEvent(
+        TelemetryEvent(
+          id: 'event_1',
+          sessionId: 'session_1',
+          eventName: 'test_event',
+          timestamp: DateTime.now(),
+        ),
+      );
 
-      await storage.storeMetric(TelemetryMetric(
-        id: 'metric_1',
-        sessionId: 'session_1',
-        metricName: 'test_metric',
-        value: 100.0,
-        timestamp: DateTime.now(),
-      ));
+      await storage.storeMetric(
+        TelemetryMetric(
+          id: 'metric_1',
+          sessionId: 'session_1',
+          metricName: 'test_metric',
+          value: 100.0,
+          timestamp: DateTime.now(),
+        ),
+      );
 
       // Check stats
       final stats = storage.getStats();
@@ -142,24 +150,29 @@ void main() {
       final oldDate = now.subtract(const Duration(days: 35));
 
       // Add old data
-      await storage.storeEvent(TelemetryEvent(
-        id: 'old_event',
-        sessionId: 'session_1',
-        eventName: 'old_event',
-        timestamp: oldDate,
-      ));
+      await storage.storeEvent(
+        TelemetryEvent(
+          id: 'old_event',
+          sessionId: 'session_1',
+          eventName: 'old_event',
+          timestamp: oldDate,
+        ),
+      );
 
       // Add recent data
-      await storage.storeEvent(TelemetryEvent(
-        id: 'recent_event',
-        sessionId: 'session_1',
-        eventName: 'recent_event',
-        timestamp: now,
-      ));
+      await storage.storeEvent(
+        TelemetryEvent(
+          id: 'recent_event',
+          sessionId: 'session_1',
+          eventName: 'recent_event',
+          timestamp: now,
+        ),
+      );
 
       // Cleanup data older than 30 days
       await storage.cleanupData(
-          olderThan: now.subtract(const Duration(days: 30)));
+        olderThan: now.subtract(const Duration(days: 30)),
+      );
 
       // Verify only recent data remains
       final events = await storage.getEvents();

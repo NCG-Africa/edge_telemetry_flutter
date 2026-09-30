@@ -16,11 +16,11 @@ void main() {
   late int idCounter;
 
   SessionManager build() => SessionManager(
-        emit: emitted.add,
-        newSessionId: () => 'session_${++idCounter}',
-        clock: () => clock,
-        idleTimeout: idle,
-      );
+    emit: emitted.add,
+    newSessionId: () => 'session_${++idCounter}',
+    clock: () => clock,
+    idleTimeout: idle,
+  );
 
   Map<String, String> attrsOf(EdgeEvent e) => e.attributes;
   Iterable<EdgeEvent> named(String name) =>
@@ -46,29 +46,37 @@ void main() {
   });
 
   group('lazy idle rotation (no timer)', () {
-    test('beforeEvent past the window finalizes (backdated) + starts fresh',
-        () async {
-      final sm = build();
-      await sm.recoverAndStart(); // session_1 @ 09:00
+    test(
+      'beforeEvent past the window finalizes (backdated) + starts fresh',
+      () async {
+        final sm = build();
+        await sm.recoverAndStart(); // session_1 @ 09:00
 
-      clock = clock.add(const Duration(minutes: 5));
-      sm.beforeEvent(); // activity @ 09:05, no rotation
-      expect(named('session.finalized'), isEmpty);
+        clock = clock.add(const Duration(minutes: 5));
+        sm.beforeEvent(); // activity @ 09:05, no rotation
+        expect(named('session.finalized'), isEmpty);
 
-      clock = clock.add(const Duration(minutes: 35)); // 09:40, 35min idle
-      sm.beforeEvent();
+        clock = clock.add(const Duration(minutes: 35)); // 09:40, 35min idle
+        sm.beforeEvent();
 
-      final fin = named('session.finalized').single;
-      expect(attrsOf(fin)['session.id'], 'session_1');
-      // Backdated end == last activity (09:05), not now (09:40).
-      expect(attrsOf(fin)['session.end_time'],
-          DateTime(2026, 1, 1, 9, 5).toIso8601String());
-      expect(attrsOf(fin)['session.duration_ms'],
-          const Duration(minutes: 5).inMilliseconds.toString());
+        final fin = named('session.finalized').single;
+        expect(attrsOf(fin)['session.id'], 'session_1');
+        // Backdated end == last activity (09:05), not now (09:40).
+        expect(
+          attrsOf(fin)['session.end_time'],
+          DateTime(2026, 1, 1, 9, 5).toIso8601String(),
+        );
+        expect(
+          attrsOf(fin)['session.duration_ms'],
+          const Duration(minutes: 5).inMilliseconds.toString(),
+        );
 
-      expect(named('session.started').map((e) => attrsOf(e)['session.id']),
-          ['session_1', 'session_2']);
-    });
+        expect(named('session.started').map((e) => attrsOf(e)['session.id']), [
+          'session_1',
+          'session_2',
+        ]);
+      },
+    );
 
     test('beforeEvent within the window does not rotate', () async {
       final sm = build();
@@ -83,21 +91,23 @@ void main() {
   });
 
   group('pause / resume', () {
-    test('pause marks without finalizing; resume within window continues',
-        () async {
-      final sm = build();
-      await sm.recoverAndStart();
+    test(
+      'pause marks without finalizing; resume within window continues',
+      () async {
+        final sm = build();
+        await sm.recoverAndStart();
 
-      clock = clock.add(const Duration(minutes: 10));
-      sm.handlePause();
-      expect(named('session.finalized'), isEmpty);
+        clock = clock.add(const Duration(minutes: 10));
+        sm.handlePause();
+        expect(named('session.finalized'), isEmpty);
 
-      clock = clock.add(const Duration(minutes: 10)); // 20min backgrounded
-      sm.handleResume();
+        clock = clock.add(const Duration(minutes: 10)); // 20min backgrounded
+        sm.handleResume();
 
-      expect(named('session.finalized'), isEmpty);
-      expect(sm.currentSessionId, 'session_1');
-    });
+        expect(named('session.finalized'), isEmpty);
+        expect(sm.currentSessionId, 'session_1');
+      },
+    );
 
     test('resume after idle finalizes backdated to background time', () async {
       final sm = build();
@@ -111,43 +121,49 @@ void main() {
 
       final fin = named('session.finalized').single;
       expect(attrsOf(fin)['session.id'], 'session_1');
-      expect(attrsOf(fin)['session.end_time'],
-          DateTime(2026, 1, 1, 9, 2).toIso8601String());
+      expect(
+        attrsOf(fin)['session.end_time'],
+        DateTime(2026, 1, 1, 9, 2).toIso8601String(),
+      );
       expect(sm.currentSessionId, 'session_2');
     });
   });
 
   group('kill-recovery', () {
-    test('a persisted killed session is finalized backdated on next launch',
-        () async {
-      // Launch 1: run, record activity, background (persists the record), then
-      // the process is killed (no clean finalize).
-      final sm1 = build();
-      await sm1.recoverAndStart();
-      sm1.recordScreen('/home');
-      sm1.recordHttpRequest();
-      clock = clock.add(const Duration(minutes: 3));
-      sm1.handlePause(); // persists lastActivity @ 09:03
+    test(
+      'a persisted killed session is finalized backdated on next launch',
+      () async {
+        // Launch 1: run, record activity, background (persists the record), then
+        // the process is killed (no clean finalize).
+        final sm1 = build();
+        await sm1.recoverAndStart();
+        sm1.recordScreen('/home');
+        sm1.recordHttpRequest();
+        clock = clock.add(const Duration(minutes: 3));
+        sm1.handlePause(); // persists lastActivity @ 09:03
 
-      // Launch 2: fresh manager, later clock. Recovery finalizes session_1.
-      emitted = [];
-      idCounter = 100;
-      clock = DateTime(2026, 1, 1, 12, 0, 0);
-      final sm2 = build();
-      await sm2.recoverAndStart();
+        // Launch 2: fresh manager, later clock. Recovery finalizes session_1.
+        emitted = [];
+        idCounter = 100;
+        clock = DateTime(2026, 1, 1, 12, 0, 0);
+        final sm2 = build();
+        await sm2.recoverAndStart();
 
-      final fin = named('session.finalized').single;
-      expect(attrsOf(fin)['session.id'], 'session_1');
-      expect(attrsOf(fin)['session.recovered'], 'true');
-      expect(attrsOf(fin)['session.end_time'],
-          DateTime(2026, 1, 1, 9, 3).toIso8601String());
-      expect(attrsOf(fin)['session.http_request_count'], '1');
-      expect(attrsOf(fin)['session.screen_count'], '1');
-      expect(attrsOf(fin)['session.screen_journey'], '/home');
+        final fin = named('session.finalized').single;
+        expect(attrsOf(fin)['session.id'], 'session_1');
+        expect(attrsOf(fin)['session.recovered'], 'true');
+        expect(
+          attrsOf(fin)['session.end_time'],
+          DateTime(2026, 1, 1, 9, 3).toIso8601String(),
+        );
+        expect(attrsOf(fin)['session.http_request_count'], '1');
+        expect(attrsOf(fin)['session.screen_count'], '1');
+        expect(attrsOf(fin)['session.screen_journey'], '/home');
 
-      // A brand-new session is live afterwards.
-      expect(sm2.currentSessionId, 'session_101');
-    });
+        // A brand-new session is live afterwards.
+        expect(sm2.currentSessionId, 'session_101');
+      },
+    );
   });
 
   group('journey summary', () {
@@ -211,23 +227,25 @@ void main() {
       expect(emitted.length - before, 2);
     });
 
-    test('a recovered (killed) session still reports its final dwell',
-        () async {
-      final sm = build();
-      await sm.recoverAndStart();
-      sm.recordScreen('/only');
-      sm.markCurrentScreenVisible();
-      clock = clock.add(const Duration(seconds: 3));
-      sm.handlePause(); // persists lastActivity + the screen start
+    test(
+      'a recovered (killed) session still reports its final dwell',
+      () async {
+        final sm = build();
+        await sm.recoverAndStart();
+        sm.recordScreen('/only');
+        sm.markCurrentScreenVisible();
+        clock = clock.add(const Duration(seconds: 3));
+        sm.handlePause(); // persists lastActivity + the screen start
 
-      emitted = [];
-      clock = clock.add(const Duration(hours: 2));
-      await build().recoverAndStart();
+        emitted = [];
+        clock = clock.add(const Duration(hours: 2));
+        await build().recoverAndStart();
 
-      final a = attrsOf(named('session.finalized').single);
-      expect(a['session.recovered'], 'true');
-      expect(a['session.last_screen_duration_ms'], '3000');
-    });
+        final a = attrsOf(named('session.finalized').single);
+        expect(a['session.recovered'], 'true');
+        expect(a['session.last_screen_duration_ms'], '3000');
+      },
+    );
 
     // #88: the same never-visible rule the observer applies to dwell. The frame
     // still on the glass belongs to the screen before this one.
@@ -240,7 +258,8 @@ void main() {
       sm.beforeEvent();
       clock = clock.add(const Duration(seconds: 5));
       sm.recordScreen(
-          '/never_painted'); // pushed, killed before its first frame
+        '/never_painted',
+      ); // pushed, killed before its first frame
       sm.beforeEvent();
 
       clock = clock.add(const Duration(minutes: 31));

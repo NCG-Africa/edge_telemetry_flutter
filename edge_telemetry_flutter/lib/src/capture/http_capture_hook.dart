@@ -111,8 +111,10 @@ class HttpCaptureHook implements CaptureHook {
     if (client is CapturedClient || _sink == null) return client;
     if (client is IOClient && overridesSeamLive) {
       if (debugMode) {
-        print('🌐 captureClient: this client runs on dart:io and the global '
-            'override already sees it — returning it unwrapped');
+        print(
+          '🌐 captureClient: this client runs on dart:io and the global '
+          'override already sees it — returning it unwrapped',
+        );
       }
       return client;
     }
@@ -141,10 +143,14 @@ class HttpCaptureHook implements CaptureHook {
     // later. Without the strip the ambient snapshot would stamp whatever tap
     // landed mid-flight onto it — including onto the legally-unattributed rows,
     // where an absent key cannot beat a present one.
-    sink.add(EdgeEvent.event('http.request',
+    sink.add(
+      EdgeEvent.event(
+        'http.request',
         attributes: t.toAttributes(fullUrl: _fullUrl, phases: _phases),
         ownsTraceContext: true,
-        countsToSession: true));
+        countsToSession: true,
+      ),
+    );
 
     // Templated path only — no query, no fragment, no raw ids, so neither PII
     // nor unbounded cardinality rides the ring.

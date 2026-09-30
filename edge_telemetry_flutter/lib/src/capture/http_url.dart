@@ -30,7 +30,8 @@ bool isPathId(String segment) {
 
 final RegExp _allDigits = RegExp(r'^\d+$');
 final RegExp _uuid = RegExp(
-    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+);
 final RegExp _hex = RegExp(r'^[0-9a-fA-F]+$');
 
 /// Replace every id-shaped segment of [path] with [kPathIdToken].

@@ -27,7 +27,9 @@ void main() {
     test('exact host', () {
       expect(hostAllowed('api.example.com', const ['api.example.com']), isTrue);
       expect(
-          hostAllowed('other.example.com', const ['api.example.com']), isFalse);
+        hostAllowed('other.example.com', const ['api.example.com']),
+        isFalse,
+      );
     });
 
     test('a dot-anchored suffix matches a subdomain, not a lookalike', () {
@@ -117,23 +119,27 @@ void main() {
 
     Future<HttpServer> serve({Uri? redirectTo}) async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      unawaited(server.forEach((req) async {
-        received.add(req.headers);
-        await req.drain<void>();
-        final res = req.response;
-        if (redirectTo != null) {
-          res.statusCode = HttpStatus.movedTemporarily;
-          res.headers.set(HttpHeaders.locationHeader, redirectTo.toString());
-        } else {
-          res.write('ok');
-        }
-        await res.close();
-      }));
+      unawaited(
+        server.forEach((req) async {
+          received.add(req.headers);
+          await req.drain<void>();
+          final res = req.response;
+          if (redirectTo != null) {
+            res.statusCode = HttpStatus.movedTemporarily;
+            res.headers.set(HttpHeaders.locationHeader, redirectTo.toString());
+          } else {
+            res.write('ok');
+          }
+          await res.close();
+        }),
+      );
       return server;
     }
 
-    Future<void> fetch(Uri url,
-        {void Function(HttpClientRequest)? before}) async {
+    Future<void> fetch(
+      Uri url, {
+      void Function(HttpClientRequest)? before,
+    }) async {
       final client = HttpClient();
       addTearDown(() => client.close(force: true));
       final request = await client.getUrl(url);
@@ -144,45 +150,51 @@ void main() {
 
     String? header(int i) => received[i].value(kTraceparentHeader);
 
-    test('the header and the event agree, because they share one frozen copy',
-        () async {
-      final server = await serve();
-      addTearDown(() => server.close(force: true));
-      install(allowlist: const ['127.0.0.1']);
-      trace.mint(TraceRootType.interaction);
+    test(
+      'the header and the event agree, because they share one frozen copy',
+      () async {
+        final server = await serve();
+        addTearDown(() => server.close(force: true));
+        install(allowlist: const ['127.0.0.1']);
+        trace.mint(TraceRootType.interaction);
 
-      await fetch(Uri.parse('http://127.0.0.1:${server.port}/orders/42'));
+        await fetch(Uri.parse('http://127.0.0.1:${server.port}/orders/42'));
 
-      final attrs = records.single.toAttributes();
-      expect(attrs['traceparent.outcome'], kOutcomeInjectedAttributed);
-      // The whole ticket in one assertion: what left on the wire is what the
-      // row describing it says left.
-      expect(
-          header(0), formatTraceparent(attrs['trace.id']!, attrs['span.id']!));
-      // Root type is denormalised onto the child, so "are launch requests
-      // slower" is a single-table scan.
-      expect(attrs['trace.root_type'], 'interaction');
-      expect(attrs['parent.span.id'], attrs['rum.action.id']);
-      expect(attrs['span.start_time'], endsWith('Z'));
-      expect(int.parse(attrs['span.duration_ms']!), greaterThanOrEqualTo(0));
-    });
+        final attrs = records.single.toAttributes();
+        expect(attrs['traceparent.outcome'], kOutcomeInjectedAttributed);
+        // The whole ticket in one assertion: what left on the wire is what the
+        // row describing it says left.
+        expect(
+          header(0),
+          formatTraceparent(attrs['trace.id']!, attrs['span.id']!),
+        );
+        // Root type is denormalised onto the child, so "are launch requests
+        // slower" is a single-table scan.
+        expect(attrs['trace.root_type'], 'interaction');
+        expect(attrs['parent.span.id'], attrs['rum.action.id']);
+        expect(attrs['span.start_time'], endsWith('Z'));
+        expect(int.parse(attrs['span.duration_ms']!), greaterThanOrEqualTo(0));
+      },
+    );
 
-    test('an off-allowlist host is stamped locally and sent no header',
-        () async {
-      final server = await serve();
-      addTearDown(() => server.close(force: true));
-      install(); // dark by default
-      trace.mint(TraceRootType.interaction);
+    test(
+      'an off-allowlist host is stamped locally and sent no header',
+      () async {
+        final server = await serve();
+        addTearDown(() => server.close(force: true));
+        install(); // dark by default
+        trace.mint(TraceRootType.interaction);
 
-      await fetch(Uri.parse('http://127.0.0.1:${server.port}/orders/42'));
+        await fetch(Uri.parse('http://127.0.0.1:${server.port}/orders/42'));
 
-      final attrs = records.single.toAttributes();
-      expect(attrs['traceparent.outcome'], kOutcomeSkippedOffAllowlist);
-      expect(header(0), isNull);
-      // Still correlatable inside the session — only propagation is withheld.
-      expect(attrs['trace.id'], isNotNull);
-      expect(attrs['span.id'], isNotNull);
-    });
+        final attrs = records.single.toAttributes();
+        expect(attrs['traceparent.outcome'], kOutcomeSkippedOffAllowlist);
+        expect(header(0), isNull);
+        // Still correlatable inside the session — only propagation is withheld.
+        expect(attrs['trace.id'], isNotNull);
+        expect(attrs['span.id'], isNotNull);
+      },
+    );
 
     test('nothing ambient at the freeze instant re-roots parentless', () async {
       final server = await serve();
@@ -199,72 +211,87 @@ void main() {
       expect(attrs.containsKey('parent.span.id'), isFalse);
       expect(attrs['rum.action.id'], attrs['span.id']);
       expect(
-          header(0), formatTraceparent(attrs['trace.id']!, attrs['span.id']!));
-    });
-
-    test('a session rotation under an in-flight request discards and re-roots',
-        () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(() => server.close(force: true));
-      unawaited(server.forEach((req) async {
-        received.add(req.headers);
-        await req.drain<void>();
-        await (req.response..write('ok')).close();
-      }));
-      install(allowlist: const ['127.0.0.1']);
-      trace.mint(TraceRootType.interaction);
-      final frozenTraceId = trace.current()['trace.id'];
-
-      // Rotate between the freeze (openUrl entry) and the inject (close) — the
-      // half that actually bites, since it is the requests in flight when the
-      // app came back that matter most.
-      final client = HttpClient();
-      addTearDown(() => client.close(force: true));
-      final request =
-          await client.getUrl(Uri.parse('http://127.0.0.1:${server.port}/x'));
-      await session.startSession('session_2');
-      final response = await request.close();
-      await response.drain<void>();
-
-      final attrs = records.single.toAttributes();
-      expect(attrs['traceparent.outcome'], kOutcomeInjectedExpired);
-      expect(attrs['trace.id'], isNot(frozenTraceId));
-      expect(attrs['trace.root_type'], 'request');
-      expect(
-          header(0), formatTraceparent(attrs['trace.id']!, attrs['span.id']!));
-    });
-
-    test("the host app's own traceparent is adopted, not overwritten",
-        () async {
-      final server = await serve();
-      addTearDown(() => server.close(force: true));
-      install(allowlist: const ['127.0.0.1']);
-      trace.mint(TraceRootType.interaction);
-      final localAction = trace.current()['rum.action.id'];
-      final theirs = formatTraceparent('c' * 32, 'd' * 16);
-
-      await fetch(
-        Uri.parse('http://127.0.0.1:${server.port}/x'),
-        before: (r) => r.headers.set(kTraceparentHeader, theirs),
+        header(0),
+        formatTraceparent(attrs['trace.id']!, attrs['span.id']!),
       );
-
-      final attrs = records.single.toAttributes();
-      expect(attrs['traceparent.outcome'], kOutcomeAdopted);
-      expect(header(0), theirs, reason: 'their header is left untouched');
-      expect(attrs['trace.id'], 'c' * 32);
-      expect(attrs['span.id'], 'd' * 16);
-      expect(attrs.containsKey('parent.span.id'), isFalse,
-          reason: 'root-shaped inside their trace');
-      // Two keys doing two jobs: trace.id is their call chain, rum.action.id
-      // is still our tap.
-      expect(attrs['rum.action.id'], localAction);
     });
+
+    test(
+      'a session rotation under an in-flight request discards and re-roots',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        unawaited(
+          server.forEach((req) async {
+            received.add(req.headers);
+            await req.drain<void>();
+            await (req.response..write('ok')).close();
+          }),
+        );
+        install(allowlist: const ['127.0.0.1']);
+        trace.mint(TraceRootType.interaction);
+        final frozenTraceId = trace.current()['trace.id'];
+
+        // Rotate between the freeze (openUrl entry) and the inject (close) — the
+        // half that actually bites, since it is the requests in flight when the
+        // app came back that matter most.
+        final client = HttpClient();
+        addTearDown(() => client.close(force: true));
+        final request = await client.getUrl(
+          Uri.parse('http://127.0.0.1:${server.port}/x'),
+        );
+        await session.startSession('session_2');
+        final response = await request.close();
+        await response.drain<void>();
+
+        final attrs = records.single.toAttributes();
+        expect(attrs['traceparent.outcome'], kOutcomeInjectedExpired);
+        expect(attrs['trace.id'], isNot(frozenTraceId));
+        expect(attrs['trace.root_type'], 'request');
+        expect(
+          header(0),
+          formatTraceparent(attrs['trace.id']!, attrs['span.id']!),
+        );
+      },
+    );
+
+    test(
+      "the host app's own traceparent is adopted, not overwritten",
+      () async {
+        final server = await serve();
+        addTearDown(() => server.close(force: true));
+        install(allowlist: const ['127.0.0.1']);
+        trace.mint(TraceRootType.interaction);
+        final localAction = trace.current()['rum.action.id'];
+        final theirs = formatTraceparent('c' * 32, 'd' * 16);
+
+        await fetch(
+          Uri.parse('http://127.0.0.1:${server.port}/x'),
+          before: (r) => r.headers.set(kTraceparentHeader, theirs),
+        );
+
+        final attrs = records.single.toAttributes();
+        expect(attrs['traceparent.outcome'], kOutcomeAdopted);
+        expect(header(0), theirs, reason: 'their header is left untouched');
+        expect(attrs['trace.id'], 'c' * 32);
+        expect(attrs['span.id'], 'd' * 16);
+        expect(
+          attrs.containsKey('parent.span.id'),
+          isFalse,
+          reason: 'root-shaped inside their trace',
+        );
+        // Two keys doing two jobs: trace.id is their call chain, rum.action.id
+        // is still our tap.
+        expect(attrs['rum.action.id'], localAction);
+      },
+    );
 
     test('the SDK\'s own upload emits nothing and carries no header', () async {
       final server = await serve();
       addTearDown(() => server.close(force: true));
-      final self =
-          Uri.parse('http://127.0.0.1:${server.port}/collector/telemetry');
+      final self = Uri.parse(
+        'http://127.0.0.1:${server.port}/collector/telemetry',
+      );
       install(allowlist: const ['127.0.0.1'], selfUrl: self);
       trace.mint(TraceRootType.interaction);
 
@@ -276,30 +303,32 @@ void main() {
       expect(header(0), isNull);
     });
 
-    test('two requests over one connection get distinct spans, one reuse flag',
-        () async {
-      final server = await serve();
-      addTearDown(() => server.close(force: true));
-      install(allowlist: const ['127.0.0.1']);
-      trace.mint(TraceRootType.interaction);
+    test(
+      'two requests over one connection get distinct spans, one reuse flag',
+      () async {
+        final server = await serve();
+        addTearDown(() => server.close(force: true));
+        install(allowlist: const ['127.0.0.1']);
+        trace.mint(TraceRootType.interaction);
 
-      final client = HttpClient();
-      addTearDown(() => client.close(force: true));
-      final url = Uri.parse('http://127.0.0.1:${server.port}/x');
-      for (var i = 0; i < 2; i++) {
-        final response = await (await client.getUrl(url)).close();
-        await response.drain<void>();
-      }
+        final client = HttpClient();
+        addTearDown(() => client.close(force: true));
+        final url = Uri.parse('http://127.0.0.1:${server.port}/x');
+        for (var i = 0; i < 2; i++) {
+          final response = await (await client.getUrl(url)).close();
+          await response.drain<void>();
+        }
 
-      final first = records[0].toAttributes();
-      final second = records[1].toAttributes();
-      expect(first['trace.id'], second['trace.id'], reason: 'one root');
-      expect(first['span.id'], isNot(second['span.id']));
-      expect(header(0), isNot(header(1)));
-      // Measured off the local-port join, not inferred from a fast connect.
-      expect(records[0].connectionReused, isFalse);
-      expect(records[1].connectionReused, isTrue);
-    });
+        final first = records[0].toAttributes();
+        final second = records[1].toAttributes();
+        expect(first['trace.id'], second['trace.id'], reason: 'one root');
+        expect(first['span.id'], isNot(second['span.id']));
+        expect(header(0), isNot(header(1)));
+        // Measured off the local-port join, not inferred from a fast connect.
+        expect(records[0].connectionReused, isFalse);
+        expect(records[1].connectionReused, isTrue);
+      },
+    );
 
     test('a request with a body is injected, not thrown at', () async {
       // dart:io sends the header section on the first body write and freezes
@@ -313,8 +342,9 @@ void main() {
 
       final client = HttpClient();
       addTearDown(() => client.close(force: true));
-      final request =
-          await client.postUrl(Uri.parse('http://127.0.0.1:${server.port}/o'));
+      final request = await client.postUrl(
+        Uri.parse('http://127.0.0.1:${server.port}/o'),
+      );
       request.headers.contentType = ContentType.json;
       request.write('{"qty":1}');
       final response = await request.close();
@@ -323,7 +353,9 @@ void main() {
       final attrs = records.single.toAttributes();
       expect(attrs['traceparent.outcome'], kOutcomeInjectedAttributed);
       expect(
-          header(0), formatTraceparent(attrs['trace.id']!, attrs['span.id']!));
+        header(0),
+        formatTraceparent(attrs['trace.id']!, attrs['span.id']!),
+      );
     });
 
     test('a root that aged out reports expired, not unattributed', () async {
@@ -346,12 +378,13 @@ void main() {
       records.clear();
       received.clear();
       await fetch(Uri.parse('http://127.0.0.1:${server.port}/y'));
-      expect(records.single.toAttributes()['traceparent.outcome'],
-          kOutcomeInjectedUnattributed);
+      expect(
+        records.single.toAttributes()['traceparent.outcome'],
+        kOutcomeInjectedUnattributed,
+      );
     });
 
-    test("an off-allowlist row cannot publish a stale session's trace",
-        () async {
+    test("an off-allowlist row cannot publish a stale session's trace", () async {
       // The invariant dies just as quietly on the rung nobody watches: a frozen
       // S1 carrier stamped onto a row whose session.id says S2.
       final server = await serve();
@@ -362,8 +395,9 @@ void main() {
 
       final client = HttpClient();
       addTearDown(() => client.close(force: true));
-      final request =
-          await client.getUrl(Uri.parse('http://127.0.0.1:${server.port}/x'));
+      final request = await client.getUrl(
+        Uri.parse('http://127.0.0.1:${server.port}/x'),
+      );
       await session.startSession('session_2');
       await (await request.close()).drain<void>();
 
@@ -419,37 +453,45 @@ void main() {
       // Port 1 on loopback refuses: no socket, so nothing was propagated, and
       // absence is the contract's member for "not traced".
       await expectLater(
-          fetch(Uri.parse('http://127.0.0.1:1/x')), throwsA(isA<Object>()));
+        fetch(Uri.parse('http://127.0.0.1:1/x')),
+        throwsA(isA<Object>()),
+      );
 
       final attrs = records.single.toAttributes();
       expect(attrs.containsKey('traceparent.outcome'), isFalse);
       expect(attrs['trace.id'], isNotNull);
     });
 
-    test('KNOWN LIMITATION: a redirect carries the header off the allowlist',
-        () async {
-      // Declined, not tolerated. `followRedirects` defaults true and dart:io
-      // copies headers onto the redirect target *inside* `close()`, below this
-      // wrapper. Closing it means setting `followRedirects = false` internally
-      // and re-driving each hop — the SDK seizing redirect semantics it does
-      // not own, and changing the host app's HTTP behaviour, to fix a telemetry
-      // concern. Asserted here so it stays a known, measured limitation rather
-      // than a surprise; delete this test the day the decision is reversed.
-      final target = await serve();
-      addTearDown(() => target.close(force: true));
-      // Same loopback address, a different host *string* — so it is off the
-      // allowlist by the rule, exactly as a third-party domain would be.
-      final redirector = await serve(
-          redirectTo: Uri.parse('http://localhost:${target.port}/leaked'));
-      addTearDown(() => redirector.close(force: true));
-      install(allowlist: const ['127.0.0.1']);
-      trace.mint(TraceRootType.interaction);
+    test(
+      'KNOWN LIMITATION: a redirect carries the header off the allowlist',
+      () async {
+        // Declined, not tolerated. `followRedirects` defaults true and dart:io
+        // copies headers onto the redirect target *inside* `close()`, below this
+        // wrapper. Closing it means setting `followRedirects = false` internally
+        // and re-driving each hop — the SDK seizing redirect semantics it does
+        // not own, and changing the host app's HTTP behaviour, to fix a telemetry
+        // concern. Asserted here so it stays a known, measured limitation rather
+        // than a surprise; delete this test the day the decision is reversed.
+        final target = await serve();
+        addTearDown(() => target.close(force: true));
+        // Same loopback address, a different host *string* — so it is off the
+        // allowlist by the rule, exactly as a third-party domain would be.
+        final redirector = await serve(
+          redirectTo: Uri.parse('http://localhost:${target.port}/leaked'),
+        );
+        addTearDown(() => redirector.close(force: true));
+        install(allowlist: const ['127.0.0.1']);
+        trace.mint(TraceRootType.interaction);
 
-      await fetch(Uri.parse('http://127.0.0.1:${redirector.port}/go'));
+        await fetch(Uri.parse('http://127.0.0.1:${redirector.port}/go'));
 
-      expect(header(0), isNotNull, reason: 'the allowlisted hop');
-      expect(header(1), header(0),
-          reason: 'the platform copied it onto the off-allowlist hop');
-    });
+        expect(header(0), isNotNull, reason: 'the allowlisted hop');
+        expect(
+          header(1),
+          header(0),
+          reason: 'the platform copied it onto the off-allowlist hop',
+        );
+      },
+    );
   });
 }

@@ -53,17 +53,22 @@ class EdgeNavigationObserver extends NavigatorObserver {
 
   /// Handle navigation route changes
   void _handleRouteChange(
-      Route<dynamic> route, Route<dynamic>? previousRoute, String method) {
+    Route<dynamic> route,
+    Route<dynamic>? previousRoute,
+    String method,
+  ) {
     final routeName = _extractRouteName(route);
-    final previousRouteName = previousRoute != null
-        ? _extractRouteName(previousRoute)
-        : _currentRoute;
+    final previousRouteName =
+        previousRoute != null
+            ? _extractRouteName(previousRoute)
+            : _currentRoute;
 
     // Close out the previous screen — its dwell folds onto the one
     // `navigation` event below rather than emitting a second item.
-    final dwell = previousRouteName == null
-        ? const <String, String>{}
-        : _endScreen(previousRouteName, method);
+    final dwell =
+        previousRouteName == null
+            ? const <String, String>{}
+            : _endScreen(previousRouteName, method);
 
     // Start timing the new screen.
     _startScreen(routeName);
@@ -95,8 +100,9 @@ class EdgeNavigationObserver extends NavigatorObserver {
     // Was this screen ever actually on screen? A route pushed and superseded
     // within the same frame never painted, and dwell for a screen nobody saw
     // is a row that says a user spent 0 ms somewhere they never were.
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => visit.wasVisible = true);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => visit.wasVisible = true,
+    );
     // Books a seat on the next frame; it does not schedule one. See the same
     // pair in `ScreenLoadHook.enter`.
     WidgetsBinding.instance.scheduleFrame();
@@ -105,9 +111,9 @@ class EdgeNavigationObserver extends NavigatorObserver {
   /// The two sanctioned route attrs (glossary §3): the runtime `Route` type and
   /// a boolean args-present flag — never the argument values (PII).
   Map<String, String> _routeContext(Route<dynamic> route) => {
-        'route.type': route.runtimeType.toString(),
-        'route.has_arguments': (route.settings.arguments != null).toString(),
-      };
+    'route.type': route.runtimeType.toString(),
+    'route.has_arguments': (route.settings.arguments != null).toString(),
+  };
 
   /// End a screen and return the dwell attributes for the `navigation` event.
   ///
@@ -130,8 +136,13 @@ class EdgeNavigationObserver extends NavigatorObserver {
   }
 
   /// Track navigation event
-  void _trackNavigationEvent(String routeName, String? previousRouteName,
-      String method, Route<dynamic> route, Map<String, String> dwell) {
+  void _trackNavigationEvent(
+    String routeName,
+    String? previousRouteName,
+    String method,
+    Route<dynamic> route,
+    Map<String, String> dwell,
+  ) {
     final navigationAttributes = <String, String>{
       'navigation.to': routeName,
       'navigation.method': method,

@@ -37,37 +37,40 @@ void main() {
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
   MemoryBookendHook hookOn(_RecordingSink sink) => MemoryBookendHook(
-        channel: NativeCrashChannel(),
-        flush: () => flushes.add('flush'),
-      )..start(sink);
-
-  test('two items per session, one per bookend, and nothing in between',
-      () async {
-    mockState({'memory.used_bytes': '14237696', 'memory.source': 'pss'});
-    final sink = _RecordingSink();
-    final hook = hookOn(sink);
-
-    hook.onSessionStart();
-    await pumpEventQueue();
-    expect(sink.events, hasLength(1), reason: 'opening bookend');
-
-    hook.onPaused();
-    await pumpEventQueue();
-    expect(sink.events, hasLength(2), reason: 'closing bookend');
-
-    final names = sink.events.map((e) => e.name).toSet();
-    expect(names, {'memory_usage'});
-    expect(sink.events.map((e) => e.attributes['memory.phase']),
-        ['session_start', 'session_end']);
-    expect(reads, 2, reason: 'no cache, and no third read');
-    // The closing read resolves after the lifecycle hook's own flush has gone,
-    // so the item it just added needs a flush of its own or it waits in the
-    // buffer for a resume that may never come.
-    expect(flushes, hasLength(1), reason: 'closing bookend only');
-  });
+    channel: NativeCrashChannel(),
+    flush: () => flushes.add('flush'),
+  )..start(sink);
 
   test(
-      'the closing bookend fires once — a pause/resume round trip is not a '
+    'two items per session, one per bookend, and nothing in between',
+    () async {
+      mockState({'memory.used_bytes': '14237696', 'memory.source': 'pss'});
+      final sink = _RecordingSink();
+      final hook = hookOn(sink);
+
+      hook.onSessionStart();
+      await pumpEventQueue();
+      expect(sink.events, hasLength(1), reason: 'opening bookend');
+
+      hook.onPaused();
+      await pumpEventQueue();
+      expect(sink.events, hasLength(2), reason: 'closing bookend');
+
+      final names = sink.events.map((e) => e.name).toSet();
+      expect(names, {'memory_usage'});
+      expect(sink.events.map((e) => e.attributes['memory.phase']), [
+        'session_start',
+        'session_end',
+      ]);
+      expect(reads, 2, reason: 'no cache, and no third read');
+      // The closing read resolves after the lifecycle hook's own flush has gone,
+      // so the item it just added needs a flush of its own or it waits in the
+      // buffer for a resume that may never come.
+      expect(flushes, hasLength(1), reason: 'closing bookend only');
+    },
+  );
+
+  test('the closing bookend fires once — a pause/resume round trip is not a '
       'new session', () async {
     mockState({'memory.used_bytes': '1', 'memory.source': 'footprint'});
     final sink = _RecordingSink();
@@ -93,24 +96,30 @@ void main() {
     hook.onPaused();
     await pumpEventQueue();
 
-    expect(sink.events.map((e) => e.attributes['memory.phase']),
-        ['session_start', 'session_end', 'session_start', 'session_end']);
+    expect(sink.events.map((e) => e.attributes['memory.phase']), [
+      'session_start',
+      'session_end',
+      'session_start',
+      'session_end',
+    ]);
   });
 
-  test('the source key makes the native quantity legible on the wire',
-      () async {
-    mockState({'memory.used_bytes': '512', 'memory.source': 'footprint'});
-    final sink = _RecordingSink();
-    hookOn(sink).onSessionStart();
-    await pumpEventQueue();
+  test(
+    'the source key makes the native quantity legible on the wire',
+    () async {
+      mockState({'memory.used_bytes': '512', 'memory.source': 'footprint'});
+      final sink = _RecordingSink();
+      hookOn(sink).onSessionStart();
+      await pumpEventQueue();
 
-    final metric = sink.events.single;
-    expect(metric.value, 512.0);
-    expect(metric.attributes['memory.source'], 'footprint');
-    expect(metric.attributes['memory.unit'], 'bytes');
-    // v2's `memory.type: rss` described a quantity we no longer read.
-    expect(metric.attributes.containsKey('memory.type'), isFalse);
-  });
+      final metric = sink.events.single;
+      expect(metric.value, 512.0);
+      expect(metric.attributes['memory.source'], 'footprint');
+      expect(metric.attributes['memory.unit'], 'bytes');
+      // v2's `memory.type: rss` described a quantity we no longer read.
+      expect(metric.attributes.containsKey('memory.type'), isFalse);
+    },
+  );
 
   test('no native plugin → no item, never a false zero', () async {
     // Missing plugin: the channel answers with MissingPluginException.
@@ -134,8 +143,9 @@ void main() {
     expect(sink.events, isEmpty);
   });
 
-  testWidgets('PerfCaptureHook no longer runs a health time series',
-      (tester) async {
+  testWidgets('PerfCaptureHook no longer runs a health time series', (
+    tester,
+  ) async {
     final sink = _RecordingSink();
     final dispose = PerfCaptureHook().start(sink);
     addTearDown(dispose);

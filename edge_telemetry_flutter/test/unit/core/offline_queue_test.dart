@@ -54,8 +54,9 @@ void main() {
     expect(files.single, startsWith('batch_'));
 
     final content =
-        await File('${docs.path}/edge_telemetry_queue/${files.single}')
-            .readAsString();
+        await File(
+          '${docs.path}/edge_telemetry_queue/${files.single}',
+        ).readAsString();
     expect(content, '{"type":"telemetry_batch","events":[]}');
   });
 
@@ -132,46 +133,52 @@ void main() {
     expect(drops, ['queue_overflow', 'queue_overflow', 'queue_overflow']);
   });
 
-  test('a file is dropped and counted once its attempts are exhausted',
-      () async {
-    final drops = <String>[];
-    final q = OfflineQueue(onDrop: drops.add);
-    await q.persist({'c': 0}, isCrash: true);
+  test(
+    'a file is dropped and counted once its attempts are exhausted',
+    () async {
+      final drops = <String>[];
+      final q = OfflineQueue(onDrop: drops.add);
+      await q.persist({'c': 0}, isCrash: true);
 
-    var attempts = 0;
-    for (var cycle = 0; cycle < OfflineQueue.maxAttempts + 1; cycle++) {
-      await q.drain((_) async {
-        attempts++;
-        return DrainResult.failed; // collector keeps refusing
-      });
-    }
+      var attempts = 0;
+      for (var cycle = 0; cycle < OfflineQueue.maxAttempts + 1; cycle++) {
+        await q.drain((_) async {
+          attempts++;
+          return DrainResult.failed; // collector keeps refusing
+        });
+      }
 
-    expect(attempts, OfflineQueue.maxAttempts);
-    expect(await queuedFiles(), isEmpty);
-    expect(drops, ['queue_attempts_exhausted']);
-  });
+      expect(attempts, OfflineQueue.maxAttempts);
+      expect(await queuedFiles(), isEmpty);
+      expect(drops, ['queue_attempts_exhausted']);
+    },
+  );
 
-  test('an offline cycle spends no attempts and leaves the queue untouched',
-      () async {
-    final drops = <String>[];
-    final q = OfflineQueue(onDrop: drops.add);
-    for (var i = 0; i < 3; i++) {
-      await q.persist({'c': i}, isCrash: true);
-    }
+  test(
+    'an offline cycle spends no attempts and leaves the queue untouched',
+    () async {
+      final drops = <String>[];
+      final q = OfflineQueue(onDrop: drops.add);
+      for (var i = 0; i < 3; i++) {
+        await q.persist({'c': i}, isCrash: true);
+      }
 
-    var calls = 0;
-    for (var cycle = 0; cycle < OfflineQueue.maxAttempts + 2; cycle++) {
-      await q.drain((_) async {
-        calls++;
-        return DrainResult.offline; // no network — nothing learned
-      });
-    }
+      var calls = 0;
+      for (var cycle = 0; cycle < OfflineQueue.maxAttempts + 2; cycle++) {
+        await q.drain((_) async {
+          calls++;
+          return DrainResult.offline; // no network — nothing learned
+        });
+      }
 
-    expect(
-        calls, OfflineQueue.maxAttempts + 2); // one probe per cycle, then stop
-    expect(await queuedFiles(), hasLength(3)); // nothing dropped
-    expect(drops, isEmpty);
-  });
+      expect(
+        calls,
+        OfflineQueue.maxAttempts + 2,
+      ); // one probe per cycle, then stop
+      expect(await queuedFiles(), hasLength(3)); // nothing dropped
+      expect(drops, isEmpty);
+    },
+  );
 
   test('drain is paced at drainBatchSize files per cycle', () async {
     final q = OfflineQueue();
@@ -179,8 +186,10 @@ void main() {
       await q.persist({'n': i});
     }
 
-    expect(await q.drain((_) async => DrainResult.done),
-        OfflineQueue.drainBatchSize);
+    expect(
+      await q.drain((_) async => DrainResult.done),
+      OfflineQueue.drainBatchSize,
+    );
     expect(await queuedFiles(), hasLength(12 - OfflineQueue.drainBatchSize));
   });
 

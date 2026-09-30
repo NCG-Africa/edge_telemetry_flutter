@@ -36,11 +36,15 @@ android {
         jvmTarget = '1.8'
     }
 
-    // Keeps the existing low floor (Africa-market devices on 9/10 stay
-    // supported). ApplicationExitInfo is guarded at runtime for API 30+;
-    // JVM crash capture works on every level.
+    // API 21, which is what an existing dependency already demanded (#93):
+    // `shared_preferences_android` and `path_provider_android` both declare
+    // minSdkVersion 21, so the manifest merger raised the effective floor to 21
+    // in every v2 build while this file advertised 19. The declaration now
+    // matches reality; no device that worked loses support.
+    // ApplicationExitInfo is still guarded at runtime for API 30+; JVM crash
+    // capture works on every supported level.
     defaultConfig {
-        minSdk 19
+        minSdk 21
     }
 
     dependencies {

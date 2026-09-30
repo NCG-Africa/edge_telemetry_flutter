@@ -42,9 +42,9 @@ class _RecordingSender {
   /// Wire items, unwrapped from their `telemetry_batch` envelope. Since #81
   /// both rails envelope — the immediate crash as a one-item batch.
   List<Map<String, dynamic>> get items => [
-        for (final p in sent)
-          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
-      ];
+    for (final p in sent)
+      ...?(p['events'] as List?)?.cast<Map<String, dynamic>>(),
+  ];
   Future<bool> call(Map<String, dynamic> payload) async {
     sent.add(payload);
     return true;
@@ -55,13 +55,14 @@ class _NoopQueue extends OfflineQueue {
   @override
   Future<void> initialize() async {}
   @override
-  Future<String?> persist(Map<String, dynamic> p,
-          {bool isCrash = false}) async =>
-      null;
+  Future<String?> persist(
+    Map<String, dynamic> p, {
+    bool isCrash = false,
+  }) async => null;
   @override
   Future<int> drain(
-          Future<DrainResult> Function(Map<String, dynamic>) s) async =>
-      0;
+    Future<DrainResult> Function(Map<String, dynamic>) s,
+  ) async => 0;
 }
 
 void main() {
@@ -84,20 +85,24 @@ void main() {
       idleTimeout: idle,
       sampledRoll: sampledRoll == null ? null : () => sampledRoll,
     );
-    final context =
-        ContextManager(sessionManager: session, global: {'device.id': 'd_1'});
+    final context = ContextManager(
+      sessionManager: session,
+      global: {'device.id': 'd_1'},
+    );
     final pipeline = Pipeline(
       transport: RetryTransport(
-          endpoint: 'https://api.example.test',
-          queue: _NoopQueue(),
-          sender: sender.call),
+        endpoint: 'https://api.example.test',
+        queue: _NoopQueue(),
+        sender: sender.call,
+      ),
       batchSize: 100, // nothing flushes by size; only the immediate rail sends
     );
     final collector = Collector(
-        context: context,
-        session: session,
-        pipeline: pipeline,
-        debugMode: debugMode);
+      context: context,
+      session: session,
+      pipeline: pipeline,
+      debugMode: debugMode,
+    );
     session.bindSink(collector);
     await session.recoverAndStart();
     return (collector, session, sender);
@@ -114,60 +119,78 @@ void main() {
 
     // v3's four additions (#79).
     expect(
-        kCanonEvents,
-        containsAll([
-          'ui.interaction',
-          'frame.summary',
-          'screen.load',
-          'task.complete'
-        ]));
+      kCanonEvents,
+      containsAll([
+        'ui.interaction',
+        'frame.summary',
+        'screen.load',
+        'task.complete',
+      ]),
+    );
     // Retained deprecate-in-place — the name never goes, only the emission.
     expect(kCanonEvents, containsAll(['user.interaction', 'screen.duration']));
     expect(
-        kCanonMetrics, containsAll(['frame_render_time', 'resource_timing']));
+      kCanonMetrics,
+      containsAll(['frame_render_time', 'resource_timing']),
+    );
     // Deliberately absent: unsupported by the backend, or already a `cause`.
     for (final name in [
       'memory_pressure',
       'storage_usage',
       'app.anr',
-      'app.hang'
+      'app.hang',
     ]) {
-      expect(kCanonEvents, isNot(contains(name)),
-          reason: '$name must stay off');
-      expect(kCanonMetrics, isNot(contains(name)),
-          reason: '$name must stay off');
+      expect(
+        kCanonEvents,
+        isNot(contains(name)),
+        reason: '$name must stay off',
+      );
+      expect(
+        kCanonMetrics,
+        isNot(contains(name)),
+        reason: '$name must stay off',
+      );
     }
   });
 
-  test('v2\'s seven silent drops are counted and ship on session.finalized',
-      () async {
-    final (collector, session, sender) = await wire();
+  test(
+    'v2\'s seven silent drops are counted and ship on session.finalized',
+    () async {
+      final (collector, session, sender) = await wire();
 
-    _v2SilentDrops.forEach((name, type) {
-      collector.add(
-          type == 'metric' ? EdgeEvent.metric(name, 1) : EdgeEvent.event(name));
-    });
-    await Future<void>(() {});
+      _v2SilentDrops.forEach((name, type) {
+        collector.add(
+          type == 'metric' ? EdgeEvent.metric(name, 1) : EdgeEvent.event(name),
+        );
+      });
+      await Future<void>(() {});
 
-    // Still a hard drop: nothing off-canon reached the wire.
-    expect(sender.sent.every((p) => p['eventName'] != 'telemetry.initialized'),
-        isTrue);
+      // Still a hard drop: nothing off-canon reached the wire.
+      expect(
+        sender.sent.every((p) => p['eventName'] != 'telemetry.initialized'),
+        isTrue,
+      );
 
-    // Idle past the window → the next activity rotates and finalizes.
-    clock = clock.add(idle + const Duration(minutes: 1));
-    session.beforeEvent();
-    await Future<void>(() {});
+      // Idle past the window → the next activity rotates and finalizes.
+      clock = clock.add(idle + const Duration(minutes: 1));
+      session.beforeEvent();
+      await Future<void>(() {});
 
-    final attrs = finalizeOnWire(sender)['attributes'] as Map;
-    expect(attrs['session.dropped_item_count'], '7');
-    expect(attrs['session.dropped_reasons'], 'off_canon=7');
-  });
+      final attrs = finalizeOnWire(sender)['attributes'] as Map;
+      expect(attrs['session.dropped_item_count'], '7');
+      expect(attrs['session.dropped_reasons'], 'off_canon=7');
+    },
+  );
 
   test('a clean session reports zero and omits the reason breakdown', () async {
     final (collector, session, sender) = await wire();
 
-    collector.add(const EdgeEvent.event('navigation',
-        attributes: {'navigation.to': '/home'}));
+    collector.add(
+      const EdgeEvent.event(
+        'navigation',
+        attributes: {'navigation.to': '/home'},
+      ),
+    );
     await Future<void>(() {});
 
     clock = clock.add(idle + const Duration(minutes: 1));
@@ -191,10 +214,11 @@ void main() {
     session.beforeEvent(); // finalizes session_2
     await Future<void>(() {});
 
-    final finals = sender.items
-        .where((p) => p['eventName'] == 'session.finalized')
-        .map((p) => (p['attributes'] as Map)['session.dropped_item_count'])
-        .toList();
+    final finals =
+        sender.items
+            .where((p) => p['eventName'] == 'session.finalized')
+            .map((p) => (p['attributes'] as Map)['session.dropped_item_count'])
+            .toList();
     expect(finals, ['1', '2']);
   });
 
@@ -213,44 +237,56 @@ void main() {
     final attrs = finalizeOnWire(sender)['attributes'] as Map;
     expect(attrs['session.dropped_item_count'], '4');
     // Sorted by reason so the attribute is stable across runs.
-    expect(attrs['session.dropped_reasons'],
-        'action_cap=1,off_canon=1,tier_shed=2');
+    expect(
+      attrs['session.dropped_reasons'],
+      'action_cap=1,off_canon=1,tier_shed=2',
+    );
   });
 
-  test('a sampled-out session still counts its drops — no confident zero',
-      () async {
-    // The finalize bookend bypasses sampling and ships this count, so the
-    // allowlist gate must run even when the session lost the roll. Otherwise
-    // the whole sampled-out population reports 0 drops it never looked at.
-    final (collector, session, sender) = await wire(sampledRoll: false);
+  test(
+    'a sampled-out session still counts its drops — no confident zero',
+    () async {
+      // The finalize bookend bypasses sampling and ships this count, so the
+      // allowlist gate must run even when the session lost the roll. Otherwise
+      // the whole sampled-out population reports 0 drops it never looked at.
+      final (collector, session, sender) = await wire(sampledRoll: false);
 
-    _v2SilentDrops.forEach((name, type) {
+      _v2SilentDrops.forEach((name, type) {
+        collector.add(
+          type == 'metric' ? EdgeEvent.metric(name, 1) : EdgeEvent.event(name),
+        );
+      });
+      // A canon event in the same session is still sampled away, as before.
       collector.add(
-          type == 'metric' ? EdgeEvent.metric(name, 1) : EdgeEvent.event(name));
-    });
-    // A canon event in the same session is still sampled away, as before.
-    collector.add(const EdgeEvent.event('navigation',
-        attributes: {'navigation.to': '/home'}));
+        const EdgeEvent.event(
+          'navigation',
+          attributes: {'navigation.to': '/home'},
+        ),
+      );
 
-    clock = clock.add(idle + const Duration(minutes: 1));
-    session.beforeEvent();
-    await Future<void>(() {});
+      clock = clock.add(idle + const Duration(minutes: 1));
+      session.beforeEvent();
+      await Future<void>(() {});
 
-    final attrs = finalizeOnWire(sender)['attributes'] as Map;
-    expect(attrs['session.sampled'], 'false');
-    expect(attrs['session.dropped_item_count'], '7');
-    expect(attrs['session.dropped_reasons'], 'off_canon=7');
-  });
+      final attrs = finalizeOnWire(sender)['attributes'] as Map;
+      expect(attrs['session.sampled'], 'false');
+      expect(attrs['session.dropped_item_count'], '7');
+      expect(attrs['session.dropped_reasons'], 'off_canon=7');
+    },
+  );
 
   test('debugMode names the dropped item; silent when off', () async {
     final logged = <String>[];
-    final spy =
-        ZoneSpecification(print: (_, __, ___, line) => logged.add(line));
+    final spy = ZoneSpecification(
+      print: (_, __, ___, line) => logged.add(line),
+    );
 
     await runZoned(() async {
       final (collector, _, ignored) = await wire(debugMode: true);
-      expect(ignored.items.map((p) => p['eventName']),
-          everyElement(startsWith('session.')));
+      expect(
+        ignored.items.map((p) => p['eventName']),
+        everyElement(startsWith('session.')),
+      );
       collector.add(const EdgeEvent.event('performance.memory_pressure'));
       collector.add(const EdgeEvent.metric('network.quality_score', 4));
       collector.add(const EdgeEvent.event('navigation')); // canon → no log
@@ -268,41 +304,49 @@ void main() {
       final (collector, _, ignored) = await wire(); // debugMode off
       collector.add(const EdgeEvent.event('performance.memory_pressure'));
       expect(
-          ignored.items.map((p) => p['eventName']),
-          everyElement(
-              startsWith('session.'))); // still a hard drop, logged or not
+        ignored.items.map((p) => p['eventName']),
+        everyElement(startsWith('session.')),
+      ); // still a hard drop, logged or not
     }, zoneSpecification: spy);
     expect(logged.where((l) => l.contains('off-canon')), isEmpty);
   });
 
-  test('a session killed mid-flight carries its drops into the next launch',
-      () async {
-    final (collector, session, _) = await wire();
-    collector.add(const EdgeEvent.event('off.canon'));
-    collector.add(const EdgeEvent.metric('off.canon.metric', 1));
-    session.handlePause(); // persists the record; the OS then kills us
+  test(
+    'a session killed mid-flight carries its drops into the next launch',
+    () async {
+      final (collector, session, _) = await wire();
+      collector.add(const EdgeEvent.event('off.canon'));
+      collector.add(const EdgeEvent.metric('off.canon.metric', 1));
+      session.handlePause(); // persists the record; the OS then kills us
 
-    // Next launch: a fresh manager recovers the persisted session.
-    final sender = _RecordingSender();
-    final recovered =
-        SessionManager(newSessionId: () => 'session_next', clock: () => clock);
-    final ctx =
-        ContextManager(sessionManager: recovered, global: {'device.id': 'd_1'});
-    final pipeline = Pipeline(
-      transport: RetryTransport(
+      // Next launch: a fresh manager recovers the persisted session.
+      final sender = _RecordingSender();
+      final recovered = SessionManager(
+        newSessionId: () => 'session_next',
+        clock: () => clock,
+      );
+      final ctx = ContextManager(
+        sessionManager: recovered,
+        global: {'device.id': 'd_1'},
+      );
+      final pipeline = Pipeline(
+        transport: RetryTransport(
           endpoint: 'https://api.example.test',
           queue: _NoopQueue(),
-          sender: sender.call),
-      batchSize: 100,
-    );
-    recovered.bindSink(
-        Collector(context: ctx, session: recovered, pipeline: pipeline));
-    await recovered.recoverAndStart();
-    await Future<void>(() {});
+          sender: sender.call,
+        ),
+        batchSize: 100,
+      );
+      recovered.bindSink(
+        Collector(context: ctx, session: recovered, pipeline: pipeline),
+      );
+      await recovered.recoverAndStart();
+      await Future<void>(() {});
 
-    final attrs = finalizeOnWire(sender)['attributes'] as Map;
-    expect(attrs['session.recovered'], 'true');
-    expect(attrs['session.dropped_item_count'], '2');
-    expect(attrs['session.dropped_reasons'], 'off_canon=2');
-  });
+      final attrs = finalizeOnWire(sender)['attributes'] as Map;
+      expect(attrs['session.recovered'], 'true');
+      expect(attrs['session.dropped_item_count'], '2');
+      expect(attrs['session.dropped_reasons'], 'off_canon=2');
+    },
+  );
 }

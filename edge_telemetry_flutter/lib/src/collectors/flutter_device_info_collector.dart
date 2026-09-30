@@ -65,7 +65,8 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
 
   /// Collect platform-specific device information
   Future<void> _collectPlatformSpecificInfo(
-      Map<String, String> attributes) async {
+    Map<String, String> attributes,
+  ) async {
     final deviceInfo = DeviceInfoPlugin();
 
     if (kIsWeb) {
@@ -79,7 +80,9 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
 
   /// Collect Android-specific information
   Future<void> _collectAndroidInfo(
-      DeviceInfoPlugin deviceInfo, Map<String, String> attributes) async {
+    DeviceInfoPlugin deviceInfo,
+    Map<String, String> attributes,
+  ) async {
     try {
       final androidInfo = await deviceInfo.androidInfo;
       // `device.fingerprint` **stays**: it is OS build metadata
@@ -103,7 +106,9 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
 
   /// Collect iOS-specific information
   Future<void> _collectIOSInfo(
-      DeviceInfoPlugin deviceInfo, Map<String, String> attributes) async {
+    DeviceInfoPlugin deviceInfo,
+    Map<String, String> attributes,
+  ) async {
     try {
       final iosInfo = await deviceInfo.iosInfo;
       // Two keys are gone from v2 here, for two different reasons (#91):
@@ -133,7 +138,9 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
 
   /// Collect web-specific information
   Future<void> _collectWebInfo(
-      DeviceInfoPlugin deviceInfo, Map<String, String> attributes) async {
+    DeviceInfoPlugin deviceInfo,
+    Map<String, String> attributes,
+  ) async {
     try {
       final webInfo = await deviceInfo.webBrowserInfo;
       attributes.addAll({

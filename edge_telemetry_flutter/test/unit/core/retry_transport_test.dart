@@ -18,59 +18,65 @@ class _RecordingQueue extends OfflineQueue {
   Future<void> initialize() async {}
 
   @override
-  Future<String?> persist(Map<String, dynamic> payload,
-      {bool isCrash = false}) async {
+  Future<String?> persist(
+    Map<String, dynamic> payload, {
+    bool isCrash = false,
+  }) async {
     persisted.add(payload);
     return 'rec_${persisted.length}.json';
   }
 
   @override
   Future<int> drain(
-          Future<DrainResult> Function(Map<String, dynamic>) send) async =>
-      0;
+    Future<DrainResult> Function(Map<String, dynamic>) send,
+  ) async => 0;
 }
 
 void main() {
-  test('reachable failure exhausts the backoff, then queues the batch',
-      () async {
-    final queue = _RecordingQueue();
-    var attempts = 0;
-    final transport = RetryTransport(
-      endpoint: 'https://example.test',
-      queue: queue,
-      backoff: const [Duration.zero, Duration.zero, Duration.zero],
-      sender: (_) async {
-        attempts++;
-        return false; // reachable failure (500)
-      },
-    );
+  test(
+    'reachable failure exhausts the backoff, then queues the batch',
+    () async {
+      final queue = _RecordingQueue();
+      var attempts = 0;
+      final transport = RetryTransport(
+        endpoint: 'https://example.test',
+        queue: queue,
+        backoff: const [Duration.zero, Duration.zero, Duration.zero],
+        sender: (_) async {
+          attempts++;
+          return false; // reachable failure (500)
+        },
+      );
 
-    final ok = await transport.send({'type': 'telemetry_batch'});
+      final ok = await transport.send({'type': 'telemetry_batch'});
 
-    expect(ok, isFalse);
-    expect(attempts, 3); // all backoff slots tried
-    expect(queue.persisted, hasLength(1)); // queued after exhaustion
-  });
+      expect(ok, isFalse);
+      expect(attempts, 3); // all backoff slots tried
+      expect(queue.persisted, hasLength(1)); // queued after exhaustion
+    },
+  );
 
-  test('offline (status==0) queues immediately without burning backoff',
-      () async {
-    final queue = _RecordingQueue();
-    // Port 1 refuses the connection → real HTTP path returns status 0.
-    final transport = RetryTransport(
-      endpoint: 'http://localhost:1',
-      queue: queue,
-      // Long delays that must NOT be awaited if the offline shortcut works.
-      backoff: const [Duration.zero, Duration(seconds: 30)],
-    );
+  test(
+    'offline (status==0) queues immediately without burning backoff',
+    () async {
+      final queue = _RecordingQueue();
+      // Port 1 refuses the connection → real HTTP path returns status 0.
+      final transport = RetryTransport(
+        endpoint: 'http://localhost:1',
+        queue: queue,
+        // Long delays that must NOT be awaited if the offline shortcut works.
+        backoff: const [Duration.zero, Duration(seconds: 30)],
+      );
 
-    final sw = Stopwatch()..start();
-    final ok = await transport.send({'type': 'telemetry_batch'});
-    sw.stop();
+      final sw = Stopwatch()..start();
+      final ok = await transport.send({'type': 'telemetry_batch'});
+      sw.stop();
 
-    expect(ok, isFalse);
-    expect(queue.persisted, hasLength(1));
-    expect(sw.elapsed, lessThan(const Duration(seconds: 5))); // no 30s wait
-  });
+      expect(ok, isFalse);
+      expect(queue.persisted, hasLength(1));
+      expect(sw.elapsed, lessThan(const Duration(seconds: 5))); // no 30s wait
+    },
+  );
 
   test('sends the X-API-Key header on the real POST', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

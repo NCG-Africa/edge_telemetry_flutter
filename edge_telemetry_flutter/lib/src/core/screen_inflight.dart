@@ -33,8 +33,8 @@ void Function(String screenId, int inFlight)? _listener;
 /// pair: the hook has to cancel its quiet window when a request *starts* just
 /// as much as it has to arm one when the last one ends.
 void bindScreenInflightListener(
-        void Function(String screenId, int inFlight)? listener) =>
-    _listener = listener;
+  void Function(String screenId, int inFlight)? listener,
+) => _listener = listener;
 
 /// The screen a request entering the seam right now belongs to.
 void setCurrentScreen(String? screenId) => _currentScreenId = screenId;
