@@ -68,10 +68,13 @@ whenever the block changes — one batch is structurally one session and one use
 
 Attribute spelling is deliberately mixed and must not be "normalized": dotted for identity/domain keys
 (`session.id`, `http.url`), **unprefixed** on `app.crash` (`message`, `stacktrace`, `exception_type`,
-`cause`, `is_fatal`, `handled`) because the backend extractors read those verbatim. The v3 error
-taxonomy is the one addition there and it is **dotted** (`error.category`,
-`error.category_source`), beside the already-dotted `crash.source` / `crash.breadcrumbs` — `cause`
-is a shipped enum here and free text in the sibling, so no-renames keeps the taxonomy out of it.
+`cause`, `is_fatal`, `handled`) because the backend extractors read those verbatim. Two v3 additions
+sit there and **both are dotted**: the error taxonomy (`error.category`, `error.category_source`)
+and the fatal-only fault bundle (#91: `device.battery_level`, `device.battery_charging`,
+`device.power_save_mode`, `device.thermal_state`, `device.orientation`), beside the already-dotted
+`crash.source` / `crash.breadcrumbs` — new keys the extractors do not read get the family's ordinary
+spelling, not the legacy one. `cause` is a shipped enum here and free text in the sibling, so
+no-renames keeps the taxonomy out of it.
 
 ### Six rules govern the canon
 
@@ -83,11 +86,14 @@ first (#53, amended by #61):
 2. **No renames of a v2 name, ever** — deprecate-in-place. A name may stop being emitted; it may never
    be renamed or have its meaning changed under the same backend columns. `page_load` therefore means
    app launch forever, and screen load minted a new name instead.
-   **Three v3 carve-outs, all in §8 and all deliberate** (#85): `http.duration_ms` re-bases,
-   `http.success` narrows to 2xx, and `http.url` loses its query. The rule bends only where the v2
-   meaning was *wrong* rather than merely different — a duration that measured neither connect nor
-   download, a success that disagreed with the sibling SDK, and a key shipping PII — and the URL
-   change carries an in-band `http.url_redacted` flag. Record the errata; do not generalise this.
+   **Four v3 carve-outs, all deliberate** — three in §8 (#85): `http.duration_ms` re-bases,
+   `http.success` narrows to 2xx, and `http.url` loses its query; and one in §10 (#91):
+   `memory_usage` re-bases from resident set to the platform's own quantity (`phys_footprint` /
+   total PSS). The rule bends only where the v2 meaning was *wrong* rather than merely different —
+   a duration that measured neither connect nor download, a success that disagreed with the sibling
+   SDK, a key shipping PII, and a memory figure that was the wrong number on **both** platforms and
+   not comparable between them. Each bend that changes a value under an unchanged column carries an
+   in-band flag: `http.url_redacted`, and `memory.source`. Record the errata; do not generalise this.
 3. **Attribute-first, by a *temporal* test**: a signal earns an event name only when no existing event
    fires at the instant that signal is known. Otherwise it is attributes on that event.
 4. **Ceiling: 6 new event names, 0 new metric names** — derived from the item budget, not picked.
@@ -152,6 +158,27 @@ would give an in-tap request two candidate parents.
 `SessionManager` rotates on a last-activity check (30-min idle) evaluated on the next event or on
 resume. `paused` = flush + mark, **not** finalize. A session killed by the OS is finalized, backdated,
 on the next launch. No `Timer.periodic` — a backgrounded Flutter app cannot run one reliably.
+
+### Health is not a time series
+
+No cadence, no timer, no continuous device-state event — a stream graduates only when a
+named consumer needs it, and there is none. v2's 10-second memory sample, 30-second
+system check and threshold `memory_pressure` event are **deleted** (−58 items/session).
+Two signals remain. **Memory at the two session bookends** (`MemoryBookendHook`): opened
+from `SessionManager.onSessionStart`, closed once per session on `paused` — *not* on
+finalize, because the common ending is the OS killing a backgrounded process, which
+finalizes on the next launch in a process whose memory is unrelated. The quantity is
+**native** (`phys_footprint` / total PSS); Dart's `currentRss` is the wrong number on both
+platforms and the two are not comparable, so `memory.source` puts the break on the wire.
+**A five-key fault bundle on fatal crashes only** — read off the dying thread by the
+Android uncaught handler; iOS attaches none, because MetricKit delivers next-launch and
+this launch's state is not that crash's. `device.thermal_state` is a **normalised string**,
+never the ordinal: Android's `2` is MODERATE, iOS's is serious. Everywhere here, **an
+unavailable key is omitted, never sentinelled**.
+
+`readDeviceState` is one new pull-only method on the **existing** crash channel — the
+expensive surface is the three-language lockstep, not the channel string. Flat string map,
+no cache, two call sites, missing plugin means empty rather than a throw.
 
 ### Native crash capture is pull-only
 
@@ -227,4 +254,14 @@ never the SDK's own keys, which are unique per item by design and would be senti
   **fatals only**, because that is what the immediate rail carries; a non-fatal rides a batch and
   reports through the ordinary guarded path.
 - Custom profile attributes are auto-prefixed with `user.`.
+- **iOS required-reason APIs — the standing rule.** One is adopted only if an approved
+  reason **both** fits our use **and** permits off-device transmission, and the
+  declaration is made in **this package's own** `ios/Resources/PrivacyInfo.xcprivacy`,
+  never inherited from a dependency's. The budget today is **zero**: the accessed-API
+  array is empty, and it stays empty unless that two-part test passes. Collected data
+  types are declared at the **capability ceiling** — nine, all linked to identity —
+  because `device.id` rides every item and `setUserProfile()` exists; unlinked is the
+  peer-conformant lie.
+- `sdk.version` is a constant in `lib/src/core/sdk_version.dart`, asserted against
+  `pubspec.yaml` by a test. **A release bumps both.**
 - Changes visible to consumers must land in `README.md` + `CHANGELOG.md`.
