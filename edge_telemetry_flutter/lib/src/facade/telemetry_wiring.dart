@@ -2,6 +2,7 @@
 
 import '../capture/action_capture_hook.dart';
 import '../capture/capture_hook.dart';
+import '../capture/frame_capture_hook.dart';
 import '../capture/http_capture_hook.dart';
 import '../capture/lifecycle_capture_hook.dart';
 import '../capture/nav_capture_hook.dart';
@@ -153,14 +154,24 @@ class TelemetryWiring {
       policy: policy,
     );
 
+    // Declared ahead of the two session callbacks below, which both reach it;
+    // assigned when the hooks are started.
+    FrameCaptureHook? frameHook;
+
     // Every per-session ceiling starts a fresh allowance on rotation: the
     // governor's item budget, the Collector's `ui.interaction` and non-fatal
-    // error caps, and the cardinality counters.
+    // error caps, the cardinality counters and the frame hook's `long_task`
+    // backstop.
     session.onSessionStart = () {
       gate.resetBudget();
       collector.resetPerSessionCaps();
       policy.reset();
+      frameHook?.resetForNewSession();
     };
+
+    // The frame reservoir holds its two survivors until the session ends, so
+    // a rotation has to drain it into the session that produced the windows.
+    session.onBeforeFinalize = () => frameHook?.flushReservoir();
 
     // Late-bind the session bookend sink now the Collector exists (breaks the
     // session↔collector construction cycle). session.started/finalized route
@@ -177,11 +188,24 @@ class TelemetryWiring {
       networkHook = NetworkCaptureHook(context: context);
       disposers.add(networkHook.start(collector));
     }
-    // ponytail: one hook serves both captures, so either alone keeps it
-    // running. Split PerfCaptureHook when frames and health need separate
-    // switches — the ticket that splits the emitters owns that.
-    if (gate.allows(Capture.frames) || gate.allows(Capture.health)) {
+    if (gate.allows(Capture.health)) {
       disposers.add(PerfCaptureHook().start(collector));
+    }
+    // Its own switch since #89: `Capture.frames: false` must take the
+    // `addTimingsCallback` registration with it, so the per-frame cost goes to
+    // zero rather than to "accumulate and discard".
+    //
+    // `Capture.longTask` keeps the callback alive on its own, though — it is a
+    // per-frame predicate, independent of the aggregate — and then the hook
+    // runs with the windowing switched off.
+    final aggregateFrames = gate.allows(Capture.frames);
+    if (aggregateFrames || gate.allows(Capture.longTask)) {
+      frameHook = FrameCaptureHook(
+        session: session,
+        gate: gate,
+        aggregate: aggregateFrames,
+      );
+      disposers.add(frameHook.start(collector));
     }
     HttpCaptureHook? httpHook;
     if (gate.allows(Capture.http)) {
@@ -240,7 +264,13 @@ class TelemetryWiring {
         session: session,
         trace: trace,
         flush: pipeline.flush,
-        onPaused: screenLoadHook?.onPaused,
+        // Two deferred emitters share the `paused` terminal: the open screen
+        // load, and the frame reservoir whose survivors would otherwise be
+        // lost to an OS kill while backgrounded.
+        onPaused: () {
+          screenLoadHook?.onPaused();
+          frameHook?.flushReservoir();
+        },
         breadcrumbs: breadcrumbs,
         gate: gate,
       ).start(collector),

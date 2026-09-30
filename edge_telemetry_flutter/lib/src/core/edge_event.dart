@@ -82,6 +82,17 @@ class EdgeEvent {
   /// arbitrary, unbounded, and the thing the cap was built for.
   final bool consumerAttributes;
 
+  /// When the thing this item describes actually happened, if that is not
+  /// "now". The Collector stamps the wire `timestamp` from it.
+  ///
+  /// Not a fifth axis either — it is the same deferral [ownsTraceContext]
+  /// exists for, seen from the time side. An item held back by a reservoir and
+  /// emitted minutes later (`frame.summary`) would otherwise land on the wire
+  /// at its flush instant, putting a ten-second window at the moment the app
+  /// was backgrounded. The precedent is the OS-killed session, finalized and
+  /// backdated on the next launch.
+  final DateTime? occurredAt;
+
   const EdgeEvent.event(
     this.name, {
     this.attributes = const {},
@@ -89,6 +100,7 @@ class EdgeEvent {
     this.bypassSampling = false,
     this.ownsTraceContext = false,
     this.consumerAttributes = false,
+    this.occurredAt,
   })  : type = 'event',
         value = null,
         error = null,
@@ -103,6 +115,7 @@ class EdgeEvent {
     this.ownsTraceContext = false,
     this.consumerAttributes = false,
   })  : type = 'metric',
+        occurredAt = null,
         error = null,
         stackTrace = null,
         bypassSampling = false,
@@ -214,6 +227,7 @@ class EdgeEvent {
   /// in a batch rather than N single-attempt POSTs.
   EdgeEvent._crash(this.attributes)
       : type = 'event',
+        occurredAt = null,
         // The consumer's extra `trackError` attributes are merged into the
         // same map as `message` / `stacktrace`, which the backend extractors
         // read verbatim. One flag cannot split them, so the whole bag stays
@@ -264,6 +278,7 @@ class EdgeEvent {
   /// journey summary is pre-built by [SessionManager]).
   const EdgeEvent.session(this.name, this.attributes)
       : type = 'event',
+        occurredAt = null,
         consumerAttributes = false,
         ownsTraceContext = false,
         value = null,
