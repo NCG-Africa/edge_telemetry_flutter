@@ -12,6 +12,36 @@ import '../crash/error_category.dart';
 ///   the session bookends. A non-fatal error batches (#90).
 enum EventPriority { batched, immediate }
 
+/// `task.outcome` — three values, and a declared task reaches exactly one.
+///
+/// An enum rather than three string constants: `endTask` otherwise took two bare
+/// `String`s, and swapping the task name for the outcome would have compiled. The
+/// wire spelling is the member name, so there is nothing to keep in step.
+enum TaskOutcome { completed, failed, abandoned }
+
+/// `task.abandon_source` — **the gap, stated rather than hidden.**
+///
+/// [sessionEnd] is an in-process finalize: the session rotated on the 30-minute
+/// idle rule with the task still open. There is no task TTL of its own — the
+/// session idle window *is* the cap.
+///
+/// [launchRecovery] is the backdated finalize of a session whose process ended
+/// without one. It **cannot say whether a crash caused the abandonment**: the
+/// recovery finalize is emitted from `SessionManager.recoverAndStart`, and
+/// `drainNativeCrashes()` runs after it in `initialize()`. Joining the two is the
+/// backend's, on `session.id` — this value exists so a consumer reads "we do not
+/// know" off the row instead of inferring it from a crash-free denominator.
+enum TaskAbandonSource {
+  sessionEnd('session_end'),
+  launchRecovery('launch_recovery');
+
+  const TaskAbandonSource(this.wire);
+
+  /// The snake_case wire value — the member name is camelCase, and the wire is
+  /// not renamed to suit Dart.
+  final String wire;
+}
+
 /// Internal, pre-enrichment event model handed from a capture hook or a facade
 /// API call into the [Collector].
 ///
@@ -120,6 +150,74 @@ class EdgeEvent {
         stackTrace = null,
         bypassSampling = false,
         priority = EventPriority.batched;
+
+  /// The `task.complete` wire shape — the terminal of a declared journey
+  /// (#92, spec §12).
+  ///
+  /// **Terminal-only.** A task start costs no wire item: it is held in memory
+  /// (and in the session record, so a killed process still reports it), and
+  /// exactly one event is emitted when the task reaches an outcome. That is
+  /// what makes the three-call API fire-and-forget — an unclosed start has no
+  /// failure mode to leak, because it never allocated a wire item to leak.
+  ///
+  /// `span.duration_ms` is the **existing** span duration key, not a new
+  /// `task.duration_ms`: time-on-task is a span duration and the family
+  /// already has a column for one. Unlike `http.request` — which omits it on a
+  /// root because the backend derives a root's duration from its children —
+  /// this event **always** carries it. A task mints no root, so it can never
+  /// be the row whose duration is derived, and it has no second duration key
+  /// to fall back on: omitting it on an untraced task would lose the one
+  /// measurement the signal exists for.
+  ///
+  /// [abandonSource] rides the abandoned outcome only. There is no slow/fast
+  /// or Apdex band on the wire — banding is a query-time comparison against a
+  /// per-target threshold, so it moves without a client release.
+  ///
+  /// **Subject to sampling, deliberately.** A sampled-out session drops its whole
+  /// event stream coherently, and a declared task is developer-declared signal
+  /// like `custom_event` — not part of the `essential` bypass set, which is
+  /// v2's shipped set verbatim (crash, session bookends, profile update) and is
+  /// not extended by this ticket. The `session.finalized` bookend still ships,
+  /// which is the same asymmetry every sampled-out session already has.
+  /// [sessionId] is set on the two **abandoned** legs and left to the context
+  /// snapshot on the two closing ones. That is not two shapes for one event —
+  /// it is one rule, that the row names the session whose ending it reports: a
+  /// launch-recovered abandonment is emitted before `_beginSession`, so the
+  /// snapshot holds no session at all and the row would otherwise arrive with an
+  /// empty `session.id`, unjoinable to the session it is about. A `completeTask`
+  /// belongs to whichever session the Collector is in when it lands, exactly
+  /// like every other event the facade emits — including across the rotation
+  /// that the close itself may trigger.
+  factory EdgeEvent.task({
+    required String name,
+    required TaskOutcome outcome,
+    required Duration duration,
+    String? sessionId,
+    TaskAbandonSource? abandonSource,
+    Map<String, String> traceAttributes = const {},
+  }) =>
+      EdgeEvent.event(
+        'task.complete',
+        attributes: {
+          'task.name': name,
+          'task.outcome': outcome.name,
+          'span.duration_ms': duration.inMilliseconds.toString(),
+          if (sessionId != null) 'session.id': sessionId,
+          if (abandonSource != null) 'task.abandon_source': abandonSource.wire,
+          ...traceAttributes,
+        },
+        // The whole point of the freeze: a task runs for minutes, so by the
+        // time it terminates the ambient root is long gone or is an unrelated
+        // tap. Its own frozen copy merges over a stripped snapshot — including
+        // when the freeze found no open root, which is the empty case the axis
+        // exists for.
+        ownsTraceContext: true,
+        // Deliberately **not** counted, on either leg. The abandoned leg is
+        // emitted from the finalize path, where the counters are either already
+        // frozen into the journey summary or belong to a session that ended in
+        // a previous process — and one event may not count on one leg and not
+        // the other.
+      );
 
   /// The single source of truth for the `app.crash` wire shape.
   ///

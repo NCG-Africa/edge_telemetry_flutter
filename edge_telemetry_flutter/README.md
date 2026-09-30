@@ -14,6 +14,8 @@
 - 💾 **Offline Queue** - Undeliverable data is persisted to disk and drained on the next successful send
 - 🔄 **Retry With Backoff** - Batches retry on `[0, 2s, 8s, 30s]` before they queue
 - 📊 **Local Reporting** - Generate comprehensive reports without external dependencies
+- 🎯 **Task Completion** - Declare a multi-screen journey with three calls and
+  measure whether users finish it (the one category that needs your code)
 - 🎯 **Zero Configuration** - Works out of the box with sensible defaults
 
 ## 🚀 Installation
@@ -371,6 +373,67 @@ ElevatedButton(
 // names the action but misses that one event. It takes no attributes map (use
 // trackEvent), and an action has no duration and no outcome to close.
 ```
+
+### 🎯 Task Completion (Three Calls — the one category you have to opt into)
+
+Screen load tells you whether a screen worked. A task tells you whether the
+**journey** worked — an onboarding, a transfer — and nothing can infer that for
+you, because only you know where your journey begins and ends.
+
+```dart
+EdgeTelemetry.instance.startTask('transfer');     // screen 1 of 4
+// …amount, recipient, OTP, receipt…
+EdgeTelemetry.instance.completeTask('transfer');  // or failTask('transfer')
+```
+
+String-keyed and with no handle to thread: a transfer spans four routes, so a
+handle object would have to travel through your state container or your route
+arguments — friction on the one feature whose only weakness is adoption. The
+calls are fire-and-forget: a name that was never started, or was already closed,
+does nothing. There is nothing to leak and nothing to dispose.
+
+**The start costs no wire item.** One `task.complete` event is emitted at the
+terminal:
+
+| Attribute | Value |
+|---|---|
+| `task.name` | the string you passed |
+| `task.outcome` | `completed` / `failed` / `abandoned` |
+| `span.duration_ms` | time on task — the same span duration key HTTP uses |
+| `task.abandon_source` | `session_end` or `launch_recovery`, abandoned only |
+
+A second `startTask` under the same name supersedes the first. Keep task names a
+small fixed set — build one from an order id and it is sentinelled past 50
+distinct values in a session, the same guard `screen.name` gets. Trace context is
+frozen at the **start**, so the terminal is attributed to the action that began
+the journey rather than to whatever tap happens to be open minutes later — and a
+task mints no root of its own, so requests inside it keep exactly one parent.
+
+**Abandonment fires on session finalize only.** Navigating away is not
+abandonment — the four-route transfer above navigates four times. Backgrounding
+is not abandonment either: reading the OTP is step 2 of the happy path, and
+treating it as a failure would report the commonest mobile-banking flow as
+broken. There is no task timeout of its own; the 30-minute session idle window is
+the cap.
+
+A task still open when the process dies is reported on the next launch with
+`task.abandon_source: launch_recovery`, carrying the trace ids frozen in the
+process that died and a duration measured to the session's **last activity** —
+not to the wall clock, so a phone left in a pocket for two hours does not report
+a two-hour task. That value also says what the SDK cannot: native crashes are
+drained *after* the recovery finalize, so a crash and an OS kill are
+indistinguishable at that instant. Join them on `session.id` in your backend
+rather than assuming.
+
+There is **no Apdex band on the wire** — zero events, zero attributes, zero
+bytes. The threshold belongs per target and moves without a client release, so
+banding is a query-time comparison against `span.duration_ms`.
+
+Coverage for this category is **conditional**, in those words: the signal exists
+only where you make the calls. The usual objection to a manual API does not apply
+here — the manual helper that got no adoption duplicated a signal already
+captured automatically, so its failure mode was double-counting. This one has no
+automatic source at all.
 
 ## 🎛️ Configuration Options
 

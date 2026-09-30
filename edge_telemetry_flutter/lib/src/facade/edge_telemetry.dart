@@ -372,6 +372,69 @@ class EdgeTelemetry {
   /// screen load is open (the screen already reached a terminal).
   void reportScreenSettled() => _wiring?.screenLoadHook?.reportSettled();
 
+  /// Declare a multi-screen journey started — an onboarding, a transfer.
+  ///
+  /// Three calls, **string-keyed and with no attribute map**, decided by the
+  /// motivating example rather than by taste: a transfer spans four routes, so a
+  /// handle object would have to be threaded through a state container or route
+  /// arguments, landing friction squarely on the one feature whose only weakness
+  /// is adoption.
+  ///
+  /// ```dart
+  /// EdgeTelemetry.instance.startTask('transfer');       // screen 1
+  /// // …four routes later…
+  /// EdgeTelemetry.instance.completeTask('transfer');    // or failTask
+  /// ```
+  ///
+  /// The start costs **no wire item**: one `task.complete` is emitted at the
+  /// terminal, carrying `task.outcome` (`completed` / `failed` / `abandoned`)
+  /// and `span.duration_ms`. A second `startTask` under the same name
+  /// supersedes the first. Trace context is frozen **here**, at the start, so
+  /// the terminal is attributed to the action that began the journey rather
+  /// than to whatever tap is open minutes later.
+  ///
+  /// **This category's coverage is conditional** — the signal exists only where
+  /// you make these calls, and the tax is stated rather than hidden. The usual
+  /// objection to a manual API does not apply: the one that got no adoption
+  /// duplicated an automatically-captured signal, so its failure mode was
+  /// double-counting. There is no automatic source for this one.
+  void startTask(String name) {
+    _ensureInitialized();
+    final session = _wiring!.session;
+    // Two statements, not one expression, because Dart would otherwise evaluate
+    // the freeze as an argument — i.e. *before* `startTask` runs its own idle
+    // check. If this call is the first activity past the 30-minute window it
+    // rotates the session, and a trace never spans a session: freezing first
+    // would carry the dead session's `trace.id` onto a terminal that lands in
+    // the new one. Rotating first makes `startChild()` find the stale root
+    // already cleared, so the task is honestly unattributed instead.
+    session.beforeEvent();
+    final frozen = _wiring!.trace.startChild();
+    session.startTask(name, frozen?.attributes ?? const {});
+  }
+
+  /// Close a journey started by [startTask] as `completed`. Unknown or
+  /// already-closed name: a no-op, by design — the calls are fire-and-forget, so
+  /// there is no unclosed-call failure mode to leak.
+  void completeTask(String name) {
+    _ensureInitialized();
+    _wiring!.session.endTask(name, TaskOutcome.completed);
+  }
+
+  /// Close a journey started by [startTask] as `failed` — the user reached an
+  /// ending you consider a failure (a declined transfer, a rejected form), which
+  /// is not the same as abandoning it.
+  ///
+  /// A journey the user never closes is reported `abandoned` on **session
+  /// finalize only**. Navigating away is not abandonment (a four-route transfer
+  /// navigates four times) and neither is backgrounding (reading the OTP is step
+  /// 2 of the happy path). There is no task timeout of its own: the 30-minute
+  /// session idle window is the cap.
+  void failTask(String name) {
+    _ensureInitialized();
+    _wiring!.session.endTask(name, TaskOutcome.failed);
+  }
+
   /// Capture a `package:http` client that `HttpOverrides` cannot see.
   ///
   /// `HttpOverrides.global` reaches every `dart:io` socket and nothing else, so

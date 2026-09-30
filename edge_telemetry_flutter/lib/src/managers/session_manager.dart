@@ -93,6 +93,18 @@ class SessionManager {
   /// post-frame callback.
   bool _currentScreenVisible = false;
 
+  /// Journeys declared open by `EdgeTelemetry.startTask`, keyed by name — a
+  /// duplicate start supersedes, because mobile journeys are sequential and the
+  /// second declaration is the live one.
+  ///
+  /// It lives **here** rather than in a manager of its own for one reason: every
+  /// requirement a task holder has is something this class already does. Session
+  /// scope is a task's lifetime (`_resetCounters` clears it on rotation for
+  /// free), the abandonment terminal is this class's two finalize paths, and the
+  /// persistence is the record this class already writes. A `TaskManager` would
+  /// have needed two callbacks back into here to reach all three.
+  final Map<String, _OpenTask> _openTasks = {};
+
   /// Items the SDK built but never sent, by reason. One counter, several
   /// clients: the off-canon allowlist gate today (#79), tier shedding / the
   /// action cap / the error caps later. Ships on `session.finalized` so a drop
@@ -170,9 +182,14 @@ class SessionManager {
     }));
   }
 
-  /// The "next event" idle check. Called by the Collector before every event:
-  /// rotate if idle exceeded (backdated to the last activity), else just bump
-  /// `lastActivityAt`. No-op while rotating (the bookends re-enter here).
+  /// The "next event" idle check: rotate if idle exceeded (backdated to the last
+  /// activity), else just bump `lastActivityAt`. No-op while rotating (the
+  /// bookends re-enter here).
+  ///
+  /// Called by the Collector before every event, and by [startTask] — which
+  /// emits nothing, but declaring a task is activity all the same. The facade
+  /// asks a second time before it freezes trace context, because the freeze has
+  /// to land on the far side of any rotation this triggers.
   void beforeEvent() {
     if (_rotating || _currentSessionId == null || _lastActivityAt == null) {
       return;
@@ -252,6 +269,7 @@ class SessionManager {
     _currentScreenVisible = false;
     _droppedByReason.clear();
     _cardinalityCapped = 0;
+    _openTasks.clear();
   }
 
   /// Ordered route path (for `screen_journey`) + distinct set (for count), and
@@ -295,6 +313,94 @@ class SessionManager {
   String? get currentScreenName =>
       _screenJourney.isEmpty ? null : _screenJourney.last;
 
+  // ==================== DECLARED TASKS (#92) ====================
+
+  /// Open a declared journey. [traceAttributes] is the caller's **already
+  /// frozen** trace child (`TraceManager.startChild()?.attributes`), frozen at
+  /// this instant and carried verbatim to the terminal minutes later.
+  ///
+  /// The attribute bag rather than the `FrozenTrace` itself, unlike
+  /// `ScreenLoadHook`: that class lives downstream of this one, while
+  /// `FrozenTrace` lives in `trace_manager.dart`, which imports *this* file.
+  /// Taking the object would put a second edge on "exactly one dependency edge:
+  /// TraceManager → SessionManager". Unwrapping at the call site is the price of
+  /// keeping that edge one-directional.
+  ///
+  /// Frozen at start rather than read at the terminal because this is the
+  /// strongest instance of the freeze rule in the SDK: a root is capped at 10
+  /// seconds, so a minutes-long task reading ambient context at its terminal
+  /// would reparent onto whatever unrelated tap happened to be open then.
+  /// Empty when no root was live — **a task mints no root of its own.** A fifth
+  /// root type with no sibling to conform to would give every request inside
+  /// the task two candidate parents for minutes.
+  ///
+  /// Costs no wire item: the start is held, and only the terminal is emitted.
+  ///
+  /// [beforeEvent] runs first, for the same reason the Collector runs it before
+  /// every event: declaring a task **is** activity. Without it, a task started
+  /// after a 40-minute foreground idle would be held against the dying session
+  /// and then abandoned — at a duration of nearly zero — by the rotation the
+  /// very next event triggers.
+  void startTask(String name,
+      [Map<String, String> traceAttributes = const {}]) {
+    beforeEvent();
+    _openTasks[name] = _OpenTask(start: _clock(), trace: traceAttributes);
+    _persist();
+  }
+
+  /// Close a declared journey with [outcome] (`completed` / `failed`).
+  ///
+  /// A name that was never started, or has already been closed, is a **no-op**
+  /// — that is what fire-and-forget means here, and it is why an unclosed start
+  /// has no failure mode: nothing is waiting on a matching call.
+  void endTask(String name, TaskOutcome outcome) {
+    final task = _openTasks.remove(name);
+    if (task == null) return;
+    _emit?.call(EdgeEvent.task(
+      name: name,
+      outcome: outcome,
+      duration: _elapsed(task.start, _clock()),
+      traceAttributes: task.trace,
+    ));
+    _persist();
+  }
+
+  /// One `task.complete` per still-open task, `outcome: abandoned`.
+  ///
+  /// **Session finalize is the only trigger.** Navigation-away and
+  /// backgrounding are explicitly *not* triggers: the motivating example is a
+  /// transfer spanning four routes, so navigation-away would abandon every task
+  /// the feature exists to measure, and reading the OTP is step 2 of that happy
+  /// path, so backgrounding would report the commonest mobile-banking flow as a
+  /// failure.
+  ///
+  /// [end] is the session's **last activity**, already backdated by both
+  /// callers — so an abandoned task measures start → last activity, not →
+  /// finalize wall-clock. A session killed while backgrounded for two hours
+  /// must not report a two-hour task.
+  /// [tasks] is consumed as given, so callers on the live map hand over a copy:
+  /// `_emit` re-enters the Collector, and a consumer callback that calls
+  /// `startTask` from there would otherwise mutate the map mid-iteration.
+  void _abandonOpenTasks(Map<String, _OpenTask> tasks, DateTime end,
+      TaskAbandonSource source, String sessionId) {
+    for (final entry in tasks.entries) {
+      _emit?.call(EdgeEvent.task(
+        name: entry.key,
+        outcome: TaskOutcome.abandoned,
+        duration: _elapsed(entry.value.start, end),
+        sessionId: sessionId,
+        abandonSource: source,
+        traceAttributes: entry.value.trace,
+      ));
+    }
+  }
+
+  /// Clamped at zero: a recovered start comes off a record written by a previous
+  /// process, and a user who moved their clock backwards must not ship a
+  /// negative duration into a column that is averaged.
+  static Duration _elapsed(DateTime start, DateTime end) =>
+      end.isBefore(start) ? Duration.zero : end.difference(start);
+
   // ==================== FINALIZE / JOURNEY SUMMARY ====================
 
   void _emitFinalizeCurrent(DateTime end) {
@@ -302,6 +408,14 @@ class SessionManager {
     // Before the journey summary is built, so a deferred item's own counters
     // are included in the numbers this bookend reports.
     onBeforeFinalize?.call();
+    // Copied and cleared *before* emitting: the copy is what makes a re-entrant
+    // `startTask` safe, and clearing here means this method no longer depends on
+    // `_rotate` going on to call `_beginSession` → `_resetCounters` to keep a
+    // task from being abandoned twice.
+    final open = Map.of(_openTasks);
+    _openTasks.clear();
+    _abandonOpenTasks(
+        open, end, TaskAbandonSource.sessionEnd, _currentSessionId!);
     _emit?.call(EdgeEvent.session(
         'session.finalized',
         _journeyAttributes(
@@ -331,6 +445,11 @@ class SessionManager {
     final end = DateTime.tryParse(r['lastActivity'] as String? ?? '');
     final id = r['id'] as String?;
     if (id == null || start == null || end == null) return;
+    // Before the bookend, and before `_beginSession` — so these rows carry the
+    // dead session's own `session.id` from the record rather than the live
+    // session's from the context snapshot, exactly as the bookend does.
+    _abandonOpenTasks(_OpenTask.decodeAll(r['tasks']), end,
+        TaskAbandonSource.launchRecovery, id);
     _emit?.call(EdgeEvent.session(
         'session.finalized',
         _journeyAttributes(
@@ -401,9 +520,16 @@ class SessionManager {
     };
   }
 
-  // ponytail: persist on start/pause/resume only, not per-event — one prefs
-  // write per lifecycle edge, not per event. Ceiling: a kill with no preceding
-  // `paused` loses activity since the last edge. Accepted because iOS/Android
+  // ponytail: persist on start/pause/resume and on each task edge — never per
+  // event. Tasks get their own two calls, against #92's "ride the existing
+  // writes" line, because the lifecycle edges alone are wrong in both
+  // directions on a *foreground crash*, which is the case the record exists
+  // for: a task opened since the last edge would never be reported abandoned,
+  // and one closed since the last edge would be reported abandoned a second
+  // time on the next launch. Same key, same format, same method — two more
+  // calls at human rate, not a second persistence layer.
+  //
+  // Ceiling: a kill with no preceding `paused` loses activity since the last edge. Accepted because iOS/Android
   // both deliver `paused` before a kill (spec §2.2); persist per-event if that
   // assumption ever fails.
   void _persist() {
@@ -425,6 +551,8 @@ class SessionManager {
         'screenVisible': _currentScreenVisible,
         'dropped': _droppedByReason,
         'capped': _cardinalityCapped,
+        if (_openTasks.isNotEmpty)
+          'tasks': _openTasks.map((k, v) => MapEntry(k, v.toJson())),
       }),
     );
   }
@@ -483,12 +611,54 @@ class SessionManager {
       };
 
   /// Clear in-memory state (call on dispose). Deliberately leaves the persisted
-  /// record intact so the next launch backdate-finalizes this session.
+  /// record intact so the next launch backdate-finalizes this session — open
+  /// tasks included, which is why they are dropped here without emitting: they
+  /// are reported on the next launch as `launch_recovery`, by the same rule and
+  /// on the same row as the session itself.
   void endSession() {
     if (_isFirstSession()) _prefs?.setBool(_firstSessionKey, false);
     _currentSessionId = null;
     _sessionStartTime = null;
     _lastActivityAt = null;
     _resetCounters();
+  }
+}
+
+/// One declared journey held open, and the shape it takes in the session record.
+///
+/// The frozen trace map is stored **verbatim** rather than as named fields: it
+/// is already the exact bag the terminal event ships, so a round trip through
+/// prefs neither reshapes it nor needs updating when a trace key is added. That
+/// is what makes a kill-recovered abandonment arrive with its attribution
+/// intact — the `trace.id` and `rum.action.id` it carries are the ones frozen in
+/// the process that died.
+class _OpenTask {
+  _OpenTask({required this.start, required this.trace});
+
+  final DateTime start;
+  final Map<String, String> trace;
+
+  Map<String, dynamic> toJson() => {
+        'start': start.toIso8601String(),
+        if (trace.isNotEmpty) 'trace': trace,
+      };
+
+  /// Decode the record's `tasks` block. Anything unparseable is skipped rather
+  /// than thrown — the same rule the record itself follows, for the same reason:
+  /// a corrupt record must not take init down with it.
+  static Map<String, _OpenTask> decodeAll(Object? raw) {
+    if (raw is! Map) return const {};
+    final out = <String, _OpenTask>{};
+    raw.forEach((key, value) {
+      if (value is! Map) return;
+      final start = DateTime.tryParse(value['start'] as String? ?? '');
+      if (start == null) return;
+      out['$key'] = _OpenTask(
+        start: start,
+        trace: (value['trace'] as Map?)?.map((k, v) => MapEntry('$k', '$v')) ??
+            const {},
+      );
+    });
+    return out;
   }
 }
