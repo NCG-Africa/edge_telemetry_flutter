@@ -1,5 +1,7 @@
 // lib/src/facade/telemetry_wiring.dart
 
+import 'package:flutter/foundation.dart';
+
 import '../capture/action_capture_hook.dart';
 import '../capture/capture_hook.dart';
 import '../capture/frame_capture_hook.dart';
@@ -77,6 +79,14 @@ class TelemetryWiring {
   /// consumer's own choice rather than a silent failure.
   final ScreenLoadHook? screenLoadHook;
 
+  /// Held for the same reason as the five above: the two hooks with no engine
+  /// to drive them under `flutter_test`. Nothing in `lib/` reads either — the
+  /// release gate (#94) does, so it can drive the graph `build` actually
+  /// assembles instead of a parallel one it wires itself. A gate that builds
+  /// its own hooks asserts its own arithmetic.
+  final FrameCaptureHook? frameHook;
+  final LifecycleCaptureHook? lifecycleHook;
+
   TelemetryWiring({
     required this.config,
     required this.session,
@@ -97,6 +107,8 @@ class TelemetryWiring {
     this.networkHook,
     this.screenLoadHook,
     this.memoryBookend,
+    this.frameHook,
+    this.lifecycleHook,
   }) : _disposers = disposers,
        gate = gate ?? CaptureGate(config),
        policy = policy ?? AttributePolicy(redact: config.redactAttribute),
@@ -111,6 +123,7 @@ class TelemetryWiring {
     required ContextManager context,
     required TraceManager trace,
     required BreadcrumbManager breadcrumbs,
+    @visibleForTesting Sender? sender,
   }) async {
     // Resolve the collection surface once: overrides → deprecated booleans →
     // tier default. Every shed the governor makes lands on the session's
@@ -142,6 +155,12 @@ class TelemetryWiring {
       queue: queue,
       debugMode: config.debugMode,
       onDrop: session.recordDropped,
+      // The one test seam on the assembled graph (#94). The release gate has to
+      // drive the real `build` — a gate that wires its own hooks asserts its own
+      // arithmetic — and it has to see the payloads without a socket, because
+      // gestures only dispatch under `testWidgets` and `testWidgets` runs in
+      // fake async, where a real POST never completes.
+      sender: sender,
     );
     // Drain any crashes persisted on a previous launch (drain-on-startup).
     await transport.drainQueue();
@@ -294,23 +313,22 @@ class TelemetryWiring {
     // is always on — it drives the session model, not an optional monitor. The
     // `app_lifecycle` *event* it also emits is tiered, so the hook holds the
     // gate and checks per emission rather than being started behind one.
-    disposers.add(
-      LifecycleCaptureHook(
-        session: session,
-        trace: trace,
-        flush: pipeline.flush,
-        // Three deferred emitters share the `paused` terminal: the open screen
-        // load, the frame reservoir whose survivors would otherwise be lost to
-        // an OS kill while backgrounded, and the closing memory bookend.
-        onPaused: () {
-          screenLoadHook?.onPaused();
-          frameHook?.flushReservoir();
-          memoryBookend?.onPaused();
-        },
-        breadcrumbs: breadcrumbs,
-        gate: gate,
-      ).start(collector),
+    final lifecycleHook = LifecycleCaptureHook(
+      session: session,
+      trace: trace,
+      flush: pipeline.flush,
+      // Three deferred emitters share the `paused` terminal: the open screen
+      // load, the frame reservoir whose survivors would otherwise be lost to
+      // an OS kill while backgrounded, and the closing memory bookend.
+      onPaused: () {
+        screenLoadHook?.onPaused();
+        frameHook?.flushReservoir();
+        memoryBookend?.onPaused();
+      },
+      breadcrumbs: breadcrumbs,
+      gate: gate,
     );
+    disposers.add(lifecycleHook.start(collector));
 
     return TelemetryWiring(
       config: config,
@@ -331,6 +349,8 @@ class TelemetryWiring {
       networkHook: networkHook,
       screenLoadHook: screenLoadHook,
       memoryBookend: memoryBookend,
+      frameHook: frameHook,
+      lifecycleHook: lifecycleHook,
       nativeCrash: nativeCrash,
     );
   }
