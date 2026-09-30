@@ -21,14 +21,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Every off-canon name v2.0.0 actually emitted. All seven were written,
 /// enriched, stringified and thrown away on every device for the whole of
 /// v2 — found by audit, not by telemetry, because the drop was silent.
+///
+/// This is a **historical set**, not a list of live emitters: #91 stopped three
+/// of them at the source by deleting the health time series. They stay here
+/// because what this file tests is the drop, and a name the allowlist would
+/// still drop is still the right input for that.
 const _v2SilentDrops = <String, String>{
   'telemetry.initialized': 'event', // facade init
   'network.monitor_initialized': 'event', // NetworkCaptureHook
   'network.quality_score': 'metric', // NetworkCaptureHook
-  'performance.monitor_initialized': 'event', // PerfCaptureHook
+  'performance.monitor_initialized': 'event', // PerfCaptureHook — gone (#91)
   'performance.startup_time': 'metric', // PerfCaptureHook
-  'performance.system_check': 'event', // PerfCaptureHook
-  'performance.memory_pressure': 'event', // PerfCaptureHook
+  'performance.system_check': 'event', // PerfCaptureHook — gone (#91)
+  'performance.memory_pressure': 'event', // PerfCaptureHook — gone (#91)
 };
 
 class _RecordingSender {

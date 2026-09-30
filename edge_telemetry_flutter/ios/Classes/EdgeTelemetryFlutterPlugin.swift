@@ -14,6 +14,20 @@ import MetricKit
 /// Cross-launch dedup: MetricKit delivers each payload exactly once, and the
 /// drain reads-then-deletes the cache file — so an OS crash record is never
 /// re-read across launches (the iOS equivalent of the Android watermark).
+///
+/// ## Device state (#91)
+///
+/// A second method, `readDeviceState`, serves the health signal on the same
+/// channel — the expensive surface is the three-language lockstep, not the
+/// channel string. Every read is unprotected and none is a required-reason API,
+/// so this plugin's privacy manifest declares an **empty accessed-API array**.
+///
+/// Unlike Android, iOS attaches **no fault bundle to its fatal crashes**:
+/// MetricKit hands the payload over on the next launch, in a different process,
+/// with no record of what the battery or the thermal state was at the moment of
+/// death. The keys are omitted rather than filled in from the live device —
+/// this launch's state is not that crash's state, and a plausible wrong number
+/// is worse than a missing one.
 public class EdgeTelemetryFlutterPlugin: NSObject, FlutterPlugin, MXMetricManagerSubscriber {
   private static let channelName = "edge_telemetry/native_crash"
 
@@ -31,9 +45,102 @@ public class EdgeTelemetryFlutterPlugin: NSObject, FlutterPlugin, MXMetricManage
     switch call.method {
     case "drainNativeCrashes":
       result(store.drain())
+    case "readDeviceState":
+      // Every read here is either a cheap property or one mach call; the UIKit
+      // ones must be on the main thread, which is where a channel handler
+      // already runs. No thread hop, and nothing worth caching.
+      result(Self.deviceState())
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  // MARK: Device state (#91)
+
+  /// The fault bundle plus memory, as a flat string map. **A key the platform
+  /// cannot answer is omitted, never sentinelled** — no -1 battery level, no
+  /// "unknown" thermal state, because both are values a dashboard will happily
+  /// aggregate.
+  private static func deviceState() -> [String: String] {
+    var out = faultBundle()
+    if let bytes = memoryFootprint() {
+      out["memory.used_bytes"] = String(bytes)
+      out["memory.source"] = "footprint"
+    }
+    return out
+  }
+
+  private static func faultBundle() -> [String: String] {
+    var out: [String: String] = [:]
+    let device = UIDevice.current
+
+    // Battery monitoring is the only way to read a level on iOS, and it is a
+    // mutation of a singleton the HOST APP also owns — so it is switched on
+    // here, on the first read, and not at plugin registration: a consumer who
+    // turned `Capture.health` off never calls this, and their UIDevice is left
+    // exactly as they left it. Never switched back off, because a host app may
+    // have wanted it on for itself.
+    if !device.isBatteryMonitoringEnabled { device.isBatteryMonitoringEnabled = true }
+
+    let level = device.batteryLevel  // -1 until monitoring has a reading
+    if level >= 0 { out["device.battery_level"] = String(Int((level * 100).rounded())) }
+    switch device.batteryState {
+    case .charging, .full: out["device.battery_charging"] = "true"
+    case .unplugged: out["device.battery_charging"] = "false"
+    default: break  // .unknown — omit
+    }
+
+    let info = ProcessInfo.processInfo
+    out["device.power_save_mode"] = info.isLowPowerModeEnabled ? "true" : "false"
+    if let thermal = thermalName(info.thermalState) { out["device.thermal_state"] = thermal }
+
+    // The *interface* orientation, not `UIDevice.orientation`: the latter reads
+    // .unknown unless the host app asked for orientation notifications, and
+    // reports face-up/face-down, which is not an orientation the UI has.
+    if let scene = UIApplication.shared.connectedScenes
+      .compactMap({ $0 as? UIWindowScene })
+      .first(where: { $0.activationState == .foregroundActive })
+      ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
+    {
+      let orientation = scene.interfaceOrientation
+      if orientation.isPortrait {
+        out["device.orientation"] = "portrait"
+      } else if orientation.isLandscape {
+        out["device.orientation"] = "landscape"
+      }
+    }
+    return out
+  }
+
+  /// Thermal state as a **normalised string**, never the platform ordinal:
+  /// Android's 2 is MODERATE and iOS's 2 is serious, so the integer means two
+  /// different things on the two halves of the same family. These four names are
+  /// the canon; Android folds its seven statuses into them.
+  private static func thermalName(_ state: ProcessInfo.ThermalState) -> String? {
+    switch state {
+    case .nominal: return "nominal"
+    case .fair: return "fair"
+    case .serious: return "serious"
+    case .critical: return "critical"
+    @unknown default: return nil  // a future case is omitted, not guessed
+    }
+  }
+
+  /// `phys_footprint` — the quantity jetsam actually kills on, and the reason
+  /// Dart's `ProcessInfo.currentRss` was the wrong number here: RSS excludes
+  /// the compressed and IOKit-mapped pages the footprint counts, so it
+  /// under-reports against the limit that matters. Not a required-reason API.
+  private static func memoryFootprint() -> UInt64? {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(
+      MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+    let kr: kern_return_t = withUnsafeMutablePointer(to: &info) {
+      $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+        task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+      }
+    }
+    guard kr == KERN_SUCCESS else { return nil }
+    return UInt64(info.phys_footprint)
   }
 
   // MARK: MXMetricManagerSubscriber

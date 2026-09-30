@@ -6,9 +6,18 @@ import '../core/models/breadcrumb.dart';
 
 /// Manages breadcrumb collection for crash context
 class BreadcrumbManager {
-  // Crash-scoped ring cap (spec #15 §5.5). Small on purpose: the last handful of
-  // steps before a crash is the signal; older ones are noise.
-  static const int _maxBreadcrumbs = 20;
+  // Crash-scoped ring cap (spec #15 §5.5), 20 → 50 in v3 (#90, conforming the
+  // sibling). Twenty was measured to be too small once actions are captured:
+  // ~20 taps evicts every navigation and network crumb from crash triage, which
+  // is the half a stack trace does not already tell you. What a given crash
+  // *ships* is a separate decision — see [getBreadcrumbs].
+  static const int _maxBreadcrumbs = 50;
+
+  /// How many crumbs a **non-fatal** error ships. A fatal ships all 50 because
+  /// it is the one item that has to explain itself; 50 non-fatals × 50 crumbs
+  /// would be ~110 KB against a 120 KB session ceiling, so a non-fatal ships the
+  /// newest handful and no more.
+  static const int nonFatalBreadcrumbs = 10;
   final Queue<Breadcrumb> _breadcrumbs = Queue<Breadcrumb>();
   final bool _debugMode;
 
@@ -111,14 +120,17 @@ class BreadcrumbManager {
     );
   }
 
-  /// Get all breadcrumbs as a list (most recent first)
-  List<Breadcrumb> getBreadcrumbs() {
-    return _breadcrumbs.toList().reversed.toList();
+  /// Get all breadcrumbs as a list (most recent first), newest [limit] only
+  /// when given.
+  List<Breadcrumb> getBreadcrumbs({int? limit}) {
+    final newestFirst = _breadcrumbs.toList().reversed;
+    return (limit == null ? newestFirst : newestFirst.take(limit)).toList();
   }
 
-  /// Get breadcrumbs as JSON for crash reports
-  List<Map<String, dynamic>> getBreadcrumbsAsJson() {
-    return getBreadcrumbs().map((b) => b.toJson()).toList();
+  /// Get breadcrumbs as JSON for crash reports. [limit] slices the newest N —
+  /// [nonFatalBreadcrumbs] for a non-fatal, unset for a fatal.
+  List<Map<String, dynamic>> getBreadcrumbsAsJson({int? limit}) {
+    return getBreadcrumbs(limit: limit).map((b) => b.toJson()).toList();
   }
 
   /// Clear all breadcrumbs

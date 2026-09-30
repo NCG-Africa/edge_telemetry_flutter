@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../core/interfaces/device_info_collector.dart';
+import '../core/sdk_version.dart';
 import '../managers/device_id_manager.dart';
 import '../managers/identity_format.dart';
 
@@ -46,6 +47,10 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
       final platform = platformTag();
       attributes['device.platform'] = platform;
       attributes['sdk.platform'] = 'flutter-$platform';
+      // Which SDK build produced this row. A compile-time constant because
+      // Dart cannot read its own package's version at runtime — see
+      // [kSdkVersion] for the manifest assertion that keeps it honest.
+      attributes['sdk.version'] = kSdkVersion;
       attributes['device.platform_version'] = Platform.operatingSystemVersion;
 
       // Collect platform-specific device information
@@ -77,6 +82,10 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
       DeviceInfoPlugin deviceInfo, Map<String, String> attributes) async {
     try {
       final androidInfo = await deviceInfo.androidInfo;
+      // `device.fingerprint` **stays**: it is OS build metadata
+      // (`brand/product/device:release/id/incremental:type/tags`), identical
+      // across every device on that build — not a per-device fingerprint. The
+      // audit misread its own name.
       attributes.addAll({
         'device.model': androidInfo.model,
         'device.manufacturer': androidInfo.manufacturer,
@@ -97,14 +106,25 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
       DeviceInfoPlugin deviceInfo, Map<String, String> attributes) async {
     try {
       final iosInfo = await deviceInfo.iosInfo;
+      // Two keys are gone from v2 here, for two different reasons (#91):
+      //
+      // - `device.name` — **removed on privacy grounds.** It is the only key in
+      //   the whole static bag that can carry a human's name, because the iOS
+      //   default is "Marvin's iPhone".
+      // - `device.identifier_for_vendor` — **removed as redundant, not as a
+      //   privacy concession.** `device.id` sits beside it, is minted by this
+      //   SDK, and survives a reinstall; the vendor id is reset when the last
+      //   app from the vendor is deleted. The key we keep is strictly more
+      //   stable than the one we drop, so nothing is lost.
+      //
+      // Carrier is **never built**: no consumer asked for it, and on iOS it has
+      // been permanently unreachable since `CTCarrier` was deprecated to a
+      // constant — an absent key beats a key that is always wrong.
       attributes.addAll({
         'device.model': iosInfo.model,
-        'device.name': iosInfo.name,
         'device.system_name': iosInfo.systemName,
         'device.system_version': iosInfo.systemVersion,
         'device.localized_model': iosInfo.localizedModel,
-        'device.identifier_for_vendor':
-            iosInfo.identifierForVendor ?? 'unknown',
       });
     } catch (e) {
       attributes['device.ios_error'] = e.toString();

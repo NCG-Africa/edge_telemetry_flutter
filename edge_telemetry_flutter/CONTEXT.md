@@ -80,8 +80,9 @@ _Avoid_: session stat, running total
 ### Rails
 
 **Immediate rail**:
-The path a crash takes — POSTed alone the moment it happens, bypassing the buffer, single
-attempt, then persisted if it fails.
+The path a **fatal** crash and the session bookends take — POSTed alone the moment it
+happens, bypassing the buffer, single attempt, then persisted if it fails. Reserved for a
+process that will not survive to the next flush; a non-fatal error batches.
 _Avoid_: priority queue, fast path
 
 **Batched rail**:
@@ -95,8 +96,9 @@ _Avoid_: force-send, priority
 
 **Offline queue**:
 The on-disk backlog — one JSON file per undeliverable payload, drained FIFO on the next
-successful send or on startup, five files per cycle, crashes first. Crash files have
-their own drop-oldest cap, not an exemption; every file has an attempt ceiling.
+successful send or on startup, five files per cycle, fatal crashes first. Crash files have
+their own drop-oldest cap, not an exemption; every file has an attempt ceiling. A non-fatal
+error rides an ordinary batch file, because it rides an ordinary batch.
 _Avoid_: cache, outbox, spool
 
 ### Collection
@@ -168,6 +170,19 @@ request going through a bypassing client nobody wrapped — is a backend alert o
 zero-request sessions, not a client-side guess.
 _Avoid_: coverage, health, instrumentation state
 
+**Fault bundle**:
+The five device-state keys attached to a **fatal** crash and to nothing else —
+`device.battery_level`, `device.battery_charging`, `device.power_save_mode`,
+`device.thermal_state`, `device.orientation`. Read off the dying thread, where the binder
+calls are free. A key the platform cannot answer is **omitted**, never sentinelled.
+_Avoid_: device health snapshot, device state event, health sample
+
+**Memory bookend**:
+One `memory_usage` metric when the session opens and one when the app is backgrounded —
+two items, where v2 sampled sixty. The quantity is native (`phys_footprint` on iOS, total
+PSS on Android) and `memory.source` names it on the wire.
+_Avoid_: memory poll, memory sample, memory tick
+
 **Captured client**:
 A `package:http` client handed to `captureClient` and returned as a client. The same
 type in and out is what lets an already-captured client, a pre-init call, a disabled
@@ -202,6 +217,35 @@ callbacks per item on the UI isolate for values the SDK chose itself) and never 
 SDK's own item keys.
 _Avoid_: scrubber, filter, sanitizer, processor
 
+**Window** (a frame window):
+One **screen segment** of accumulated frame timings — opened at the first frame after
+the last one closed, closed by a screen change or a 10 s cap, whichever comes first,
+both checked inside the frame callback. It is the subject of a `frame.summary`, and
+it is **not an action**: a window spans several of them, which is why the event
+carries no trace or action id.
+_Avoid_: bucket, interval, sample period, frame batch
+
+**Slow frame** / **Frozen frame**:
+A frame whose **total span** (vsync start → raster finish, never build + raster, which
+are pipelined) exceeds 16 ms / 700 ms. Frozen is a subset of slow. Both thresholds are
+**fixed absolutes** and never derived from the refresh rate — the rate is recorded, not
+applied, so the count means one quantity across every device and every sibling SDK.
+_Avoid_: janky frame, dropped frame, ANR frame, budget overrun
+
+**Eligibility floor**:
+The rule that a window with **zero slow frames is discarded** rather than emitted. It is
+what keeps `screen.name` pointing at a screen that actually stuttered. Its cost is that
+`frame.total_frames` is a biased denominator — never a fleet rate.
+_Avoid_: threshold, filter, minimum
+
+**Reservoir** (the frame reservoir):
+The **keep-worst-two** hold over closed windows, ranked on `(frozen frames, slow frames,
+worst frame)` — **absolute counts, never a rate**, or a five-frame window would evict a
+six-hundred-frame one. Survivors are emitted at pause and before `session.finalized`,
+and an emitted survivor **stays as a ranking incumbent** for the rest of the session, so
+a resumed session neither re-sends it nor starts ranking from empty.
+_Avoid_: buffer, cache, sample, top-N queue
+
 ### Session
 
 **Session**:
@@ -228,13 +272,30 @@ _Avoid_: session stats, funnel
 
 **Crash**:
 Any captured failure, Dart or native, emitted as the `app.crash` event. Dart errors are
-non-fatal crashes (`is_fatal:"false"`); the app survived them.
+non-fatal crashes (`is_fatal:"false"`); the app survived them, so they ride the batch rail.
 _Avoid_: error report, exception event
 
 **Cause**:
 The crash taxonomy — `Error` (all Dart entry points), `NativeCrash`, `ANR`, `Hang`. The
-specific Dart handler goes in the secondary `crash.source`, never in `cause`.
+specific Dart handler goes in the secondary `crash.source`, never in `cause`. It is **not**
+the error category: the sibling's `cause` is free text and this one is an enum, both
+shipped, so the taxonomy got its own key instead.
 _Avoid_: kind, category, severity
+
+**Error category**:
+The non-fatal taxonomy on its own dotted key, `error.category` —
+`network`/`timeout`/`auth`/`parse`/`storage`/`business`/`unknown`, with
+`error.category_source` saying whether the SDK inferred it from the error's exact type or
+the developer declared it. `auth` and `business` are declared-only: no platform type means
+either. Named `ErrorCategory`.
+_Avoid_: error type, error kind, severity, cause
+
+**Handled**:
+Whether the app kept running because someone caught the error — `"true"` for `trackError`
+and the SDK's own self-diagnostics, `"false"` for the three auto-installed handlers
+(`flutter_error`, `platform_dispatcher`, `isolate`) and every native crash. A string,
+matching the shipped `is_fatal`.
+_Avoid_: caught, recovered, is_handled
 
 **Drain**:
 The one-shot pull of crashes the native plugin recorded before the process died, called
@@ -248,8 +309,9 @@ API 30+, `jvm_only` below it.
 _Avoid_: capability, support level
 
 **Breadcrumb**:
-A short trail entry (navigation, request, lifecycle, or host-added) kept in a 20-slot ring
-and attached to a crash as context. Never sent on ordinary events.
+A short trail entry (navigation, request, lifecycle, or host-added) kept in a 50-slot ring
+and attached to a crash as context. A fatal ships all 50; a non-fatal ships the newest 10.
+Never sent on ordinary events.
 _Avoid_: trail, log line
 
 ### Identity

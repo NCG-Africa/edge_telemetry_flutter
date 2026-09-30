@@ -5,6 +5,7 @@ import 'dart:async' show StreamSubscription;
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 import '../core/edge_event.dart';
+import '../crash/error_category.dart';
 import '../managers/context_manager.dart';
 import 'capture_hook.dart';
 
@@ -41,7 +42,9 @@ class NetworkCaptureHook implements CaptureHook {
         'monitor.type': 'flutter_connectivity_plus',
       }));
     } catch (e) {
-      sink.add(EdgeEvent.error(e, attributes: {
+      // The SDK's own failure, tagged as the SDK's (#90) — it is not the host
+      // app's error, and untagged it inflates the host's error rate.
+      sink.add(EdgeEvent.error(e, source: kSdkCrashSource, attributes: {
         'error.context': 'network_monitor_initialization',
         'error.component': 'flutter_network_monitor',
       }));
