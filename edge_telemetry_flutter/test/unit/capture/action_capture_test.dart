@@ -87,7 +87,7 @@ class _Rig {
         context: context, session: session, pipeline: pipeline, gate: gate);
     session.onSessionStart = () {
       gate.resetBudget();
-      collector.resetActionCap();
+      collector.resetPerSessionCaps();
     };
     session.bindSink(collector);
     _dispose = ActionCaptureHook(

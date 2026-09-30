@@ -29,6 +29,13 @@ class SessionManager {
   /// state-only tests → bookends are simply not emitted.
   void Function(EdgeEvent event)? _emit;
 
+  /// Called immediately before `session.finalized` is built, so anything
+  /// holding items back until the session ends can emit them into the session
+  /// that produced them. The frame reservoir binds
+  /// `FrameCaptureHook.flushReservoir` here — without it a rotation would carry
+  /// the old session's two worst windows into the new session's ids.
+  void Function()? onBeforeFinalize;
+
   /// Called at the start of every session, rotations included. The budget
   /// governor binds `CaptureGate.resetBudget` here — the item allowance is per
   /// session, so a rotation starts a fresh one.
@@ -398,6 +405,9 @@ class SessionManager {
 
   void _emitFinalizeCurrent(DateTime end) {
     if (_currentSessionId == null || _sessionStartTime == null) return;
+    // Before the journey summary is built, so a deferred item's own counters
+    // are included in the numbers this bookend reports.
+    onBeforeFinalize?.call();
     // Copied and cleared *before* emitting: the copy is what makes a re-entrant
     // `startTask` safe, and clearing here means this method no longer depends on
     // `_rotate` going on to call `_beginSession` → `_resetCounters` to keep a

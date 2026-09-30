@@ -2,14 +2,21 @@
 
 import 'package:flutter/services.dart';
 
-/// The one platform-channel seam for native crash capture (#10, spec #15 Phase 4).
+/// The one platform-channel seam for native crash capture (#10, spec #15 Phase 4)
+/// and the native device-state read (#91).
 ///
-/// Pull-only, single method: Dart calls [drainNativeCrashes] once on init and
+/// Pull-only, two methods. Dart calls [drainNativeCrashes] once on init and
 /// the native side returns every *new* `app.crash` payload the OS diagnostic
 /// APIs surfaced since last launch (iOS MetricKit, Android
 /// `ApplicationExitInfo` + `UncaughtExceptionHandler`). There is no push and no
 /// streaming — a crashing process can't call back into Dart, so a next-launch
-/// pull is the only model that works.
+/// pull is the only model that works. [readDeviceState] is the same shape for a
+/// different reason: there is no cadence and no observer to push from, because
+/// device health is no longer a time series (#91).
+///
+/// **One channel, not two.** A second channel string would have cost nothing;
+/// the expensive thing is the three-language lockstep surface, and that is paid
+/// once per *method*, not once per channel.
 ///
 /// This class is the **published contract** the Phase-4 native plugin (Swift +
 /// Kotlin) builds against in parallel. Until that plugin ships, there is no
@@ -59,6 +66,56 @@ class NativeCrashChannel {
     } on MissingPluginException {
       // No native side wired yet — expected until Phase 4. Safe no-op.
       return const [];
+    }
+  }
+
+  /// Read the device's current state natively, as a flat string map.
+  ///
+  /// Two call sites, both session bookends (`MemoryBookendHook`), and **no
+  /// cache**: a cached reading of a value the point of which is that it changes
+  /// is a reading of the wrong moment, and two reads per session is not a cost
+  /// worth a staleness bug.
+  ///
+  /// ## Contract
+  ///
+  /// | key                      | meaning                               | example     |
+  /// |--------------------------|---------------------------------------|-------------|
+  /// | `device.battery_level`   | integer percent, 0–100                | `"87"`      |
+  /// | `device.battery_charging`| `"true"` / `"false"`                  | `"false"`   |
+  /// | `device.power_save_mode` | `"true"` / `"false"`                  | `"true"`    |
+  /// | `device.thermal_state`   | `nominal`/`fair`/`serious`/`critical` | `"fair"`    |
+  /// | `device.orientation`     | `portrait` / `landscape`              | `"portrait"`|
+  /// | `memory.used_bytes`      | footprint (iOS) / total PSS (Android) | `"14237696"`|
+  /// | `memory.source`          | `footprint` / `pss`                   | `"pss"`     |
+  ///
+  /// The first five are the **fault bundle** — the same five keys the Android
+  /// uncaught-exception handler reads off the dying thread and writes into its
+  /// crash payload, from this same native reader. They are read here too
+  /// because the reader is one function on each platform; what makes them a
+  /// fatal-only *signal* is that only the crash path attaches them to an item.
+  ///
+  /// **An unavailable key is omitted, never sentinelled.** No `-1`, no
+  /// `"unknown"`: a battery level of `-1` is a number a dashboard will happily
+  /// average. Known omissions, none of them errors: `device.thermal_state`
+  /// below Android 10, `device.battery_charging` below Android 6,
+  /// `device.orientation` on iOS while the device is flat or the orientation is
+  /// not yet known, and every battery key on an iOS simulator.
+  ///
+  /// **Every failure degrades to an empty map, never a throw.** A missing
+  /// plugin is the expected case on an unsupported platform, and a
+  /// [PlatformException] from a native read that went wrong is not worth
+  /// surfacing as an app-visible async error — this is the health signal, and
+  /// its failure mode is having no health signal.
+  Future<Map<String, String>> readDeviceState() async {
+    try {
+      final raw =
+          await _channel.invokeMapMethod<String, dynamic>('readDeviceState');
+      if (raw == null) return const {};
+      return raw.map((k, v) => MapEntry(k, '$v'));
+    } on MissingPluginException {
+      return const {};
+    } on PlatformException {
+      return const {};
     }
   }
 }

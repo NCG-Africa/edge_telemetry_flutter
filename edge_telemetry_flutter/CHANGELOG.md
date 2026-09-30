@@ -57,6 +57,50 @@
   adoption because it *duplicated an automatically-captured signal*, so its
   failure mode was double-counting. This API is the only possible source of its
   signal.
+- **Device health without a cadence — the fault bundle, and memory at the two
+  session bookends.** A second pull-only method, `readDeviceState`, lands on the
+  existing `edge_telemetry/native_crash` channel (one channel: the expensive
+  surface is the three-language lockstep, not the channel string). It returns a
+  flat string map, and **a key the platform cannot answer is omitted, never
+  sentinelled** — no `-1` battery level, no `"unknown"` thermal state. A missing
+  plugin means an empty map, not a throw.
+- **A five-key fault bundle on fatal crashes only** — `device.battery_level`,
+  `device.battery_charging`, `device.power_save_mode`, `device.thermal_state`,
+  `device.orientation`. Android reads them inline in its uncaught-exception
+  handler, off the dying thread, where four binder calls cost the user nothing;
+  doing the same per frame would breach the frame budget in a chatty app. iOS
+  attaches none: MetricKit delivers a crash on the next launch, in a different
+  process, and this launch's state is not that crash's state.
+- On iOS, `UIDevice.isBatteryMonitoringEnabled` is switched on by the **first
+  health read**, not at plugin registration, so a consumer with
+  `Capture.health` off never has that host-app singleton touched. It is never
+  switched back off — a host app may have wanted it on for itself.
+- **`device.thermal_state` is a normalised string** — `nominal` / `fair` /
+  `serious` / `critical`, never the platform ordinal. Android has seven thermal
+  statuses and iOS four, and they disagree on what the same integer means
+  (Android's `2` is MODERATE, iOS's is serious) — a vocabulary defect we would
+  have authored rather than inherited.
+- **`memory.source` on every `memory_usage` metric** (`footprint` on iOS, `pss`
+  on Android), plus `memory.phase` (`session_start` / `session_end`), so the
+  quantity change is legible on the wire instead of appearing as an unexplained
+  step in a chart.
+- **`sdk.version` on every item.** The gap analysis's most damaging static
+  omission: a backend that cannot tell which SDK build produced a row cannot
+  tell a fixed defect from a live one. It is a compile-time constant, because
+  Dart cannot read its own package's version at runtime, asserted against
+  `pubspec.yaml` by a unit test so the two cannot drift. Framework version is
+  **rejected, not deferred** — build-time only, and not worth code generation in
+  a published package.
+- **An iOS privacy manifest shipped by this package** (`PrivacyInfo.xcprivacy`):
+  an **empty accessed-API array** (no required-reason API is used, and the
+  required-reason budget is zero), tracking false, tracking domains empty, and
+  **nine collected data types, all declared linked to identity** — `device.id`
+  rides every item and `setUserProfile()` exists, so unlinked would be the
+  peer-conformant lie. The standing rule now lives in `README.md` and
+  `CLAUDE.md`: a required-reason API is adopted only if an approved reason both
+  fits our use **and** permits off-device transmission, declared in this
+  package's own manifest, never inherited.
+
 - **HTTP request timing is re-based, and the phases are measured.**
   `http.duration_ms` now runs from **before the call to headers received** — v2
   started its clock after the connection was already established, so it measured
@@ -277,8 +321,91 @@
   screen is never navigated away from, so nothing was ever there to emit it. It
   now lands on a bookend that was being sent anyway, at **zero extra items**,
   and survives a killed app through the recovery record.
+- **A non-fatal error taxonomy: `error.category` plus `error.category_source`.**
+  `network` / `timeout` / `auth` / `parse` / `storage` / `business` / `unknown`,
+  on a **new dotted key** rather than the shipped `cause` — the sibling's `cause`
+  is free text and Flutter's is an enum, both shipped, so the no-renames rule
+  keeps the taxonomy out of it. The category is inferred from the error's **exact
+  platform type — never its message**: a `TimeoutException` is `timeout`, a
+  `SocketException` or `HttpException` `network`, a `FormatException` `parse`, a
+  `FileSystemException` `storage`. A message is a string a library author rewords
+  in a patch release; a type is a compile-time fact. `auth` and `business` have no
+  platform type that means them, so they are **declared-only**, through a new
+  additive `category:` parameter on `trackError` — declared-only for *everything*
+  was rejected on the measured finding that consumers do not call helpers, so an
+  app that never passes it still gets four categories for free.
+  `error.category_source` says which it was, `inferred` or `declared` — and is
+  **omitted** where neither happened (an SDK-internal failure, a native crash),
+  rather than stamping `inferred` on a guess that never ran. A fatal carries
+  `error.category: "unknown"` so the facet covers every `app.crash` instead of
+  silently excluding the fatal half; what a fatal *is* rides `cause`.
+  **An HTTP failure emits no `app.crash` and never did** — the status code and
+  `http.error` already ride `http.request`, so auth-vs-server is a query, not a
+  second item. That invariant now has a regression test rather than only a
+  convention.
+- **`handled` on `app.crash`** — `"true"` for `trackError` and the SDK's own
+  self-diagnostics, `"false"` for the three auto-installed handlers
+  (`flutter_error`, `platform_dispatcher`, `isolate`) and every native crash. A **string**, matching the shipped `is_fatal`, rather than the
+  sibling's JSON bool: retyping a shipped key is a rename wearing a correction's
+  clothes.
+- **SDK-internal failures are tagged `crash.source: "sdk"`** and kept off
+  `session.error_count` / `session.crash_count`. Until now the SDK's own capture-
+  hook failures were indistinguishable from the host app's errors and inflated
+  the one error rate a consumer reads straight off the session bookend.
+
+- **`frame.summary` — windowed frame aggregation, at most two events per
+  session.** Frames accumulate per screen segment (a window closes on a screen
+  change or after 10 s, both checked inside the frame callback — no timer), a
+  window with no slow frames is discarded, and the rest are ranked in a
+  keep-worst-two reservoir on `(frozen frames, slow frames, worst frame)` —
+  **absolute counts, not a rate**, so a five-frame window cannot evict a
+  six-hundred-frame one. The two survivors ship when the app is backgrounded or
+  the session ends. The payload is the sibling SDK's ten keys verbatim
+  (`frame.total_frames`, `frame.slow_frames`, `frame.frozen_frames`,
+  `frame.slow_frame_rate`, `frame.max_total_duration_ms`,
+  `frame.max_build_duration_ms`, `frame.max_raster_duration_ms`,
+  `frame.window_duration_ms`, `display.refresh_rate`, `screen.name`; the rate
+  key is **omitted, never zeroed**, when no view reports one) — zero
+  Flutter inventions and zero new backend columns, and the build/raster triage
+  split survives aggregation as the two max-duration keys. Thresholds are
+  **fixed absolutes** — slow above 16 ms, frozen above 700 ms — and do **not**
+  adapt to refresh rate; the rate is recorded, never applied, because a
+  per-device budget would make the same column mean a different quantity on
+  every handset. Total frame duration is now the framework's **own span**
+  (vsync start → raster finish); v2 summed build and raster, which run on two
+  pipelined threads, and over-reported drops. The event's timestamp is
+  backdated to the window start, its screen keys are frozen there, and it
+  carries **no trace or action id at all** — a ten-second window spans several
+  actions, so attributing it to one would be false precision.
+- **`Capture.screenWindowedFrames` (diagnostic) emits every qualifying window
+  as it closes** — the sibling's population, for valid cross-SDK comparison. It
+  **supersedes** the reservoir rather than adding a second emitter, so no window
+  is ever counted twice. Note that at the default tier `frame.total_frames` is
+  *not* a fleet denominator: the two rows are exemplars (the session's two worst
+  screen segments), not a sample. Use `screen.load` / `navigation` counts.
+  `Capture.longTask` stays independent of both: with `Capture.frames` off it
+  keeps the frame callback alive on its own and nothing accumulates behind it.
 
 ### Changed
+
+- **Memory is read natively and measured at the bookends, not sampled.** v2's
+  `ProcessInfo.currentRss` was the wrong quantity on **both** platforms, and the
+  two were not comparable: it under-reports against the `phys_footprint` iOS
+  jetsams on, and over-reports on Android, where the shared engine library
+  counts against the process. v3 reads footprint / total PSS natively, twice a
+  session. The metric survives rather than being deprecated because the schema's
+  memory columns are Flutter's and permanently null on the sibling SDK —
+  dropping it would darken the family's only landing memory signal. The Android
+  read uses `Debug.getMemoryInfo` off the platform thread, not
+  `ActivityManager.getProcessMemoryInfo`, whose rate limit returns the previous
+  answer silently.
+- **`memory.type` is gone from `memory_usage`.** It said `rss`, and that is no
+  longer the quantity being reported; `memory.source` names the real one.
+- **`PerfCaptureHook` is down to app startup.** #89 took frames out of it and
+  #91 deleted the polled health emitters, so what remains under
+  `Capture.health` is the `page_load` launch pair and the two native memory
+  reads. Startup arguably wants a `Capture` member of its own; adding one is a
+  decision about what a consumer may switch off, and it is not made here.
 
 - **Screen dwell folds onto the `navigation` event.** A navigation is now one
   item, not two: the departing screen's time rides
@@ -373,6 +500,26 @@
   with `captureOverrides: {Capture.lifecycleTransitions: true}`. The
   lifecycle→session bridge is unchanged and unconditional — only the event is
   tiered.
+- **Non-fatal errors move from the immediate rail to the batch rail.** The
+  immediate rail exists because a fatal's process is dying; a non-fatal's process
+  lives, so the Pipeline's retries and the offline queue can deliver it instead of
+  one attempt. One error thrown from a `build()` method was **N single-attempt
+  POSTs, each carrying the whole breadcrumb ring**; it is now items in a batch.
+  A fatal — native crash, ANR, iOS hang — still POSTs immediately. **Sampling
+  bypass is kept on both**: rail and sampling are orthogonal axes, so a non-fatal
+  is batched-but-bypass, like `user.profile.update`.
+- **Per-session caps on non-fatals: 5 per exception-type-and-top-frame, 50
+  overall.** The overflow is **counted on `session.finalized`** under the
+  `error_cap` reason, not dropped silently. The dedup key is client-local and
+  never sent — there is still **no error id and no client-side fingerprint**,
+  because the server owns crash hashing in both SDKs. A fatal is exempt from both
+  caps.
+- **The breadcrumb ring grows from 20 to 50, and what a crash ships depends on its
+  fatality.** A fatal ships all 50; a non-fatal ships the newest 10. Twenty was
+  measured too small once actions are captured — ~20 taps evicted every navigation
+  and network crumb from crash triage, which is the half a stack trace does not
+  already tell you. Fifty non-fatals × 50 crumbs would be ~110 KB against a 120 KB
+  session ceiling, which is why the non-fatal slice exists.
 - **`trackEvent` / `trackMetric` take `Map<String, Object?>?`** instead of
   `dynamic`. Values are stringified as before, so `{'count': 3, 'ok': true}`
   keeps compiling and the bytes on the wire are unchanged. The `toJson()`
@@ -390,7 +537,45 @@
   and a payload stored bare by an earlier version is re-wrapped when it drains,
   so the backlog accumulated since v2.0.0 arrives as soon as v3 runs once.
 
+- **`long_task` is redefined to frozen frames only (`> 700 ms`).** v2 fired it
+  on every frame over 16.67 ms, so at 60 Hz a single two-second stall produced
+  ~120 rows and exhausted the 100-per-session allowance on the session's first
+  stall — every later stall, including the one before a crash, recorded
+  nothing. It is now the per-occurrence detail behind `frame.frozen_frames`,
+  joinable to it on `screen.id`, and one threshold serves both. `frame.severity`
+  and `frame.target_fps` are gone from its attributes. **This is a population
+  change: v2 and v3 `long_task` row counts are not comparable**, and since the
+  metric is `diagnostic`-only, a default-config consumer now gets none where v2
+  gave hundreds.
+- **`Capture.frames` is its own switch.** Frame capture moved out of the shared
+  performance hook into its own, so turning it off removes the frame-timing
+  callback registration entirely — the per-frame cost goes to zero rather than
+  to "accumulate and discard". Memory, system and startup capture stay on
+  `Capture.health`.
+
 ### Removed
+
+- **The device-health time series and its off-cadence trigger — −58 items per
+  session.** The 10-second `memory_usage` sample, the 30-second
+  `performance.system_check` and the `performance.memory_pressure` threshold
+  event are deleted at the source, along with `performance.monitor_initialized`
+  whose attributes described monitors that no longer exist. A stream graduates
+  when a named consumer needs it; there is no named consumer, and the "30–60 s
+  cadence" traced to a coverage table rather than a dashboard. Two of the three
+  names were dropped by the canon allowlist on every device anyway.
+- **`device.name` (iOS)** — the only key in the static bag that can carry a
+  human's name, because the iOS default is "Marvin's iPhone".
+- **`device.identifier_for_vendor` (iOS)** — **redundant, not a privacy
+  concession.** `device.id` sits beside it, is minted by this SDK and survives a
+  reinstall; the vendor id is reset when the last app from the vendor is
+  deleted, so the key we keep is strictly more stable than the one we drop.
+- Carrier was **never built** (no consumer, and permanently unreachable on iOS
+  since `CTCarrier` became a constant) and storage headroom is **dropped
+  entirely** (no approved iOS reason both fits our use and permits off-device
+  transmission). `device.fingerprint` **stays** — despite the name it is Android
+  OS build metadata, identical across every device on that build.
+- Ledger holds: **zero new Android permissions, zero new iOS required-reason
+  surface.**
 
 - **`enableCrashReporting` and `enableErrorReporting` are removed outright** —
   from `initialize()` and from `TelemetryConfig`. This is a deliberate hard
@@ -411,6 +596,14 @@
 - `withSpan()` / `withNetworkSpan()` — OTel-era no-ops that recorded nothing.
 
 ### Deprecated
+
+- **The `frame_render_time` metric is deprecated in place — removal in
+  v4.0.0.** The name stays on the wire allowlist (a canon name is never
+  removed) and it is no longer emitted: a per-frame metric at 60–120 Hz became
+  the windowed `frame.summary` event above. Any dashboard averaging it goes
+  flat; read `frame.slow_frame_rate` and the `frame.max_*` keys instead. The
+  seven `frame.*` columns bound to the per-frame vocabulary keep their meaning
+  and their history and simply stop receiving rows.
 
 - **The `screen.duration` event is deprecated in place — removal in v4.0.0.** The
   name stays on the wire allowlist (a canon name is never removed) and it is no
