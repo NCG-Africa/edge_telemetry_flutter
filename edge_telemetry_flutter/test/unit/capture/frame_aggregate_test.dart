@@ -63,21 +63,25 @@ void main() {
   late int monoUs;
 
   /// `diagnostic` off, `standard` on — the default row.
-  CaptureGate standardGate() => CaptureGate(const TelemetryConfig(
-        endpoint: 'https://example.test',
-        apiKey: 'k',
-        serviceName: 'test',
-        tier: CollectionTier.standard,
-      ));
+  CaptureGate standardGate() => CaptureGate(
+    const TelemetryConfig(
+      endpoint: 'https://example.test',
+      apiKey: 'k',
+      serviceName: 'test',
+      tier: CollectionTier.standard,
+    ),
+  );
 
   CaptureGate diagnosticGate({Map<Capture, bool> overrides = const {}}) =>
-      CaptureGate(TelemetryConfig(
-        endpoint: 'https://example.test',
-        apiKey: 'k',
-        serviceName: 'test',
-        tier: CollectionTier.diagnostic,
-        captureOverrides: overrides,
-      ));
+      CaptureGate(
+        TelemetryConfig(
+          endpoint: 'https://example.test',
+          apiKey: 'k',
+          serviceName: 'test',
+          tier: CollectionTier.diagnostic,
+          captureOverrides: overrides,
+        ),
+      );
 
   void startHook({CaptureGate? gate}) {
     hook = FrameCaptureHook(
@@ -100,12 +104,14 @@ void main() {
     for (var i = 0; i < count; i++) {
       now = now.add(Duration(milliseconds: stepMs));
       monoUs += stepMs * 1000;
-      hook.recordFrame(_frame(
-        atMicros: monoUs,
-        totalMs: totalMs,
-        buildMs: buildMs,
-        rasterMs: rasterMs,
-      ));
+      hook.recordFrame(
+        _frame(
+          atMicros: monoUs,
+          totalMs: totalMs,
+          buildMs: buildMs,
+          rasterMs: rasterMs,
+        ),
+      );
     }
   }
 
@@ -135,24 +141,21 @@ void main() {
       hook.flushReservoir();
 
       final a = onlySummary();
-      expect(
-        a.keys.toSet(),
-        {
-          'frame.total_frames',
-          'frame.slow_frames',
-          'frame.frozen_frames',
-          'frame.slow_frame_rate',
-          'frame.max_total_duration_ms',
-          'frame.max_build_duration_ms',
-          'frame.max_raster_duration_ms',
-          'frame.window_duration_ms',
-          'display.refresh_rate',
-          'screen.name',
-          // Not an eleventh key: `screen.id` is already ambient on every item.
-          // It rides here as the frozen override of the ambient one.
-          'screen.id',
-        },
-      );
+      expect(a.keys.toSet(), {
+        'frame.total_frames',
+        'frame.slow_frames',
+        'frame.frozen_frames',
+        'frame.slow_frame_rate',
+        'frame.max_total_duration_ms',
+        'frame.max_build_duration_ms',
+        'frame.max_raster_duration_ms',
+        'frame.window_duration_ms',
+        'display.refresh_rate',
+        'screen.name',
+        // Not an eleventh key: `screen.id` is already ambient on every item.
+        // It rides here as the frozen override of the ambient one.
+        'screen.id',
+      });
       expect(a['frame.total_frames'], '10');
       expect(a['frame.slow_frames'], '1');
       expect(a['frame.frozen_frames'], '1');
@@ -215,8 +218,10 @@ void main() {
 
       final items = sink.named('frame.summary');
       expect(items, hasLength(2));
-      expect(items.map((e) => e.attributes['screen.name']),
-          containsAll(<String>['/home', '/details']));
+      expect(
+        items.map((e) => e.attributes['screen.name']),
+        containsAll(<String>['/home', '/details']),
+      );
     });
 
     test('closes at the 10 s cap with no screen change and no timer', () {
@@ -224,8 +229,11 @@ void main() {
       hook.flushReservoir();
       expect(sink.named('frame.summary').length, greaterThan(1));
       expect(
-        sink.named('frame.summary').map(
-            (e) => double.parse(e.attributes['frame.window_duration_ms']!)),
+        sink
+            .named('frame.summary')
+            .map(
+              (e) => double.parse(e.attributes['frame.window_duration_ms']!),
+            ),
         // The cap is checked once per frame, so a window overshoots by at
         // most the one frame that crossed it.
         everyElement(lessThan(kFrameWindowCap.inMilliseconds + 17)),
@@ -260,8 +268,10 @@ void main() {
         items.map((e) => e.attributes['screen.name']),
         containsAll(<String>['/long', '/medium']),
       );
-      expect(items.map((e) => e.attributes['screen.name']),
-          isNot(contains('/short')));
+      expect(
+        items.map((e) => e.attributes['screen.name']),
+        isNot(contains('/short')),
+      );
     });
 
     test('frozen count outranks slow count', () {
@@ -308,7 +318,9 @@ void main() {
       hook.flushReservoir();
 
       expect(
-          sink.named('frame.summary').first.attributes['screen.name'], '/home');
+        sink.named('frame.summary').first.attributes['screen.name'],
+        '/home',
+      );
     });
 
     test('the timestamp is backdated to the window start', () {
@@ -321,10 +333,9 @@ void main() {
       expect(item.occurredAt, isNotNull);
       // Backdated to the first frame of the window, not to the flush.
       expect(
-          item.occurredAt!.isBefore(windowStart.add(const Duration(
-            seconds: 1,
-          ))),
-          isTrue);
+        item.occurredAt!.isBefore(windowStart.add(const Duration(seconds: 1))),
+        isTrue,
+      );
     });
 
     test('no trace keys at all — a window is not an action', () {
@@ -376,24 +387,26 @@ void main() {
   });
 
   group('tiers split the emitter, never double it', () {
-    test('diagnostic emits every qualifying window on close, and only there',
-        () {
-      startHook(gate: diagnosticGate());
-      for (final screen in ['/a', '/b', '/c', '/d']) {
-        session.recordScreen(screen);
-        frames(2, totalMs: 50, stepMs: 1);
-      }
-      // Three windows closed by a screen change, emitted as they closed.
-      expect(sink.named('frame.summary'), hasLength(3));
-      hook.flushReservoir();
-      // The fourth, and no reservoir replay of the first three.
-      expect(sink.named('frame.summary'), hasLength(4));
-    });
+    test(
+      'diagnostic emits every qualifying window on close, and only there',
+      () {
+        startHook(gate: diagnosticGate());
+        for (final screen in ['/a', '/b', '/c', '/d']) {
+          session.recordScreen(screen);
+          frames(2, totalMs: 50, stepMs: 1);
+        }
+        // Three windows closed by a screen change, emitted as they closed.
+        expect(sink.named('frame.summary'), hasLength(3));
+        hook.flushReservoir();
+        // The fourth, and no reservoir replay of the first three.
+        expect(sink.named('frame.summary'), hasLength(4));
+      },
+    );
 
     test('screenWindowedFrames off leaves the reservoir in charge', () {
       startHook(
-          gate:
-              diagnosticGate(overrides: {Capture.screenWindowedFrames: false}));
+        gate: diagnosticGate(overrides: {Capture.screenWindowedFrames: false}),
+      );
       for (final screen in ['/a', '/b', '/c', '/d']) {
         session.recordScreen(screen);
         frames(2, totalMs: 50, stepMs: 1);
@@ -458,22 +471,24 @@ void main() {
   });
 
   group('long_task is independent of the aggregate', () {
-    test('frames off, longTask on: the metric still fires, no summary does',
-        () {
-      hook = FrameCaptureHook(
-        session: session,
-        gate: diagnosticGate(overrides: {Capture.frames: false}),
-        aggregate: false,
-        clock: () => now,
-        refreshRate: () => 120,
-      );
-      dispose = hook.start(sink);
+    test(
+      'frames off, longTask on: the metric still fires, no summary does',
+      () {
+        hook = FrameCaptureHook(
+          session: session,
+          gate: diagnosticGate(overrides: {Capture.frames: false}),
+          aggregate: false,
+          clock: () => now,
+          refreshRate: () => 120,
+        );
+        dispose = hook.start(sink);
 
-      frames(3, totalMs: 900, stepMs: 1);
-      hook.flushReservoir();
-      expect(sink.named('long_task'), hasLength(3));
-      expect(sink.named('frame.summary'), isEmpty);
-    });
+        frames(3, totalMs: 900, stepMs: 1);
+        hook.flushReservoir();
+        expect(sink.named('long_task'), hasLength(3));
+        expect(sink.named('frame.summary'), isEmpty);
+      },
+    );
   });
 
   group('an unknown refresh rate is omitted, never zeroed', () {
@@ -492,8 +507,7 @@ void main() {
   });
 
   group('the wire seam', () {
-    test(
-        'one bad window among many produces exactly two items, and the bad '
+    test('one bad window among many produces exactly two items, and the bad '
         'window is one of them', () {
       for (var i = 0; i < 20; i++) {
         session.recordScreen('/smooth-$i');
@@ -512,8 +526,10 @@ void main() {
 
       final items = sink.named('frame.summary');
       expect(items, hasLength(2));
-      expect(items.map((e) => e.attributes['screen.name']),
-          contains('/the-bad-one'));
+      expect(
+        items.map((e) => e.attributes['screen.name']),
+        contains('/the-bad-one'),
+      );
     });
 
     test('a session with no slow frames emits nothing at all', () {

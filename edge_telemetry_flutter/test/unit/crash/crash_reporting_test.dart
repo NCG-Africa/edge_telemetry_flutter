@@ -23,9 +23,9 @@ class _RecordingSender {
   /// Wire items, unwrapped from their `telemetry_batch` envelope. Since #81
   /// both rails envelope — the immediate crash as a one-item batch.
   List<Map<String, dynamic>> get items => [
-        for (final p in sent)
-          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
-      ];
+    for (final p in sent)
+      ...?(p['events'] as List?)?.cast<Map<String, dynamic>>(),
+  ];
   Future<bool> call(Map<String, dynamic> payload) async {
     sent.add(payload);
     return true;
@@ -36,13 +36,14 @@ class _NoopQueue extends OfflineQueue {
   @override
   Future<void> initialize() async {}
   @override
-  Future<String?> persist(Map<String, dynamic> p,
-          {bool isCrash = false}) async =>
-      null;
+  Future<String?> persist(
+    Map<String, dynamic> p, {
+    bool isCrash = false,
+  }) async => null;
   @override
   Future<int> drain(
-          Future<DrainResult> Function(Map<String, dynamic>) s) async =>
-      0;
+    Future<DrainResult> Function(Map<String, dynamic>) s,
+  ) async => 0;
 }
 
 void main() {
@@ -97,15 +98,20 @@ void main() {
       expect(a.containsKey('breadcrumbs'), isFalse);
     });
 
-    test('host trackError (no source) omits crash.source; caller attrs merge',
-        () {
-      final a = reporting.buildCrashEvent(
-        Exception('x'),
-        attributes: {'error.context': 'demo'},
-      ).attributes;
-      expect(a.containsKey('crash.source'), isFalse);
-      expect(a['error.context'], 'demo');
-    });
+    test(
+      'host trackError (no source) omits crash.source; caller attrs merge',
+      () {
+        final a =
+            reporting
+                .buildCrashEvent(
+                  Exception('x'),
+                  attributes: {'error.context': 'demo'},
+                )
+                .attributes;
+        expect(a.containsKey('crash.source'), isFalse);
+        expect(a['error.context'], 'demo');
+      },
+    );
 
     test('null stackTrace omits the stacktrace key', () {
       final a = reporting.buildCrashEvent(Exception('x')).attributes;
@@ -137,13 +143,14 @@ void main() {
     });
 
     test('ANR + jvm_only tier pass through unchanged', () {
-      final a = reporting.buildNativeCrashEvent({
-        'message': 'ANR in com.example',
-        'cause': 'ANR',
-        'is_fatal': 'true',
-        'crash.source': 'app_exit_info',
-        'sdk.native_capture_tier': 'jvm_only',
-      }).attributes;
+      final a =
+          reporting.buildNativeCrashEvent({
+            'message': 'ANR in com.example',
+            'cause': 'ANR',
+            'is_fatal': 'true',
+            'crash.source': 'app_exit_info',
+            'sdk.native_capture_tier': 'jvm_only',
+          }).attributes;
       expect(a['cause'], 'ANR');
       expect(a['sdk.native_capture_tier'], 'jvm_only');
     });
@@ -155,24 +162,34 @@ void main() {
       final session = SessionManager();
       await session.startSession('session_test');
       final context = ContextManager(
-          sessionManager: session, global: {'device.id': 'device_x'});
+        sessionManager: session,
+        global: {'device.id': 'device_x'},
+      );
       final transport = RetryTransport(
-          endpoint: 'https://api.test',
-          queue: _NoopQueue(),
-          sender: sender.call);
+        endpoint: 'https://api.test',
+        queue: _NoopQueue(),
+        sender: sender.call,
+      );
       // batchSize huge → a batched event would NOT flush; only the immediate
       // rail can produce a send here.
       final pipeline = Pipeline(transport: transport, batchSize: 999);
-      final collector =
-          Collector(context: context, session: session, pipeline: pipeline);
+      final collector = Collector(
+        context: context,
+        session: session,
+        pipeline: pipeline,
+      );
       return (collector, sender, pipeline);
     }
 
     test('a non-fatal buffers on the batch rail, then flushes', () async {
       final (collector, sender, pipeline) = await wire();
 
-      collector.add(reporting.buildCrashEvent(StateError('boom'),
-          source: 'platform_dispatcher'));
+      collector.add(
+        reporting.buildCrashEvent(
+          StateError('boom'),
+          source: 'platform_dispatcher',
+        ),
+      );
       await Future<void>(() {});
 
       // Nothing yet: batchSize is 999 and the non-fatal is no longer immediate.
@@ -192,26 +209,30 @@ void main() {
       expect(attrs['device.id'], 'device_x'); // identity context folded in
     });
 
-    test('native crash reaches the wire as app.crash with tier asserted',
-        () async {
-      final (collector, sender, _) = await wire();
+    test(
+      'native crash reaches the wire as app.crash with tier asserted',
+      () async {
+        final (collector, sender, _) = await wire();
 
-      collector.add(reporting.buildNativeCrashEvent({
-        'message': 'SIGSEGV',
-        'cause': 'NativeCrash',
-        'is_fatal': 'true',
-        'crash.source': 'metrickit',
-        'sdk.native_capture_tier': 'full',
-      }));
-      await Future<void>(() {});
+        collector.add(
+          reporting.buildNativeCrashEvent({
+            'message': 'SIGSEGV',
+            'cause': 'NativeCrash',
+            'is_fatal': 'true',
+            'crash.source': 'metrickit',
+            'sdk.native_capture_tier': 'full',
+          }),
+        );
+        await Future<void>(() {});
 
-      expect(sender.items, hasLength(1));
-      final attrs = sender.items.single['attributes'] as Map;
-      expect(sender.items.single['eventName'], 'app.crash');
-      expect(attrs['cause'], 'NativeCrash');
-      expect(attrs['is_fatal'], 'true');
-      expect(attrs['sdk.native_capture_tier'], 'full'); // tiering asserted
-      expect(attrs['device.id'], 'device_x'); // identity context folded in
-    });
+        expect(sender.items, hasLength(1));
+        final attrs = sender.items.single['attributes'] as Map;
+        expect(sender.items.single['eventName'], 'app.crash');
+        expect(attrs['cause'], 'NativeCrash');
+        expect(attrs['is_fatal'], 'true');
+        expect(attrs['sdk.native_capture_tier'], 'full'); // tiering asserted
+        expect(attrs['device.id'], 'device_x'); // identity context folded in
+      },
+    );
   });
 }

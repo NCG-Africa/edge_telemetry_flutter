@@ -29,12 +29,13 @@ class CrashReporting {
     String? source,
     Map<String, String>? attributes,
     ErrorCategory? category,
-  }) =>
-      EdgeEvent.error(error,
-          stackTrace: stackTrace,
-          source: source,
-          attributes: attributes,
-          category: category);
+  }) => EdgeEvent.error(
+    error,
+    stackTrace: stackTrace,
+    source: source,
+    attributes: attributes,
+    category: category,
+  );
 
   /// Build the immediate (fatal) `app.crash` event for one native-drained crash
   /// [payload] (#29). The native side already shaped the unprefixed keys and set

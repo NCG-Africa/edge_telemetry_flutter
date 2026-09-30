@@ -25,7 +25,9 @@ String secureHex(int chars) {
   while (true) {
     final id = String.fromCharCodes(
       Iterable.generate(
-          chars, (_) => _hex.codeUnitAt(_secureRandom.nextInt(16))),
+        chars,
+        (_) => _hex.codeUnitAt(_secureRandom.nextInt(16)),
+      ),
     );
     if (id.codeUnits.any((c) => c != 0x30)) return id;
   }

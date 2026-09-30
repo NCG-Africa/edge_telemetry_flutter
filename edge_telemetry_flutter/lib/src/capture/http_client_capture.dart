@@ -41,8 +41,8 @@ class CapturedClient extends http.BaseClient {
     this.injector,
     this.selfUrl,
     this.debugMode = false,
-  })  : _inner = inner,
-        _onRequestComplete = onRequestComplete;
+  }) : _inner = inner,
+       _onRequestComplete = onRequestComplete;
 
   final http.Client _inner;
   final void Function(HttpRequestTelemetry) _onRequestComplete;
@@ -124,16 +124,18 @@ class CapturedClient extends http.BaseClient {
       // every path through this seam. Guessing the socket's fate would make the
       // row claim a thing it cannot know, and a server span joined on this
       // `trace.id` would be orphaned by a wrong "not traced".
-      emit(HttpRequestTelemetry(
-        url: request.url.toString(),
-        method: request.method,
-        statusCode: 0,
-        duration: clock.elapsed,
-        timestamp: callStart,
-        error: error.toString(),
-        traceAttributes: traceAttributes,
-        seam: kSeamHttpClient,
-      ));
+      emit(
+        HttpRequestTelemetry(
+          url: request.url.toString(),
+          method: request.method,
+          statusCode: 0,
+          duration: clock.elapsed,
+          timestamp: callStart,
+          error: error.toString(),
+          traceAttributes: traceAttributes,
+          seam: kSeamHttpClient,
+        ),
+      );
       rethrow;
     }
 
@@ -165,22 +167,26 @@ class CapturedClient extends http.BaseClient {
         );
         final download = clock.elapsed - atHeaders;
         if (debugMode) {
-          print('🌐 HTTP ${request.method.toUpperCase()} ${request.url} - '
-              '${response.statusCode} (${atHeaders.inMilliseconds}ms + '
-              '${download.inMilliseconds}ms body) [$kSeamHttpClient]');
+          print(
+            '🌐 HTTP ${request.method.toUpperCase()} ${request.url} - '
+            '${response.statusCode} (${atHeaders.inMilliseconds}ms + '
+            '${download.inMilliseconds}ms body) [$kSeamHttpClient]',
+          );
         }
-        emit(HttpRequestTelemetry(
-          url: request.url.toString(),
-          method: request.method,
-          statusCode: response.statusCode,
-          duration: atHeaders,
-          timestamp: callStart,
-          downloadDuration: download,
-          responseSize: sized.size,
-          responseSizeSource: sized.source,
-          traceAttributes: traceAttributes,
-          seam: kSeamHttpClient,
-        ));
+        emit(
+          HttpRequestTelemetry(
+            url: request.url.toString(),
+            method: request.method,
+            statusCode: response.statusCode,
+            duration: atHeaders,
+            timestamp: callStart,
+            downloadDuration: download,
+            responseSize: sized.size,
+            responseSizeSource: sized.source,
+            traceAttributes: traceAttributes,
+            seam: kSeamHttpClient,
+          ),
+        );
       }
     }
 

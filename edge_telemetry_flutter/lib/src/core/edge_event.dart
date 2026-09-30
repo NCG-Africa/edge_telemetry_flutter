@@ -131,11 +131,11 @@ class EdgeEvent {
     this.ownsTraceContext = false,
     this.consumerAttributes = false,
     this.occurredAt,
-  })  : type = 'event',
-        value = null,
-        error = null,
-        stackTrace = null,
-        priority = EventPriority.batched;
+  }) : type = 'event',
+       value = null,
+       error = null,
+       stackTrace = null,
+       priority = EventPriority.batched;
 
   const EdgeEvent.metric(
     this.name,
@@ -144,12 +144,12 @@ class EdgeEvent {
     this.countsToSession = false,
     this.ownsTraceContext = false,
     this.consumerAttributes = false,
-  })  : type = 'metric',
-        occurredAt = null,
-        error = null,
-        stackTrace = null,
-        bypassSampling = false,
-        priority = EventPriority.batched;
+  }) : type = 'metric',
+       occurredAt = null,
+       error = null,
+       stackTrace = null,
+       bypassSampling = false,
+       priority = EventPriority.batched;
 
   /// The `task.complete` wire shape — the terminal of a declared journey
   /// (#92, spec §12).
@@ -195,29 +195,28 @@ class EdgeEvent {
     String? sessionId,
     TaskAbandonSource? abandonSource,
     Map<String, String> traceAttributes = const {},
-  }) =>
-      EdgeEvent.event(
-        'task.complete',
-        attributes: {
-          'task.name': name,
-          'task.outcome': outcome.name,
-          'span.duration_ms': duration.inMilliseconds.toString(),
-          if (sessionId != null) 'session.id': sessionId,
-          if (abandonSource != null) 'task.abandon_source': abandonSource.wire,
-          ...traceAttributes,
-        },
-        // The whole point of the freeze: a task runs for minutes, so by the
-        // time it terminates the ambient root is long gone or is an unrelated
-        // tap. Its own frozen copy merges over a stripped snapshot — including
-        // when the freeze found no open root, which is the empty case the axis
-        // exists for.
-        ownsTraceContext: true,
-        // Deliberately **not** counted, on either leg. The abandoned leg is
-        // emitted from the finalize path, where the counters are either already
-        // frozen into the journey summary or belong to a session that ended in
-        // a previous process — and one event may not count on one leg and not
-        // the other.
-      );
+  }) => EdgeEvent.event(
+    'task.complete',
+    attributes: {
+      'task.name': name,
+      'task.outcome': outcome.name,
+      'span.duration_ms': duration.inMilliseconds.toString(),
+      if (sessionId != null) 'session.id': sessionId,
+      if (abandonSource != null) 'task.abandon_source': abandonSource.wire,
+      ...traceAttributes,
+    },
+    // The whole point of the freeze: a task runs for minutes, so by the
+    // time it terminates the ambient root is long gone or is an unrelated
+    // tap. Its own frozen copy merges over a stripped snapshot — including
+    // when the freeze found no open root, which is the empty case the axis
+    // exists for.
+    ownsTraceContext: true,
+    // Deliberately **not** counted, on either leg. The abandoned leg is
+    // emitted from the finalize path, where the counters are either already
+    // frozen into the journey summary or belong to a session that ended in
+    // a previous process — and one event may not count on one leg and not
+    // the other.
+  );
 
   /// The single source of truth for the `app.crash` wire shape.
   ///
@@ -252,7 +251,8 @@ class EdgeEvent {
     // what the *host app* did wrong, and the SDK's own `SocketException` is not
     // the host's network problem.
     final sdkInternal = source == kSdkCrashSource;
-    final resolved = category ??
+    final resolved =
+        category ??
         (sdkInternal ? ErrorCategory.unknown : inferErrorCategory(error));
     return EdgeEvent._crash({
       // The consumer's bag goes **first**, so every key below wins a collision.
@@ -298,11 +298,13 @@ class EdgeEvent {
   /// was inferred and nothing declared. What a fatal *is* rides `cause`
   /// (`NativeCrash`/`ANR`/`Hang`), which discriminates it already.
   factory EdgeEvent.nativeCrash(Map<String, String> payload) =>
-      EdgeEvent._crash(Map<String, String>.unmodifiable({
-        'handled': 'false',
-        'error.category': ErrorCategory.unknown.wire,
-        ...payload,
-      }));
+      EdgeEvent._crash(
+        Map<String, String>.unmodifiable({
+          'handled': 'false',
+          'error.category': ErrorCategory.unknown.wire,
+          ...payload,
+        }),
+      );
 
   /// Whether the app kept running *because someone caught this*. The three
   /// auto-installed handlers catch what nobody else did, so they are unhandled;
@@ -311,10 +313,11 @@ class EdgeEvent {
   /// The set is exactly the source tokens the facade emits. A fourth handler
   /// added later — a `runZonedGuarded` bridge being the obvious one — belongs
   /// here in the same commit, or its uncaught errors report as handled.
-  static bool _handled(String? source) => !const {
+  static bool _handled(String? source) =>
+      !const {
         'flutter_error',
         'platform_dispatcher',
-        'isolate'
+        'isolate',
       }.contains(source);
 
   /// The rail is chosen by fatality and nothing else. A fatal — every native
@@ -324,25 +327,26 @@ class EdgeEvent {
   /// retries instead of one attempt, and one error in a `build()` becomes items
   /// in a batch rather than N single-attempt POSTs.
   EdgeEvent._crash(this.attributes)
-      : type = 'event',
-        occurredAt = null,
-        // The consumer's extra `trackError` attributes are merged into the
-        // same map as `message` / `stacktrace`, which the backend extractors
-        // read verbatim. One flag cannot split them, so the whole bag stays
-        // the SDK's — the safe half to be wrong about.
-        consumerAttributes = false,
-        // A crash mints no span and freezes nothing — it inherits the ambient
-        // keys, which is exactly the attribution the action id already gives.
-        ownsTraceContext = false,
-        name = 'app.crash',
-        value = null,
-        error = null,
-        stackTrace = null,
-        countsToSession = false,
-        bypassSampling = true,
-        priority = attributes['is_fatal'] == 'false'
-            ? EventPriority.batched
-            : EventPriority.immediate;
+    : type = 'event',
+      occurredAt = null,
+      // The consumer's extra `trackError` attributes are merged into the
+      // same map as `message` / `stacktrace`, which the backend extractors
+      // read verbatim. One flag cannot split them, so the whole bag stays
+      // the SDK's — the safe half to be wrong about.
+      consumerAttributes = false,
+      // A crash mints no span and freezes nothing — it inherits the ambient
+      // keys, which is exactly the attribution the action id already gives.
+      ownsTraceContext = false,
+      name = 'app.crash',
+      value = null,
+      error = null,
+      stackTrace = null,
+      countsToSession = false,
+      bypassSampling = true,
+      priority =
+          attributes['is_fatal'] == 'false'
+              ? EventPriority.batched
+              : EventPriority.immediate;
 
   /// A non-fatal `app.crash` — the item that batches, that the per-session error
   /// caps bound, and that ships the short breadcrumb slice. One getter, so the
@@ -375,14 +379,14 @@ class EdgeEvent {
   /// bump the session counters. Attributes are carried verbatim (the finalize
   /// journey summary is pre-built by [SessionManager]).
   const EdgeEvent.session(this.name, this.attributes)
-      : type = 'event',
-        occurredAt = null,
-        consumerAttributes = false,
-        ownsTraceContext = false,
-        value = null,
-        error = null,
-        stackTrace = null,
-        countsToSession = false,
-        bypassSampling = true,
-        priority = EventPriority.immediate;
+    : type = 'event',
+      occurredAt = null,
+      consumerAttributes = false,
+      ownsTraceContext = false,
+      value = null,
+      error = null,
+      stackTrace = null,
+      countsToSession = false,
+      bypassSampling = true,
+      priority = EventPriority.immediate;
 }

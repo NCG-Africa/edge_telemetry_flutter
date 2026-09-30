@@ -118,14 +118,18 @@ class UserProfileManager {
       'has_name': profile.containsKey('user.name'),
       'has_email': profile.containsKey('user.email'),
       'has_phone': profile.containsKey('user.phone'),
-      'custom_fields': profile.keys
-          .where((k) => ![
-                'user.name',
-                'user.email',
-                'user.phone',
-                'user.profile_updated_at'
-              ].contains(k))
-          .length,
+      'custom_fields':
+          profile.keys
+              .where(
+                (k) =>
+                    ![
+                      'user.name',
+                      'user.email',
+                      'user.phone',
+                      'user.profile_updated_at',
+                    ].contains(k),
+              )
+              .length,
       'last_updated': profile['user.profile_updated_at'],
     };
   }

@@ -28,9 +28,9 @@ class _FakeSink implements EventSink {
 }
 
 MaterialPageRoute<void> _route(String? name) => MaterialPageRoute<void>(
-      builder: (_) => const SizedBox(),
-      settings: RouteSettings(name: name),
-    );
+  builder: (_) => const SizedBox(),
+  settings: RouteSettings(name: name),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -84,8 +84,9 @@ void main() {
   }
 
   group('#88 — the four outcomes', () {
-    testWidgets('settled: first frame + no in-flight + a quiet window',
-        (tester) async {
+    testWidgets('settled: first frame + no in-flight + a quiet window', (
+      tester,
+    ) async {
       observer.didPush(_route('/a'), null);
       await tester.pump(); // first frame
       expect(sink.named('screen.load'), isEmpty, reason: 'quiet not held yet');
@@ -129,8 +130,9 @@ void main() {
       await settleOpen(tester);
     });
 
-    testWidgets('deadline_exceeded, pinned to the action-root cap',
-        (tester) async {
+    testWidgets('deadline_exceeded, pinned to the action-root cap', (
+      tester,
+    ) async {
       expect(ScreenLoadHook.deadline, TraceManager.rootCap);
 
       observer.didPush(_route('/a'), null);
@@ -150,8 +152,9 @@ void main() {
       endScreenRequest(claim);
     });
 
-    testWidgets('backgrounded: paused before the screen settles',
-        (tester) async {
+    testWidgets('backgrounded: paused before the screen settles', (
+      tester,
+    ) async {
       observer.didPush(_route('/a'), null);
       hook.onPaused();
 
@@ -178,8 +181,9 @@ void main() {
       expect(sink.named('screen.load'), hasLength(1));
     });
 
-    testWidgets('an in-flight request on this screen defers settling',
-        (tester) async {
+    testWidgets('an in-flight request on this screen defers settling', (
+      tester,
+    ) async {
       observer.didPush(_route('/a'), null);
       await tester.pump();
 
@@ -194,8 +198,9 @@ void main() {
   });
 
   group('#88 — the cardinality bomb is gone', () {
-    testWidgets('three visits: one stable name, three screen ids',
-        (tester) async {
+    testWidgets('three visits: one stable name, three screen ids', (
+      tester,
+    ) async {
       final ids = <String>[];
       for (var i = 0; i < 3; i++) {
         observer.didPush(_route(null), i == 0 ? null : _route(null));
@@ -204,21 +209,26 @@ void main() {
         await tester.pump(kScreenQuietWindow);
       }
 
-      final names = sink
-          .named('screen.load')
-          .map((e) => e.attributes['screen.name'])
-          .toSet();
+      final names =
+          sink
+              .named('screen.load')
+              .map((e) => e.attributes['screen.name'])
+              .toSet();
       expect(names, hasLength(1), reason: 'one grouping key for one route');
       expect(names.single, 'unnamed_MaterialPageRoute<void>');
-      expect(names.single, isNot(contains(RegExp(r'\d{4,}'))),
-          reason: 'no identity hash');
+      expect(
+        names.single,
+        isNot(contains(RegExp(r'\d{4,}'))),
+        reason: 'no identity hash',
+      );
       expect(ids.toSet(), hasLength(3), reason: 'visit identity is screen.id');
     });
   });
 
   group('#88 — dwell folds onto navigation', () {
-    testWidgets('no screen.duration event; the navigation carries it',
-        (tester) async {
+    testWidgets('no screen.duration event; the navigation carries it', (
+      tester,
+    ) async {
       observer.didPush(_route('/a'), null);
       await tester.pump();
       observer.didPush(_route('/b'), _route('/a'));

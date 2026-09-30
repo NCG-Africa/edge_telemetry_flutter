@@ -33,11 +33,12 @@ class NavCaptureHook implements CaptureHook {
 
   EdgeNavigationObserver? _observer;
 
-  NavCaptureHook(
-      {required this.session,
-      required this.breadcrumbs,
-      this.trace,
-      this.screenLoad});
+  NavCaptureHook({
+    required this.session,
+    required this.breadcrumbs,
+    this.trace,
+    this.screenLoad,
+  });
 
   /// The observer to hand to `MaterialApp` (null until [start] is called).
   EdgeNavigationObserver? get observer => _observer;
@@ -64,15 +65,19 @@ class NavCaptureHook implements CaptureHook {
           // After `recordScreen` (which mints this visit's `screen.id`) and
           // after the root mint, so the load's frozen child hangs off the
           // navigation root rather than off nothing.
-          screenLoad?.enter(to, routeContext: {
-            if (attributes['route.type'] != null)
-              'route.type': attributes['route.type']!,
-            if (attributes['route.has_arguments'] != null)
-              'route.has_arguments': attributes['route.has_arguments']!,
-          });
+          screenLoad?.enter(
+            to,
+            routeContext: {
+              if (attributes['route.type'] != null)
+                'route.type': attributes['route.type']!,
+              if (attributes['route.has_arguments'] != null)
+                'route.has_arguments': attributes['route.has_arguments']!,
+            },
+          );
         }
         sink.add(
-            EdgeEvent.event(eventName, attributes: attributes ?? const {}));
+          EdgeEvent.event(eventName, attributes: attributes ?? const {}),
+        );
       },
     );
     _observer = observer;

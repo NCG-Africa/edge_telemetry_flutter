@@ -124,12 +124,13 @@ class SessionManager {
     bool Function()? sampledRoll,
     this.idleTimeout = const Duration(minutes: 30),
     SharedPreferences? prefs,
-  })  : _emit = emit,
-        _newId = newSessionId ??
-            (() => 'session_${DateTime.now().millisecondsSinceEpoch}'),
-        _clock = clock ?? DateTime.now,
-        _sampledRoll = sampledRoll,
-        _prefs = prefs;
+  }) : _emit = emit,
+       _newId =
+           newSessionId ??
+           (() => 'session_${DateTime.now().millisecondsSinceEpoch}'),
+       _clock = clock ?? DateTime.now,
+       _sampledRoll = sampledRoll,
+       _prefs = prefs;
 
   /// Late-bind the sink once the Collector exists (breaks the session↔collector
   /// construction cycle). Called by `TelemetryWiring.build`.
@@ -165,7 +166,7 @@ class SessionManager {
     _sessionStartTime = now;
     _lastActivityAt = now;
     // Roll sampling once per session; the whole session drops-or-keeps coherently.
-    _sampled = _sampledRoll == null ? null : _sampledRoll!().toString();
+    _sampled = _sampledRoll == null ? null : _sampledRoll().toString();
     _resetCounters();
     onSessionStart?.call();
 
@@ -176,10 +177,12 @@ class SessionManager {
     }
 
     _persist();
-    _emit?.call(EdgeEvent.session('session.started', {
-      'session.id': sessionId,
-      'session.start_time': now.toIso8601String(),
-    }));
+    _emit?.call(
+      EdgeEvent.session('session.started', {
+        'session.id': sessionId,
+        'session.start_time': now.toIso8601String(),
+      }),
+    );
   }
 
   /// The "next event" idle check: rotate if idle exceeded (backdated to the last
@@ -341,8 +344,10 @@ class SessionManager {
   /// after a 40-minute foreground idle would be held against the dying session
   /// and then abandoned — at a duration of nearly zero — by the rotation the
   /// very next event triggers.
-  void startTask(String name,
-      [Map<String, String> traceAttributes = const {}]) {
+  void startTask(
+    String name, [
+    Map<String, String> traceAttributes = const {},
+  ]) {
     beforeEvent();
     _openTasks[name] = _OpenTask(start: _clock(), trace: traceAttributes);
     _persist();
@@ -356,12 +361,14 @@ class SessionManager {
   void endTask(String name, TaskOutcome outcome) {
     final task = _openTasks.remove(name);
     if (task == null) return;
-    _emit?.call(EdgeEvent.task(
-      name: name,
-      outcome: outcome,
-      duration: _elapsed(task.start, _clock()),
-      traceAttributes: task.trace,
-    ));
+    _emit?.call(
+      EdgeEvent.task(
+        name: name,
+        outcome: outcome,
+        duration: _elapsed(task.start, _clock()),
+        traceAttributes: task.trace,
+      ),
+    );
     _persist();
   }
 
@@ -381,17 +388,23 @@ class SessionManager {
   /// [tasks] is consumed as given, so callers on the live map hand over a copy:
   /// `_emit` re-enters the Collector, and a consumer callback that calls
   /// `startTask` from there would otherwise mutate the map mid-iteration.
-  void _abandonOpenTasks(Map<String, _OpenTask> tasks, DateTime end,
-      TaskAbandonSource source, String sessionId) {
+  void _abandonOpenTasks(
+    Map<String, _OpenTask> tasks,
+    DateTime end,
+    TaskAbandonSource source,
+    String sessionId,
+  ) {
     for (final entry in tasks.entries) {
-      _emit?.call(EdgeEvent.task(
-        name: entry.key,
-        outcome: TaskOutcome.abandoned,
-        duration: _elapsed(entry.value.start, end),
-        sessionId: sessionId,
-        abandonSource: source,
-        traceAttributes: entry.value.trace,
-      ));
+      _emit?.call(
+        EdgeEvent.task(
+          name: entry.key,
+          outcome: TaskOutcome.abandoned,
+          duration: _elapsed(entry.value.start, end),
+          sessionId: sessionId,
+          abandonSource: source,
+          traceAttributes: entry.value.trace,
+        ),
+      );
     }
   }
 
@@ -415,8 +428,13 @@ class SessionManager {
     final open = Map.of(_openTasks);
     _openTasks.clear();
     _abandonOpenTasks(
-        open, end, TaskAbandonSource.sessionEnd, _currentSessionId!);
-    _emit?.call(EdgeEvent.session(
+      open,
+      end,
+      TaskAbandonSource.sessionEnd,
+      _currentSessionId!,
+    );
+    _emit?.call(
+      EdgeEvent.session(
         'session.finalized',
         _journeyAttributes(
           id: _currentSessionId!,
@@ -431,7 +449,9 @@ class SessionManager {
           dropped: _droppedByReason,
           cardinalityCapped: _cardinalityCapped,
           lastScreenStart: _currentScreenVisible ? _currentScreenStart : null,
-        )));
+        ),
+      ),
+    );
   }
 
   void _emitFinalizeFromRecord(String raw) {
@@ -448,9 +468,14 @@ class SessionManager {
     // Before the bookend, and before `_beginSession` — so these rows carry the
     // dead session's own `session.id` from the record rather than the live
     // session's from the context snapshot, exactly as the bookend does.
-    _abandonOpenTasks(_OpenTask.decodeAll(r['tasks']), end,
-        TaskAbandonSource.launchRecovery, id);
-    _emit?.call(EdgeEvent.session(
+    _abandonOpenTasks(
+      _OpenTask.decodeAll(r['tasks']),
+      end,
+      TaskAbandonSource.launchRecovery,
+      id,
+    );
+    _emit?.call(
+      EdgeEvent.session(
         'session.finalized',
         _journeyAttributes(
           id: id,
@@ -462,15 +487,20 @@ class SessionManager {
           httpCount: (r['httpCount'] as num?)?.toInt() ?? 0,
           screenCount: (r['screenCount'] as num?)?.toInt() ?? 0,
           journey: (r['journey'] as List?)?.cast<String>() ?? const [],
-          dropped: (r['dropped'] as Map?)
-                  ?.map((k, v) => MapEntry('$k', (v as num?)?.toInt() ?? 0)) ??
+          dropped:
+              (r['dropped'] as Map?)?.map(
+                (k, v) => MapEntry('$k', (v as num?)?.toInt() ?? 0),
+              ) ??
               const {},
           cardinalityCapped: (r['capped'] as num?)?.toInt() ?? 0,
-          lastScreenStart: r['screenVisible'] == true
-              ? DateTime.tryParse(r['screenStart'] as String? ?? '')
-              : null,
+          lastScreenStart:
+              r['screenVisible'] == true
+                  ? DateTime.tryParse(r['screenStart'] as String? ?? '')
+                  : null,
           recovered: true,
-        )));
+        ),
+      ),
+    );
   }
 
   Map<String, String> _journeyAttributes({
@@ -586,29 +616,30 @@ class SessionManager {
 
   String? get currentSessionId => _currentSessionId;
   DateTime? get sessionStartTime => _sessionStartTime;
-  Duration? get sessionDuration => _sessionStartTime == null
-      ? null
-      : _clock().difference(_sessionStartTime!);
+  Duration? get sessionDuration =>
+      _sessionStartTime == null
+          ? null
+          : _clock().difference(_sessionStartTime!);
 
   bool _isFirstSession() => _prefs?.getBool(_firstSessionKey) ?? false;
   int _getTotalSessions() => _prefs?.getInt(_sessionCountKey) ?? 0;
 
   Map<String, dynamic> getSessionStats() => {
-        'sessionId': _currentSessionId,
-        'startTime': _sessionStartTime?.toIso8601String(),
-        'duration': sessionDuration?.inMilliseconds,
-        'eventCount': _eventCount,
-        'metricCount': _metricCount,
-        'errorCount': _errorCount,
-        'crashCount': _crashCount,
-        'httpRequestCount': _httpRequestCount,
-        'actionCount': _actionCount,
-        'screenCount': _visitedScreens.length,
-        'visitedScreens': _visitedScreens.toList(),
-        'screenJourney': List<String>.from(_screenJourney),
-        'isFirstSession': _isFirstSession(),
-        'totalSessions': _getTotalSessions(),
-      };
+    'sessionId': _currentSessionId,
+    'startTime': _sessionStartTime?.toIso8601String(),
+    'duration': sessionDuration?.inMilliseconds,
+    'eventCount': _eventCount,
+    'metricCount': _metricCount,
+    'errorCount': _errorCount,
+    'crashCount': _crashCount,
+    'httpRequestCount': _httpRequestCount,
+    'actionCount': _actionCount,
+    'screenCount': _visitedScreens.length,
+    'visitedScreens': _visitedScreens.toList(),
+    'screenJourney': List<String>.from(_screenJourney),
+    'isFirstSession': _isFirstSession(),
+    'totalSessions': _getTotalSessions(),
+  };
 
   /// Clear in-memory state (call on dispose). Deliberately leaves the persisted
   /// record intact so the next launch backdate-finalizes this session — open
@@ -639,9 +670,9 @@ class _OpenTask {
   final Map<String, String> trace;
 
   Map<String, dynamic> toJson() => {
-        'start': start.toIso8601String(),
-        if (trace.isNotEmpty) 'trace': trace,
-      };
+    'start': start.toIso8601String(),
+    if (trace.isNotEmpty) 'trace': trace,
+  };
 
   /// Decode the record's `tasks` block. Anything unparseable is skipped rather
   /// than thrown — the same rule the record itself follows, for the same reason:
@@ -655,7 +686,8 @@ class _OpenTask {
       if (start == null) return;
       out['$key'] = _OpenTask(
         start: start,
-        trace: (value['trace'] as Map?)?.map((k, v) => MapEntry('$k', '$v')) ??
+        trace:
+            (value['trace'] as Map?)?.map((k, v) => MapEntry('$k', '$v')) ??
             const {},
       );
     });

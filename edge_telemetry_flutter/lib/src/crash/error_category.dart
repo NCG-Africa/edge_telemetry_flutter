@@ -53,13 +53,13 @@ const String kSdkCrashSource = 'sdk';
 /// means either, so they are declared-only. Everything unlisted is [unknown] —
 /// inference that guesses would be worse than inference that admits.
 ErrorCategory inferErrorCategory(Object error) => switch (error) {
-      TimeoutException() => ErrorCategory.timeout,
-      // Ahead of the two IOException siblings below: a FileSystemException is
-      // not a SocketException, but ordering is the cheap guard against a future
-      // reader adding a wider type above a narrower one.
-      FileSystemException() => ErrorCategory.storage,
-      SocketException() => ErrorCategory.network,
-      HttpException() => ErrorCategory.network,
-      FormatException() => ErrorCategory.parse,
-      _ => ErrorCategory.unknown,
-    };
+  TimeoutException() => ErrorCategory.timeout,
+  // Ahead of the two IOException siblings below: a FileSystemException is
+  // not a SocketException, but ordering is the cheap guard against a future
+  // reader adding a wider type above a narrower one.
+  FileSystemException() => ErrorCategory.storage,
+  SocketException() => ErrorCategory.network,
+  HttpException() => ErrorCategory.network,
+  FormatException() => ErrorCategory.parse,
+  _ => ErrorCategory.unknown,
+};

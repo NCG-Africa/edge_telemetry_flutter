@@ -31,9 +31,7 @@ class CaptureGate {
   int _items = 0;
 
   CaptureGate(TelemetryConfig config, {this.onShed})
-      : _enabled = {
-          for (final c in Capture.values) c: config.capturesEnabled(c),
-        };
+    : _enabled = {for (final c in Capture.values) c: config.capturesEnabled(c)};
 
   /// Whether [c] may run right now.
   bool allows(Capture c) {

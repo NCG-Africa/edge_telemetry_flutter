@@ -53,13 +53,14 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
 
   EventSink? _sink;
 
-  LifecycleCaptureHook(
-      {required this.session,
-      required this.flush,
-      this.onPaused,
-      this.trace,
-      this.breadcrumbs,
-      this.gate});
+  LifecycleCaptureHook({
+    required this.session,
+    required this.flush,
+    this.onPaused,
+    this.trace,
+    this.breadcrumbs,
+    this.gate,
+  });
 
   @override
   DisposeHandle start(EventSink sink) {
@@ -100,10 +101,15 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
             : Capture.lifecycleTransitions;
     if (gate != null && !gate!.allows(capture)) return;
 
-    breadcrumbs?.addSystemEvent('lifecycle: ${state.name}',
-        data: {'lifecycle.state': state.name});
-    _sink?.add(EdgeEvent.event('app_lifecycle', attributes: {
-      'lifecycle.state': state.name,
-    }));
+    breadcrumbs?.addSystemEvent(
+      'lifecycle: ${state.name}',
+      data: {'lifecycle.state': state.name},
+    );
+    _sink?.add(
+      EdgeEvent.event(
+        'app_lifecycle',
+        attributes: {'lifecycle.state': state.name},
+      ),
+    );
   }
 }

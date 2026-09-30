@@ -28,21 +28,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _config = TelemetryConfig(
-    serviceName: 'test', endpoint: 'https://example.test', apiKey: 'k');
+  serviceName: 'test',
+  endpoint: 'https://example.test',
+  apiKey: 'k',
+);
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
 
   List<Map<String, dynamic>> get items => [
-        for (final p in sent)
-          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
-      ];
+    for (final p in sent)
+      ...?(p['events'] as List?)?.cast<Map<String, dynamic>>(),
+  ];
 
   List<Map<String, String>> attributesOf(String eventName) => [
-        for (final i in items)
-          if (i['eventName'] == eventName)
-            (i['attributes'] as Map).cast<String, String>()
-      ];
+    for (final i in items)
+      if (i['eventName'] == eventName)
+        (i['attributes'] as Map).cast<String, String>(),
+  ];
 
   Future<bool> call(Map<String, dynamic> payload) async {
     sent.add(payload);
@@ -54,13 +57,14 @@ class _NoopQueue extends OfflineQueue {
   @override
   Future<void> initialize() async {}
   @override
-  Future<String?> persist(Map<String, dynamic> p,
-          {bool isCrash = false}) async =>
-      null;
+  Future<String?> persist(
+    Map<String, dynamic> p, {
+    bool isCrash = false,
+  }) async => null;
   @override
   Future<int> drain(
-          Future<DrainResult> Function(Map<String, dynamic>) s) async =>
-      0;
+    Future<DrainResult> Function(Map<String, dynamic>) s,
+  ) async => 0;
 }
 
 /// The assembled stack in the facade's construction order, with the pointer
@@ -73,18 +77,28 @@ class _Rig {
     );
     trace = TraceManager(session: session, clock: clock);
     context = ContextManager(
-        sessionManager: session,
-        trace: trace,
-        global: {'device.id': 'device_1'});
+      sessionManager: session,
+      trace: trace,
+      global: {'device.id': 'device_1'},
+    );
     pipeline = Pipeline(
       transport: RetryTransport(
-          endpoint: config.endpoint, queue: _NoopQueue(), sender: sender.call),
+        endpoint: config.endpoint,
+        queue: _NoopQueue(),
+        sender: sender.call,
+      ),
       batchSize: 10000,
     );
-    gate =
-        CaptureGate(config, onShed: () => session.recordDropped('tier_shed'));
+    gate = CaptureGate(
+      config,
+      onShed: () => session.recordDropped('tier_shed'),
+    );
     collector = Collector(
-        context: context, session: session, pipeline: pipeline, gate: gate);
+      context: context,
+      session: session,
+      pipeline: pipeline,
+      gate: gate,
+    );
     session.onSessionStart = () {
       gate.resetBudget();
       collector.resetPerSessionCaps();
@@ -120,9 +134,9 @@ class _Rig {
 }
 
 Route<void> _route(String name) => PageRouteBuilder<void>(
-      settings: RouteSettings(name: name),
-      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
-    );
+  settings: RouteSettings(name: name),
+  pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+);
 
 int _pointerId = 0;
 
@@ -130,38 +144,47 @@ int _pointerId = 0;
 /// [moves] intermediate samples travelling [travel], then up after [held].
 /// [returns] brings the pointer back to its origin before lifting — a
 /// rubber-band drag, which has travelled far while ending nowhere.
-void _gesture(
-    {Offset travel = Offset.zero,
-    Duration held = const Duration(milliseconds: 80),
-    int moves = 0,
-    bool returns = false,
-    Duration at = Duration.zero}) {
+void _gesture({
+  Offset travel = Offset.zero,
+  Duration held = const Duration(milliseconds: 80),
+  int moves = 0,
+  bool returns = false,
+  Duration at = Duration.zero,
+}) {
   final router = GestureBinding.instance.pointerRouter;
   final pointer = ++_pointerId;
   const origin = Offset(100, 200);
   final end = returns ? origin : origin + travel;
-  router.route(PointerDownEvent(
+  router.route(
+    PointerDownEvent(
       pointer: pointer,
       position: origin,
       timeStamp: at,
-      kind: PointerDeviceKind.touch));
+      kind: PointerDeviceKind.touch,
+    ),
+  );
   for (var i = 1; i <= moves; i++) {
     final fraction = i / moves;
     // Out to `travel`, then back to the origin when `returns`.
     final offset =
         returns ? travel * (1 - (2 * fraction - 1).abs()) : travel * fraction;
-    router.route(PointerMoveEvent(
-      pointer: pointer,
-      position: origin + offset,
-      timeStamp: at + held * fraction,
-      kind: PointerDeviceKind.touch,
-    ));
+    router.route(
+      PointerMoveEvent(
+        pointer: pointer,
+        position: origin + offset,
+        timeStamp: at + held * fraction,
+        kind: PointerDeviceKind.touch,
+      ),
+    );
   }
-  router.route(PointerUpEvent(
+  router.route(
+    PointerUpEvent(
       pointer: pointer,
       position: end,
       timeStamp: at + held,
-      kind: PointerDeviceKind.touch));
+      kind: PointerDeviceKind.touch,
+    ),
+  );
 }
 
 void main() {
@@ -169,8 +192,9 @@ void main() {
   SharedPreferences.setMockInitialValues({});
 
   group('gesture classification', () {
-    testWidgets('a tap mints an interaction root and emits exactly one event',
-        (tester) async {
+    testWidgets('a tap mints an interaction root and emits exactly one event', (
+      tester,
+    ) async {
       final rig = _Rig();
       await rig.session.startSession('session_1');
       rig.session.recordScreen('/home');
@@ -206,35 +230,40 @@ void main() {
       rig.dispose();
     });
 
-    testWidgets('a scroll coming to a stop mints nothing and emits nothing',
-        (tester) async {
+    testWidgets('a scroll coming to a stop mints nothing and emits nothing', (
+      tester,
+    ) async {
       final rig = _Rig();
       await rig.session.startSession('session_1');
 
       // 30 px over 2 s = 15 px/s, under kMinFlingVelocity (50). Past the slop,
       // so it is not a tap either — the case a naive classifier calls a swipe.
       _gesture(
-          travel: const Offset(0, -30),
-          held: const Duration(seconds: 2),
-          moves: 8);
+        travel: const Offset(0, -30),
+        held: const Duration(seconds: 2),
+        moves: 8,
+      );
       await tester.pump();
       rig.flush();
 
       expect(rig.interactions, isEmpty);
-      expect(rig.trace.current(), isEmpty,
-          reason: 'a scroll stop must not supersede the open root');
+      expect(
+        rig.trace.current(),
+        isEmpty,
+        reason: 'a scroll stop must not supersede the open root',
+      );
       rig.collector.add(const EdgeEvent.event('custom_event'));
       rig.flush();
       expect(
-          rig.sender
-              .attributesOf('custom_event')
-              .single['session.action_count'],
-          '0');
+        rig.sender.attributesOf('custom_event').single['session.action_count'],
+        '0',
+      );
       rig.dispose();
     });
 
-    testWidgets('a drag that rubber-bands back to its origin is not a tap',
-        (tester) async {
+    testWidgets('a drag that rubber-bands back to its origin is not a tap', (
+      tester,
+    ) async {
       // The slop test is on the furthest the pointer ever got, not on its net
       // displacement: a list dragged out and settled back ends within the
       // slop having never been a tap, and minting there would supersede the
@@ -243,10 +272,11 @@ void main() {
       await rig.session.startSession('session_1');
 
       _gesture(
-          travel: const Offset(0, -100),
-          held: const Duration(milliseconds: 300),
-          moves: 6,
-          returns: true);
+        travel: const Offset(0, -100),
+        held: const Duration(milliseconds: 300),
+        moves: 6,
+        returns: true,
+      );
       await tester.pump();
       rig.flush();
 
@@ -255,35 +285,41 @@ void main() {
       rig.dispose();
     });
 
-    testWidgets('a fling mints a root but sheds its event on the default tier',
-        (tester) async {
-      // Swipes are diagnostic: off by default, and the shed is of the *event*
-      // — the root still opens, so the next request keeps its attribution.
-      final rig = _Rig();
-      await rig.session.startSession('session_1');
+    testWidgets(
+      'a fling mints a root but sheds its event on the default tier',
+      (tester) async {
+        // Swipes are diagnostic: off by default, and the shed is of the *event*
+        // — the root still opens, so the next request keeps its attribution.
+        final rig = _Rig();
+        await rig.session.startSession('session_1');
 
-      _gesture(
+        _gesture(
           travel: const Offset(-200, 0),
           held: const Duration(milliseconds: 100),
-          moves: 5);
-      await tester.pump();
-      rig.flush();
+          moves: 5,
+        );
+        await tester.pump();
+        rig.flush();
 
-      expect(rig.interactions, isEmpty);
-      expect(rig.trace.current()['trace.root_type'], 'interaction');
-      rig.dispose();
-    });
+        expect(rig.interactions, isEmpty);
+        expect(rig.trace.current()['trace.root_type'], 'interaction');
+        rig.dispose();
+      },
+    );
 
-    testWidgets('a fling emits with its direction once swipes are enabled',
-        (tester) async {
+    testWidgets('a fling emits with its direction once swipes are enabled', (
+      tester,
+    ) async {
       final rig = _Rig(
-          config: _config.copyWith(captureOverrides: {Capture.swipes: true}));
+        config: _config.copyWith(captureOverrides: {Capture.swipes: true}),
+      );
       await rig.session.startSession('session_1');
 
       _gesture(
-          travel: const Offset(-200, 0),
-          held: const Duration(milliseconds: 100),
-          moves: 5);
+        travel: const Offset(-200, 0),
+        held: const Duration(milliseconds: 100),
+        moves: 5,
+      );
       await tester.pump();
       rig.flush();
 
@@ -295,8 +331,9 @@ void main() {
   });
 
   group('the naming call', () {
-    testWidgets('names the open root and emits nothing of its own',
-        (tester) async {
+    testWidgets('names the open root and emits nothing of its own', (
+      tester,
+    ) async {
       final rig = _Rig();
       await rig.session.startSession('session_1');
 
@@ -307,15 +344,19 @@ void main() {
       await tester.pump();
       rig.flush();
 
-      expect(rig.interactions, hasLength(1),
-          reason: 'the naming call must not emit a second event');
+      expect(
+        rig.interactions,
+        hasLength(1),
+        reason: 'the naming call must not emit a second event',
+      );
       expect(rig.interactions.single['ui.target'], 'transfer');
       expect(rig.interactions.single['ui.name_source'], 'track_action');
       rig.dispose();
     });
 
-    testWidgets('mints a root when none is live, so it never silently no-ops',
-        (tester) async {
+    testWidgets('mints a root when none is live, so it never silently no-ops', (
+      tester,
+    ) async {
       final rig = _Rig();
       await rig.session.startSession('session_1');
 
@@ -329,8 +370,9 @@ void main() {
   });
 
   group('the per-session emission cap', () {
-    testWidgets('sheds events past 200 while the action count stays honest',
-        (tester) async {
+    testWidgets('sheds events past 200 while the action count stays honest', (
+      tester,
+    ) async {
       var clock = DateTime(2026, 1, 1, 9);
       final rig = _Rig(clock: () => clock);
       await rig.session.startSession('session_1');
@@ -348,9 +390,10 @@ void main() {
       rig.collector.add(const EdgeEvent.event('custom_event'));
       rig.flush();
       expect(
-          rig.sender.attributesOf('custom_event').last['session.action_count'],
-          '${kActionEventCap + 5}',
-          reason: 'the count is of roots minted, not events emitted');
+        rig.sender.attributesOf('custom_event').last['session.action_count'],
+        '${kActionEventCap + 5}',
+        reason: 'the count is of roots minted, not events emitted',
+      );
 
       // Rotate so the finalize bookend ships the drop count. The gesture that
       // triggers the rotation minted its root against the dying session, so
@@ -375,7 +418,10 @@ void main() {
       final rig = _Rig();
       await rig.session.startSession('session_1');
       final hook = NavCaptureHook(
-          session: rig.session, breadcrumbs: rig.breadcrumbs, trace: rig.trace);
+        session: rig.session,
+        breadcrumbs: rig.breadcrumbs,
+        trace: rig.trace,
+      );
       hook.start(rig.collector);
 
       // A deep link with nothing open: the navigation re-roots it.

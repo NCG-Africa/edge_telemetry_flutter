@@ -61,14 +61,16 @@ void main() {
 
     test('adopts a legacy 8-alnum stored ID in place (no regen)', () async {
       const legacy = 'device_1704067200000_a8b9c2d1_android';
-      FlutterSecureStorage.setMockInitialValues(
-          {'edge_telemetry_device_id': legacy});
+      FlutterSecureStorage.setMockInitialValues({
+        'edge_telemetry_device_id': legacy,
+      });
       expect(await DeviceIdManager().getDeviceId(), legacy);
     });
 
     test('regenerates when stored ID is malformed', () async {
-      FlutterSecureStorage.setMockInitialValues(
-          {'edge_telemetry_device_id': 'garbage'});
+      FlutterSecureStorage.setMockInitialValues({
+        'edge_telemetry_device_id': 'garbage',
+      });
       final id = await DeviceIdManager().getDeviceId();
       expect(id, startsWith('device_'));
       expect(id.split('_')[2], matches(r'^[0-9a-f]{16}$'));
@@ -87,13 +89,15 @@ void main() {
       expect(parts[2], matches(r'^[0-9a-f]{16}$'));
     });
 
-    test('stable across identify() — persisted, same on fresh manager',
-        () async {
-      final original = await UserIdManager().getUserId();
-      // identify() never regenerates the SDK-owned id; a new manager reading
-      // the same storage must return the identical id.
-      final afterIdentify = await UserIdManager().getUserId();
-      expect(afterIdentify, original);
-    });
+    test(
+      'stable across identify() — persisted, same on fresh manager',
+      () async {
+        final original = await UserIdManager().getUserId();
+        // identify() never regenerates the SDK-owned id; a new manager reading
+        // the same storage must return the identical id.
+        final afterIdentify = await UserIdManager().getUserId();
+        expect(afterIdentify, original);
+      },
+    );
   });
 }

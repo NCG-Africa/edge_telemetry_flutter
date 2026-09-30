@@ -38,11 +38,13 @@ class _FakeCollector {
       final encoding = req.headers.value('Content-Encoding');
       final raw = await req.fold<List<int>>([], (a, b) => a..addAll(b));
       final bytes = encoding == 'gzip' ? GZipCodec().decode(raw) : raw;
-      posts.add(_Post(
-          jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>, encoding));
-      req.response.statusCode = statuses[posts.length > statuses.length
-          ? statuses.length - 1
-          : posts.length - 1];
+      posts.add(
+        _Post(jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>, encoding),
+      );
+      req.response.statusCode =
+          statuses[posts.length > statuses.length
+              ? statuses.length - 1
+              : posts.length - 1];
       await req.response.close();
     });
     return 'http://${_server.address.host}:${_server.port}';
@@ -54,8 +56,8 @@ class _FakeCollector {
 /// In-memory queue: records persists, replays a seeded backlog on drain.
 class _FakeQueue extends OfflineQueue {
   _FakeQueue({List<Map<String, dynamic>>? stored})
-      : stored = stored ?? [],
-        super();
+    : stored = stored ?? [],
+      super();
 
   final List<Map<String, dynamic>> stored;
   final List<Map<String, dynamic>> persisted = [];
@@ -65,15 +67,18 @@ class _FakeQueue extends OfflineQueue {
   Future<void> initialize() async {}
 
   @override
-  Future<String?> persist(Map<String, dynamic> payload,
-      {bool isCrash = false}) async {
+  Future<String?> persist(
+    Map<String, dynamic> payload, {
+    bool isCrash = false,
+  }) async {
     persisted.add(payload);
     return 'rec_${persisted.length}.json';
   }
 
   @override
   Future<int> drain(
-      Future<DrainResult> Function(Map<String, dynamic>) send) async {
+    Future<DrainResult> Function(Map<String, dynamic>) send,
+  ) async {
     var sent = 0;
     for (final p in List.of(stored)) {
       if (await send(p) == DrainResult.done) {
@@ -96,26 +101,28 @@ void main() {
   setUp(RetryTransport.resetGzipProbe);
   tearDown(RetryTransport.resetGzipProbe);
 
-  test('the immediate rail POSTs a one-item telemetry_batch, not a bare item',
-      () async {
-    final collector = _FakeCollector([200]);
-    final endpoint = await collector.start();
-    addTearDown(collector.stop);
+  test(
+    'the immediate rail POSTs a one-item telemetry_batch, not a bare item',
+    () async {
+      final collector = _FakeCollector([200]);
+      final endpoint = await collector.start();
+      addTearDown(collector.stop);
 
-    final transport = RetryTransport(endpoint: endpoint, queue: _FakeQueue());
-    Pipeline(transport: transport).sendNow(Map.of(_crashItem));
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+      final transport = RetryTransport(endpoint: endpoint, queue: _FakeQueue());
+      Pipeline(transport: transport).sendNow(Map.of(_crashItem));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
 
-    final body = collector.posts.single.body;
-    expect(body.keys.toList(), ['type', 'timestamp', 'batch_size', 'events']);
-    expect(body['type'], 'telemetry_batch');
-    expect(body['batch_size'], 1);
-    // Self-describing: the item carries its own context block, so a payload
-    // drained days later still says who and when it was.
-    final item = (body['events'] as List).single as Map<String, dynamic>;
-    expect(item['eventName'], 'app.crash');
-    expect(item['attributes'], containsPair('session.id', 's-1'));
-  });
+      final body = collector.posts.single.body;
+      expect(body.keys.toList(), ['type', 'timestamp', 'batch_size', 'events']);
+      expect(body['type'], 'telemetry_batch');
+      expect(body['batch_size'], 1);
+      // Self-describing: the item carries its own context block, so a payload
+      // drained days later still says who and when it was.
+      final item = (body['events'] as List).single as Map<String, dynamic>;
+      expect(item['eventName'], 'app.crash');
+      expect(item['attributes'], containsPair('session.id', 's-1'));
+    },
+  );
 
   test('a legacy bare stored payload is re-wrapped on drain', () async {
     final collector = _FakeCollector([200]);
@@ -145,32 +152,38 @@ void main() {
       'events': [Map.of(_crashItem)],
     };
     await RetryTransport(
-        endpoint: endpoint, queue: _FakeQueue(stored: [envelope])).drainQueue();
+      endpoint: endpoint,
+      queue: _FakeQueue(stored: [envelope]),
+    ).drainQueue();
 
     expect(collector.posts.single.body, envelope); // not double-wrapped
   });
 
-  test('a 4xx batch is dropped and counted by status, never retried or queued',
-      () async {
-    final collector = _FakeCollector([422]);
-    final endpoint = await collector.start();
-    addTearDown(collector.stop);
+  test(
+    'a 4xx batch is dropped and counted by status, never retried or queued',
+    () async {
+      final collector = _FakeCollector([422]);
+      final endpoint = await collector.start();
+      addTearDown(collector.stop);
 
-    final queue = _FakeQueue();
-    final drops = <String>[];
-    final transport = RetryTransport(
-      endpoint: endpoint,
-      queue: queue,
-      backoff: const [Duration.zero, Duration.zero, Duration.zero],
-      onDrop: drops.add,
-    );
+      final queue = _FakeQueue();
+      final drops = <String>[];
+      final transport = RetryTransport(
+        endpoint: endpoint,
+        queue: queue,
+        backoff: const [Duration.zero, Duration.zero, Duration.zero],
+        onDrop: drops.add,
+      );
 
-    expect(await transport.send({'type': 'telemetry_batch', 'events': []}),
-        isFalse);
-    expect(collector.posts, hasLength(1)); // no retry
-    expect(queue.persisted, isEmpty); // no queue
-    expect(drops, ['http_422']);
-  });
+      expect(
+        await transport.send({'type': 'telemetry_batch', 'events': []}),
+        isFalse,
+      );
+      expect(collector.posts, hasLength(1)); // no retry
+      expect(queue.persisted, isEmpty); // no queue
+      expect(drops, ['http_422']);
+    },
+  );
 
   test('a 4xx crash is dropped, not stored offline', () async {
     final collector = _FakeCollector([422]);
@@ -179,8 +192,11 @@ void main() {
 
     final queue = _FakeQueue();
     final drops = <String>[];
-    await RetryTransport(endpoint: endpoint, queue: queue, onDrop: drops.add)
-        .sendImmediate({
+    await RetryTransport(
+      endpoint: endpoint,
+      queue: queue,
+      onDrop: drops.add,
+    ).sendImmediate({
       'type': 'telemetry_batch',
       'batch_size': 1,
       'events': [Map.of(_crashItem)],
@@ -190,38 +206,44 @@ void main() {
     expect(drops, ['http_422']);
   });
 
-  test('a 4xx on drain deletes the file instead of re-POSTing it forever',
-      () async {
-    final collector = _FakeCollector([400, 400]);
-    final endpoint = await collector.start();
-    addTearDown(collector.stop);
+  test(
+    'a 4xx on drain deletes the file instead of re-POSTing it forever',
+    () async {
+      final collector = _FakeCollector([400, 400]);
+      final endpoint = await collector.start();
+      addTearDown(collector.stop);
 
-    final queue = _FakeQueue(stored: [Map.of(_crashItem)]);
-    final drops = <String>[];
-    final transport =
-        RetryTransport(endpoint: endpoint, queue: queue, onDrop: drops.add);
+      final queue = _FakeQueue(stored: [Map.of(_crashItem)]);
+      final drops = <String>[];
+      final transport = RetryTransport(
+        endpoint: endpoint,
+        queue: queue,
+        onDrop: drops.add,
+      );
 
-    await transport.drainQueue();
+      await transport.drainQueue();
 
-    expect(queue.stored, isEmpty); // dropped, not parked
-    // 400 spends the one-shot gzip probe: compressed POST, then the plain retry.
-    expect(collector.posts, hasLength(2));
-    expect(drops, ['http_400']);
-  });
+      expect(queue.stored, isEmpty); // dropped, not parked
+      // 400 spends the one-shot gzip probe: compressed POST, then the plain retry.
+      expect(collector.posts, hasLength(2));
+      expect(drops, ['http_400']);
+    },
+  );
 
   test('gzip ships unconditionally', () async {
     final collector = _FakeCollector([200]);
     final endpoint = await collector.start();
     addTearDown(collector.stop);
 
-    await RetryTransport(endpoint: endpoint, queue: _FakeQueue())
-        .send({'type': 'telemetry_batch', 'events': []});
+    await RetryTransport(
+      endpoint: endpoint,
+      queue: _FakeQueue(),
+    ).send({'type': 'telemetry_batch', 'events': []});
 
     expect(collector.posts.single.gzipped, isTrue);
   });
 
-  test(
-      'a rejecting-then-accepting collector costs exactly one wasted POST, '
+  test('a rejecting-then-accepting collector costs exactly one wasted POST, '
       'and no config is read', () async {
     // 400 to the first (gzipped) POST, 200 to everything after: the collector
     // that cannot decompress. No flag, no version endpoint — the probe is the
@@ -233,8 +255,10 @@ void main() {
     final transport = RetryTransport(endpoint: endpoint, queue: _FakeQueue());
 
     for (var i = 0; i < 4; i++) {
-      expect(await transport.send({'type': 'telemetry_batch', 'events': []}),
-          isTrue);
+      expect(
+        await transport.send({'type': 'telemetry_batch', 'events': []}),
+        isTrue,
+      );
     }
 
     // 4 sends → 5 POSTs: the one rejected gzipped probe plus four plain ones.
@@ -243,23 +267,26 @@ void main() {
     expect(collector.posts.skip(1).every((p) => !p.gzipped), isTrue);
   });
 
-  test('the probe is spent even when the uncompressed retry also fails',
-      () async {
-    // 400 to everything: the payload was simply bad, not the encoding. gzip
-    // stays on and no further POST is ever wasted probing.
-    final collector = _FakeCollector([400]);
-    final endpoint = await collector.start();
-    addTearDown(collector.stop);
+  test(
+    'the probe is spent even when the uncompressed retry also fails',
+    () async {
+      // 400 to everything: the payload was simply bad, not the encoding. gzip
+      // stays on and no further POST is ever wasted probing.
+      final collector = _FakeCollector([400]);
+      final endpoint = await collector.start();
+      addTearDown(collector.stop);
 
-    final transport = RetryTransport(
+      final transport = RetryTransport(
         endpoint: endpoint,
         queue: _FakeQueue(),
-        backoff: const [Duration.zero]);
+        backoff: const [Duration.zero],
+      );
 
-    await transport.send({'type': 'telemetry_batch', 'events': []});
-    await transport.send({'type': 'telemetry_batch', 'events': []});
+      await transport.send({'type': 'telemetry_batch', 'events': []});
+      await transport.send({'type': 'telemetry_batch', 'events': []});
 
-    expect(collector.posts, hasLength(3)); // probe + plain, then one gzipped
-    expect(collector.posts.last.gzipped, isTrue); // still compressing
-  });
+      expect(collector.posts, hasLength(3)); // probe + plain, then one gzipped
+      expect(collector.posts.last.gzipped, isTrue); // still compressing
+    },
+  );
 }

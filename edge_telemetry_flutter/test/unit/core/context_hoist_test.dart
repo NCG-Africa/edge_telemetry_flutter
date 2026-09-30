@@ -33,9 +33,10 @@ class _NoopQueue extends OfflineQueue {
   @override
   Future<void> initialize() async {}
   @override
-  Future<String?> persist(Map<String, dynamic> payload,
-          {bool isCrash = false}) async =>
-      null;
+  Future<String?> persist(
+    Map<String, dynamic> payload, {
+    bool isCrash = false,
+  }) async => null;
 }
 
 /// One assembled stack: session → context → collector → recorded wire.
@@ -61,9 +62,10 @@ class _Rig {
     // batchSize 50 so only a context change can close a batch.
     pipeline = Pipeline(
       transport: RetryTransport(
-          endpoint: 'https://example.test',
-          queue: _NoopQueue(),
-          sender: sender.call),
+        endpoint: 'https://example.test',
+        queue: _NoopQueue(),
+        sender: sender.call,
+      ),
       batchSize: 50,
     );
     collector = Collector(
@@ -88,7 +90,8 @@ class _Rig {
   /// Attributes of the single batched item in the single flushed batch.
   Map<String, String> get soleItemAttributes =>
       ((batches.single['events'] as List).single
-          as Map<String, dynamic>)['attributes'] as Map<String, String>;
+              as Map<String, dynamic>)['attributes']
+          as Map<String, String>;
 
   Map<String, String> get soleBatchContext =>
       (batches.single['context'] as Map?)?.cast<String, String>() ?? const {};
@@ -96,8 +99,9 @@ class _Rig {
 
 /// Key-sorted JSON — the canonical form of a JSONB attribute bag, so "the same
 /// bytes" is a claim about content rather than about insertion order.
-String _canonical(Map<String, String> bag) => jsonEncode(Map.fromEntries(
-    bag.entries.toList()..sort((a, b) => a.key.compareTo(b.key))));
+String _canonical(Map<String, String> bag) => jsonEncode(
+  Map.fromEntries(bag.entries.toList()..sort((a, b) => a.key.compareTo(b.key))),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -105,8 +109,11 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   test('the flip ships off — nothing about the wire changes', () async {
-    expect(kHoistBatchContext, isFalse,
-        reason: 'flip only in the release after the processor merge lands');
+    expect(
+      kHoistBatchContext,
+      isFalse,
+      reason: 'flip only in the release after the processor merge lands',
+    );
 
     final rig = _Rig(hoist: false);
     await rig.session.startSession('session_a');
@@ -124,8 +131,7 @@ void main() {
   /// take the same batched path through `Pipeline.enqueue`, and a metric's bag
   /// is built by the same choke point, so both must merge back exactly.
   void mergesBackExactly(String label, EdgeEvent event) {
-    test(
-        'hoisted block + $label bag merges back to the un-hoisted bag, '
+    test('hoisted block + $label bag merges back to the un-hoisted bag, '
         'minus the mutable counters', () async {
       // Frozen clock + a reset prefs store, so the only difference between the
       // two runs is the hoist itself (start_time / total_sessions would drift).
@@ -156,48 +162,61 @@ void main() {
       // server, so key order is not part of its identity — canonicalise by
       // sorting, then compare the actual encoded bytes.
       expect(
-          utf8.encode(_canonical(merged)), utf8.encode(_canonical(expected)));
+        utf8.encode(_canonical(merged)),
+        utf8.encode(_canonical(expected)),
+      );
       // Disjoint halves — no key is paid for twice, so no merge order matters.
       expect(
-          merged,
-          hasLength(hoisted.soleBatchContext.length +
-              hoisted.soleItemAttributes.length));
+        merged,
+        hasLength(
+          hoisted.soleBatchContext.length + hoisted.soleItemAttributes.length,
+        ),
+      );
     });
   }
 
   mergesBackExactly(
-      'an event',
-      const EdgeEvent.event('navigation',
-          attributes: {'navigation.to': '/home', 'device.id': 'device_1'}));
+    'an event',
+    const EdgeEvent.event(
+      'navigation',
+      attributes: {'navigation.to': '/home', 'device.id': 'device_1'},
+    ),
+  );
   mergesBackExactly(
-      'a metric',
-      const EdgeEvent.metric('memory_usage', 42.0,
-          attributes: {'metric.source': 'test'}));
+    'a metric',
+    const EdgeEvent.metric(
+      'memory_usage',
+      42.0,
+      attributes: {'metric.source': 'test'},
+    ),
+  );
 
-  test('the block carries identity and the two batch-scoped live values',
-      () async {
-    final rig = _Rig(hoist: true);
-    await rig.session.startSession('session_a');
-    rig.collector.add(const EdgeEvent.event('navigation'));
-    rig.pipeline.flush();
-    await Future<void>(() {});
+  test(
+    'the block carries identity and the two batch-scoped live values',
+    () async {
+      final rig = _Rig(hoist: true);
+      await rig.session.startSession('session_a');
+      rig.collector.add(const EdgeEvent.event('navigation'));
+      rig.pipeline.flush();
+      await Future<void>(() {});
 
-    final ctx = rig.soleBatchContext;
-    expect(ctx['device.id'], 'device_1');
-    expect(ctx['app.version'], '3.0.0');
-    expect(ctx['sdk.platform'], 'flutter-android');
-    expect(ctx['user.id'], 'user_1');
-    expect(ctx['session.id'], 'session_a');
-    expect(ctx['session.start_time'], isNotNull);
-    expect(ctx['network.type'], 'wifi');
-    expect(ctx['device.platform_brightness'], isNotNull);
+      final ctx = rig.soleBatchContext;
+      expect(ctx['device.id'], 'device_1');
+      expect(ctx['app.version'], '3.0.0');
+      expect(ctx['sdk.platform'], 'flutter-android');
+      expect(ctx['user.id'], 'user_1');
+      expect(ctx['session.id'], 'session_a');
+      expect(ctx['session.start_time'], isNotNull);
+      expect(ctx['network.type'], 'wifi');
+      expect(ctx['device.platform_brightness'], isNotNull);
 
-    // Flat dotted spelling — the server-side merge is a plain map merge.
-    expect(ctx.keys.every((k) => !k.contains('{') && k == k.trim()), isTrue);
-    // An arbitrary consumer global stays per-item: it cannot be classified.
-    expect(ctx.containsKey('tenant_hint'), isFalse);
-    expect(rig.soleItemAttributes['tenant_hint'], 'kept-per-item');
-  });
+      // Flat dotted spelling — the server-side merge is a plain map merge.
+      expect(ctx.keys.every((k) => !k.contains('{') && k == k.trim()), isTrue);
+      // An arbitrary consumer global stays per-item: it cannot be classified.
+      expect(ctx.containsKey('tenant_hint'), isFalse);
+      expect(rig.soleItemAttributes['tenant_hint'], 'kept-per-item');
+    },
+  );
 
   test('mutable session counters leave the wire on batched items', () async {
     final rig = _Rig(hoist: true);
@@ -207,15 +226,20 @@ void main() {
     await Future<void>(() {});
 
     for (final counter in kMutableSessionCounters) {
-      expect(rig.soleItemAttributes.containsKey(counter), isFalse,
-          reason: '$counter must not ride a batched item');
-      expect(rig.soleBatchContext.containsKey(counter), isFalse,
-          reason: '$counter cannot be batch-scoped — it re-measures');
+      expect(
+        rig.soleItemAttributes.containsKey(counter),
+        isFalse,
+        reason: '$counter must not ride a batched item',
+      );
+      expect(
+        rig.soleBatchContext.containsKey(counter),
+        isFalse,
+        reason: '$counter cannot be batch-scoped — it re-measures',
+      );
     }
   });
 
-  test(
-      'the session bookends keep their counters — the immediate rail is never '
+  test('the session bookends keep their counters — the immediate rail is never '
       'hoisted', () async {
     final rig = _Rig(hoist: true);
     rig.session.bindSink(rig.collector);
@@ -232,31 +256,34 @@ void main() {
     expect(rig.batches.every((b) => !b.containsKey('context')), isTrue);
   });
 
-  test('a session rotation mid-batch produces two batches, never one',
-      () async {
-    var now = DateTime(2026, 1, 1, 12);
-    final rig = _Rig(
-      hoist: true,
-      clock: () => now,
-      idleTimeout: const Duration(minutes: 30),
-    );
-    await rig.session.startSession('session_a');
+  test(
+    'a session rotation mid-batch produces two batches, never one',
+    () async {
+      var now = DateTime(2026, 1, 1, 12);
+      final rig = _Rig(
+        hoist: true,
+        clock: () => now,
+        idleTimeout: const Duration(minutes: 30),
+      );
+      await rig.session.startSession('session_a');
 
-    rig.collector.add(const EdgeEvent.event('navigation'));
-    now = now.add(const Duration(minutes: 31)); // idle past the window
-    rig.collector.add(const EdgeEvent.event('navigation'));
-    rig.pipeline.flush();
-    await Future<void>(() {});
+      rig.collector.add(const EdgeEvent.event('navigation'));
+      now = now.add(const Duration(minutes: 31)); // idle past the window
+      rig.collector.add(const EdgeEvent.event('navigation'));
+      rig.pipeline.flush();
+      await Future<void>(() {});
 
-    final batched = rig.batches.where((b) => b.containsKey('context')).toList();
-    expect(batched, hasLength(2));
-    expect(batched[0]['context']['session.id'], 'session_a');
-    expect(batched[1]['context']['session.id'], 'session_rotated');
-    // Each batch is structurally one session.
-    for (final b in batched) {
-      expect(b['events'], hasLength(1));
-    }
-  });
+      final batched =
+          rig.batches.where((b) => b.containsKey('context')).toList();
+      expect(batched, hasLength(2));
+      expect(batched[0]['context']['session.id'], 'session_a');
+      expect(batched[1]['context']['session.id'], 'session_rotated');
+      // Each batch is structurally one session.
+      for (final b in batched) {
+        expect(b['events'], hasLength(1));
+      }
+    },
+  );
 
   test('a user change mid-batch closes the batch too', () async {
     final rig = _Rig(hoist: true);

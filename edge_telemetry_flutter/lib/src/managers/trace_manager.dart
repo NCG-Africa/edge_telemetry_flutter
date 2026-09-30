@@ -77,12 +77,12 @@ class FrozenTrace {
   /// `EdgeEvent.ownsTraceContext`, or the ambient snapshot wins on any key this
   /// map happens not to carry.
   Map<String, String> get attributes => {
-        'trace.id': traceId,
-        'rum.action.id': actionId,
-        'trace.root_type': rootType.name,
-        'span.id': spanId,
-        if (parentSpanId != null) 'parent.span.id': parentSpanId!,
-      };
+    'trace.id': traceId,
+    'rum.action.id': actionId,
+    'trace.root_type': rootType.name,
+    'span.id': spanId,
+    if (parentSpanId != null) 'parent.span.id': parentSpanId!,
+  };
 }
 
 /// Holds the one open trace root, expiring it lazily.
@@ -120,7 +120,7 @@ class TraceManager {
   bool _expiredRoot = false;
 
   TraceManager({required this.session, DateTime Function()? clock})
-      : _clock = clock ?? DateTime.now;
+    : _clock = clock ?? DateTime.now;
 
   /// Open a root of [rootType], superseding any root still open — mobile
   /// actions are sequential, and the second tap ends the first's claim on
@@ -206,12 +206,12 @@ class TraceManager {
   /// `session.action_count`. It lives here rather than at the call site so that
   /// every trace and span id in the SDK is minted in this one file.
   FrozenTrace startRequestRoot() => FrozenTrace(
-        traceId: secureHex32(),
-        spanId: secureHex16(),
-        parentSpanId: null,
-        rootType: TraceRootType.request,
-        sessionId: session.currentSessionId,
-      );
+    traceId: secureHex32(),
+    spanId: secureHex16(),
+    parentSpanId: null,
+    rootType: TraceRootType.request,
+    sessionId: session.currentSessionId,
+  );
 
   /// Whether [frozen] still belongs to the live session.
   ///

@@ -62,13 +62,13 @@ class ContextManager {
   /// cached value would keep claiming a seam that died an hour ago. It lives in
   /// `core/` so this read is a manager→core edge, not a manager→capture one.
   Map<String, String> snapshot() => {
-        ..._global,
-        ...sessionManager.getSessionAttributes(),
-        ...?trace?.current(),
-        'network.type': networkType,
-        'sdk.http_seam_state': httpSeamState(),
-        ..._deviceContext(),
-      };
+    ..._global,
+    ...sessionManager.getSessionAttributes(),
+    ...?trace?.current(),
+    'network.type': networkType,
+    'sdk.http_seam_state': httpSeamState(),
+    ..._deviceContext(),
+  };
 
   /// Live rendering/accessibility context read fresh each snapshot (all can
   /// change at runtime), from the passive `PlatformDispatcher` singleton

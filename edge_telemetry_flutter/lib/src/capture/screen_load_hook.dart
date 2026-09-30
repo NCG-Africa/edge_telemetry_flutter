@@ -153,8 +153,10 @@ class ScreenLoadHook implements CaptureHook {
     // independent of that assumption rather than reliant on it.
     WidgetsBinding.instance.scheduleFrame();
 
-    load.deadlineTimer =
-        Timer(deadline, () => _terminate(kScreenLoadDeadlineExceeded));
+    load.deadlineTimer = Timer(
+      deadline,
+      () => _terminate(kScreenLoadDeadlineExceeded),
+    );
   }
 
   /// The explicit override: the consumer declares this screen settled *now*.
@@ -197,8 +199,10 @@ class ScreenLoadHook implements CaptureHook {
     // threshold — the window is how we know the screen settled, not part of
     // how long it took.
     load.quietSince = _clock();
-    load.quietTimer =
-        Timer(kScreenQuietWindow, () => _terminate(kScreenLoadSettled));
+    load.quietTimer = Timer(
+      kScreenQuietWindow,
+      () => _terminate(kScreenLoadSettled),
+    );
   }
 
   /// The one emit site. Every path in — settled, abandoned, deadline,
@@ -218,44 +222,50 @@ class ScreenLoadHook implements CaptureHook {
 
     // A reported settle happened now; an inferred one happened when the quiet
     // began.
-    final settledAt = outcome != kScreenLoadSettled
-        ? null
-        : reported
+    final settledAt =
+        outcome != kScreenLoadSettled
+            ? null
+            : reported
             ? _clock()
             : load.quietSince;
     final settledMs = settledAt?.difference(load.start).inMilliseconds;
 
-    sink.add(EdgeEvent.event(
-      'screen.load',
-      attributes: {
-        'screen.name': load.screenName,
-        // Its own, not the ambient one: by the time an `abandoned` terminal
-        // fires, `screen.id` in the context snapshot is already the screen the
-        // user moved *to*.
-        'screen.id': load.screenId,
-        'screen.load.outcome': outcome,
-        'screen.load.source':
-            reported ? kScreenLoadReported : kScreenLoadInferred,
-        if (load.firstFrame != null)
-          'screen.load.first_frame_ms':
-              load.firstFrame!.difference(load.start).inMilliseconds.toString(),
-        // **Non-settled paths carry no duration of their own.** An abandoned
-        // or deadline-exceeded screen has a wall-clock number available, and
-        // emitting it would put "how long until the user gave up" in the same
-        // column as "how long the screen took" — the two are not comparable
-        // and no consumer would be told which they were reading.
-        if (settledMs != null) 'screen.load.settled_ms': settledMs.toString(),
-        // No slow/fast verdict on the wire: banding is a query-time comparison
-        // against the Apdex threshold, which is the backend's to move without
-        // a client release.
-        ...load.routeContext,
-        ...?load.frozen?.attributes,
-      },
-      // The event is emitted seconds after the entry it describes, so the
-      // ambient trace keys must be stripped before its own frozen copy merges
-      // — including when the freeze found no open root at all.
-      ownsTraceContext: true,
-    ));
+    sink.add(
+      EdgeEvent.event(
+        'screen.load',
+        attributes: {
+          'screen.name': load.screenName,
+          // Its own, not the ambient one: by the time an `abandoned` terminal
+          // fires, `screen.id` in the context snapshot is already the screen the
+          // user moved *to*.
+          'screen.id': load.screenId,
+          'screen.load.outcome': outcome,
+          'screen.load.source':
+              reported ? kScreenLoadReported : kScreenLoadInferred,
+          if (load.firstFrame != null)
+            'screen.load.first_frame_ms':
+                load.firstFrame!
+                    .difference(load.start)
+                    .inMilliseconds
+                    .toString(),
+          // **Non-settled paths carry no duration of their own.** An abandoned
+          // or deadline-exceeded screen has a wall-clock number available, and
+          // emitting it would put "how long until the user gave up" in the same
+          // column as "how long the screen took" — the two are not comparable
+          // and no consumer would be told which they were reading.
+          if (settledMs != null) 'screen.load.settled_ms': settledMs.toString(),
+          // No slow/fast verdict on the wire: banding is a query-time comparison
+          // against the Apdex threshold, which is the backend's to move without
+          // a client release.
+          ...load.routeContext,
+          ...?load.frozen?.attributes,
+        },
+        // The event is emitted seconds after the entry it describes, so the
+        // ambient trace keys must be stripped before its own frozen copy merges
+        // — including when the freeze found no open root at all.
+        ownsTraceContext: true,
+      ),
+    );
   }
 }
 
