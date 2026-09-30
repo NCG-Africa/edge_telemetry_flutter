@@ -232,7 +232,9 @@ class Collector implements EventSink {
       if (crumbs.isNotEmpty) enriched['crash.breadcrumbs'] = jsonEncode(crumbs);
     }
 
-    final timestamp = DateTime.now().toIso8601String();
+    // Backdated when the item says so — an aggregate held in a reservoir
+    // describes a window that closed long before this flush.
+    final timestamp = (event.occurredAt ?? DateTime.now()).toIso8601String();
 
     final wireItem = event.type == 'metric'
         ? {
