@@ -203,10 +203,13 @@ throw Exception('Something went wrong');
 
 // Gets automatically tracked with:
 // - Full stack trace (grouping hash computed server-side)
-// - Rich context via breadcrumbs (navigation, requests, lifecycle)
+// - An `error.category` taxonomy inferred from the error's exact type
+// - Rich context via breadcrumbs (navigation, requests, lifecycle) — a 50-entry
+//   ring; a fatal ships all 50, a non-fatal the newest 10
 // - User and session context
 // - Device information
-// - Sent immediately; persisted to disk if the network is down
+// - Batched with retries (a fatal crash is sent immediately); persisted to disk
+//   if the network is down
 ```
 
 ### 📱 Navigation (One Line Setup)
@@ -277,6 +280,71 @@ Render-complete and time-to-interactive are **not** collected, and won't be:
 Flutter composites one frame from one widget tree (there is no later paint to
 name), and a Flutter route's gesture arena is live on frame one (so TTI would be
 first frame under a second name).
+
+### 🎞️ Frames (Zero Setup Required)
+
+Frame timings are **aggregated, never streamed**. v2 emitted two items per
+frame at 60–120 Hz into a 30-item buffer — roughly 300 items per flush window,
+starving every other signal; measuring jank was causing it. v3 emits **at most
+two `frame.summary` events per session**, and the per-frame cost is about
+eleven scalar operations.
+
+Frames accumulate per **screen segment** — a window closes on a screen change
+or after 10 s, whichever comes first, both checked inside the frame callback
+(no timer, because a backgrounded Flutter app cannot run one). A window with
+no slow frames is discarded. The rest are ranked in a **keep-worst-two
+reservoir** on `(frozen frames, slow frames, worst frame)` — absolute counts,
+so a five-frame window cannot outrank a six-hundred-frame one — and the two
+survivors are sent when the app is backgrounded or the session ends.
+
+| Key | Means |
+|---|---|
+| `frame.total_frames` | Frames in the window |
+| `frame.slow_frames` | Frames over 16 ms |
+| `frame.frozen_frames` | Frames over 700 ms (a subset of slow) |
+| `frame.slow_frame_rate` | `slow / total` |
+| `frame.max_total_duration_ms` | Worst frame, vsync start → raster finish |
+| `frame.max_build_duration_ms` | Worst UI-thread build |
+| `frame.max_raster_duration_ms` | Worst GPU raster |
+| `frame.window_duration_ms` | Wall clock the window spanned |
+| `display.refresh_rate` | The panel's actual Hz |
+| `screen.name` / `screen.id` | The screen, frozen at window start |
+
+Three things about that table are deliberate and stable:
+
+- **The thresholds are absolute and do not adapt to refresh rate.** The rate is
+  recorded, never applied. A per-device budget would make `frame.slow_frames`
+  mean something different on every handset and break comparison with the
+  sibling SDKs and with platform vitals.
+- **Total frame duration is the framework's own span** (vsync start → raster
+  finish). v2 added the build and raster durations, which run on two
+  *pipelined* threads, so it over-reported drops.
+- **The event carries no trace or action id at all.** A ten-second window spans
+  several user actions; attributing it to one of them would be false precision.
+  A window is not an action.
+
+The timestamp is backdated to the window start, and the screen keys are frozen
+there too, so a window held in the reservoir is never attributed to whatever
+screen you happened to be on when it shipped.
+
+**`frame.total_frames` is not a fleet denominator.** Only windows containing
+jank are eligible, and at the default tier only the two worst of those survive:
+the two rows are exemplars — *"the worst two screen segments in this session"* —
+not a sample. Use `screen.load` / `navigation` counts for coverage. Turn on
+`Capture.screenWindowedFrames` (diagnostic) to get **every** qualifying window
+as it closes; it *replaces* the reservoir rather than adding to it, so nothing
+is ever counted twice.
+
+`Capture.longTask` (diagnostic) adds one `long_task` metric per **frozen** frame
+— redefined from v2's every-dropped-frame, where a single two-second stall
+exhausted the whole session's allowance in one go. It is independent of
+`Capture.frames`: turn frames off and long tasks on and you get the frozen-frame
+metric with no windowing behind it.
+
+Backgrounding flushes the reservoir but does not empty it. A survivor already
+sent stays as a ranking incumbent, so a session you background and return to
+neither re-sends the same window nor starts ranking from scratch — a later
+window costs an item only by being genuinely worse.
 
 ### 👆 User Actions (Zero Setup Required)
 ```dart
@@ -663,6 +731,20 @@ try {
     attributes: {'context': 'payment_processing'});
 }
 
+// `error.category` is inferred from the error's exact type — a SocketException is
+// `network`, a TimeoutException `timeout`, a FormatException `parse`, a
+// FileSystemException `storage`. Two categories have no platform type that means
+// them, so declare those:
+try {
+  await transfer();
+} on UnauthorizedException catch (error, stackTrace) {
+  EdgeTelemetry.instance.trackError(error,
+    stackTrace: stackTrace,
+    category: ErrorCategory.auth);      // or ErrorCategory.business
+}
+// The wire records which it was: `error.category_source` is `inferred` or
+// `declared`, never silently one dressed as the other.
+
 // Add custom breadcrumbs for crash context
 EdgeTelemetry.instance.addUserActionBreadcrumb('payment_initiated');
 EdgeTelemetry.instance.addCustomBreadcrumb('Processing payment', 
@@ -724,8 +806,12 @@ EdgeTelemetry.instance.clearBreadcrumbs();
 
 ### 🚨 Crash Reports
 ```dart
-// Every captured failure — Dart error, native crash, ANR, iOS hang — is sent
-// immediately as one `app.crash` event, bypassing the batch:
+// Every captured failure — Dart error, native crash, ANR, iOS hang — is one
+// `app.crash` event. A **fatal** (native crash, ANR, hang) is POSTed immediately,
+// because its process is dying. A **non-fatal** Dart error batches, so it earns
+// the pipeline's retries and the offline queue instead of one attempt — and one
+// error thrown from a `build()` method becomes items in a batch rather than a
+// POST per throw. Neither is ever sampled away.
 {
   "type": "event",
   "eventName": "app.crash",
@@ -736,13 +822,24 @@ EdgeTelemetry.instance.clearBreadcrumbs();
     "exception_type": "_Exception",
     "cause": "Error",              // Error | NativeCrash | ANR | Hang
     "is_fatal": "false",           // Dart errors are non-fatal — the app survived
+    "handled": "true",             // a live catch, not an uncaught handler
+    "error.category": "network",   // network|timeout|auth|parse|storage|business|unknown
+    "error.category_source": "inferred",   // inferred | declared
     "crash.source": "flutter_error",
     "crash.breadcrumbs": "[{\"message\":\"Navigated to /checkout\",\"category\":\"navigation\"}]"
     // + session, user and device context
   }
 }
 
-// Grouping hash and severity are computed server-side — the SDK does not send them.
+// Grouping hash and severity are computed server-side — the SDK sends no error id
+// and no client-side fingerprint.
+//
+// Per session a non-fatal is capped at 5 per exception-type-and-top-frame and 50
+// overall; the overflow is counted on `session.finalized` rather than dropped
+// silently. An HTTP failure emits no crash event at all — the status code and
+// `http.error` already ride `http.request`, so 4xx-vs-5xx is a query, not a
+// second item. The SDK's own internal failures are tagged `crash.source: "sdk"`
+// and stay off your session error and crash counts.
 ```
 
 ### 💾 Offline Queue
