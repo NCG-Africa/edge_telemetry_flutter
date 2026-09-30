@@ -238,8 +238,13 @@ never the SDK's own keys, which are unique per item by design and would be senti
 - **Deprecate-in-place — names are retained, emission stops or changes.** The cycle is an annotation on
   **every** declaration naming the removal version (the clause that catches a missed field), a shipped
   release, a changelog line, and a runtime warning wherever behaviour *changes* rather than disappears.
-  Every v3 deprecation names v4.0.0. Currently deprecated-in-place: `user.interaction`,
-  `frame_render_time`, `resource_timing`, `screen.duration`.
+  Every v3 deprecation names v4.0.0. Currently deprecated-in-place: `frame_render_time`
+  and `screen.duration` — both stopped being emitted in v3. `user.interaction` and
+  `resource_timing` are **not** deprecations: this SDK has never emitted either, so
+  there is no emission to stop and no removal version to name. They are allowlist
+  entries kept for family conformance, and they are recorded as **errata** (see
+  `MIGRATION.md` §2) — the register for "never worked in v2", which is a different
+  thing from "changed in v3".
 - Terminology firewall on **new** public symbols and docs — an **anti-OpenTelemetry** rule, not an
   anti-tracing one (#56): banned are `instrumentation`/`instrument`, `OTLP`, `OpenTelemetry` and OTel
   class names (`tracer`, `SpanProcessor`, `SpanExporter`). `trace` and `span` are **permitted** where
