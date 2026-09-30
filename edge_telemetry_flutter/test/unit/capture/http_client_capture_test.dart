@@ -55,8 +55,10 @@ void main() {
     HttpOverrides.global = saved;
   });
 
-  HttpCaptureHook startedHook(
-      {List<String> allowlist = const [], Uri? selfUrl}) {
+  HttpCaptureHook startedHook({
+    List<String> allowlist = const [],
+    Uri? selfUrl,
+  }) {
     final hook = HttpCaptureHook(
       injector: TraceInjector(trace: trace, allowlist: allowlist),
       selfUrl: selfUrl,
@@ -70,13 +72,15 @@ void main() {
 
   Future<HttpServer> serve({Completer<void>? gate}) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    unawaited(server.forEach((req) async {
-      received.add(req.headers);
-      await req.drain<void>();
-      if (gate != null) await gate.future;
-      req.response.write('ok');
-      await req.response.close();
-    }));
+    unawaited(
+      server.forEach((req) async {
+        received.add(req.headers);
+        await req.drain<void>();
+        if (gate != null) await gate.future;
+        req.response.write('ok');
+        await req.response.close();
+      }),
+    );
     addTearDown(() => server.close(force: true));
     return server;
   }
@@ -127,9 +131,7 @@ void main() {
 
     test('a client wrapped before dispose stops emitting after it', () async {
       final server = await serve();
-      final hook = HttpCaptureHook(
-        injector: TraceInjector(trace: trace),
-      );
+      final hook = HttpCaptureHook(injector: TraceInjector(trace: trace));
       final dispose = hook.start(sink);
       TelemetryHttpOverrides.uninstallGlobal();
       final client = hook.capture(http.Client());
@@ -171,8 +173,10 @@ void main() {
 
       final attrs = theRow();
       expect(attrs['traceparent.outcome'], kOutcomeInjectedAttributed);
-      expect(received.single.value(kTraceparentHeader),
-          formatTraceparent(attrs['trace.id']!, attrs['span.id']!));
+      expect(
+        received.single.value(kTraceparentHeader),
+        formatTraceparent(attrs['trace.id']!, attrs['span.id']!),
+      );
       expect(attrs['trace.root_type'], 'interaction');
       expect(attrs['parent.span.id'], attrs['rum.action.id']);
     });
@@ -206,8 +210,9 @@ void main() {
       addTearDown(client.close);
       trace.mint(TraceRootType.interaction);
 
-      final pending =
-          client.read(Uri.parse('http://127.0.0.1:${server.port}/slow'));
+      final pending = client.read(
+        Uri.parse('http://127.0.0.1:${server.port}/slow'),
+      );
       // The root ages far past its 10 s cap while the response is in flight.
       now = now.add(const Duration(hours: 1));
       gate.complete();
@@ -226,8 +231,10 @@ void main() {
       trace.mint(TraceRootType.interaction);
 
       // Port 1 on loopback refuses.
-      await expectLater(client.read(Uri.parse('http://127.0.0.1:1/orders/42')),
-          throwsA(anything));
+      await expectLater(
+        client.read(Uri.parse('http://127.0.0.1:1/orders/42')),
+        throwsA(anything),
+      );
 
       final attrs = theRow();
       expect(attrs['http.status_code'], '0');
@@ -243,25 +250,27 @@ void main() {
       expect(attrs['traceparent.outcome'], kOutcomeInjectedAttributed);
     });
 
-    test('a socket that dies after the headers went out stays traced',
-        () async {
+    test('a socket that dies after the headers went out stays traced', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
       // Accept, read the request — so the header provably left — then kill the
       // connection without answering.
-      unawaited(server.forEach((req) async {
-        received.add(req.headers);
-        await req.drain<void>();
-        await req.response.detachSocket().then((s) => s.destroy());
-      }));
+      unawaited(
+        server.forEach((req) async {
+          received.add(req.headers);
+          await req.drain<void>();
+          await req.response.detachSocket().then((s) => s.destroy());
+        }),
+      );
       final hook = startedHook(allowlist: const ['127.0.0.1']);
       final client = hook.capture(http.Client());
       addTearDown(client.close);
       trace.mint(TraceRootType.interaction);
 
       await expectLater(
-          client.read(Uri.parse('http://127.0.0.1:${server.port}/x')),
-          throwsA(anything));
+        client.read(Uri.parse('http://127.0.0.1:${server.port}/x')),
+        throwsA(anything),
+      );
 
       // The header *was* propagated — the server has it — so dropping the
       // outcome here would report "not traced" for a request the collector saw
@@ -272,8 +281,9 @@ void main() {
 
     test('the SDK\'s own upload is neither reported nor traced', () async {
       final server = await serve();
-      final self =
-          Uri.parse('http://127.0.0.1:${server.port}/collector/telemetry');
+      final self = Uri.parse(
+        'http://127.0.0.1:${server.port}/collector/telemetry',
+      );
       final hook = startedHook(allowlist: const ['127.0.0.1'], selfUrl: self);
       final client = hook.capture(http.Client());
       addTearDown(client.close);
@@ -292,8 +302,10 @@ void main() {
       addTearDown(client.close);
       final theirs = '00-${'a' * 32}-${'b' * 16}-01';
 
-      await client.get(Uri.parse('http://127.0.0.1:${server.port}/x'),
-          headers: {kTraceparentHeader: theirs});
+      await client.get(
+        Uri.parse('http://127.0.0.1:${server.port}/x'),
+        headers: {kTraceparentHeader: theirs},
+      );
 
       expect(received.single.value(kTraceparentHeader), theirs);
       final attrs = theRow();

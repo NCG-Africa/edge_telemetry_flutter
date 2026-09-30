@@ -93,38 +93,41 @@ class HomeScreen extends StatelessWidget {
   }
 
   void _testCustomEvent() {
-    EdgeTelemetry.instance.trackEvent('demo.button_clicked', attributes: {
-      'button.type': 'custom_event',
-      'screen.name': 'home',
-    });
+    EdgeTelemetry.instance.trackEvent(
+      'demo.button_clicked',
+      attributes: {'button.type': 'custom_event', 'screen.name': 'home'},
+    );
   }
 
   void _testMetric() {
-    EdgeTelemetry.instance
-        .trackMetric('demo.response_time', 125.5, attributes: {
-      'metric.category': 'performance',
-      'endpoint': '/api/demo',
-    });
+    EdgeTelemetry.instance.trackMetric(
+      'demo.response_time',
+      125.5,
+      attributes: {'metric.category': 'performance', 'endpoint': '/api/demo'},
+    );
   }
 
   Future<void> _testNetworkOperation() async {
     // HTTP is now monitored automatically; this just simulates a request.
     await Future.delayed(const Duration(milliseconds: 500));
-    EdgeTelemetry.instance.trackEvent('demo.network_operation', attributes: {
-      'api.version': 'v1',
-      'request.timeout': '5000',
-    });
+    EdgeTelemetry.instance.trackEvent(
+      'demo.network_operation',
+      attributes: {'api.version': 'v1', 'request.timeout': '5000'},
+    );
   }
 
   void _testError() {
     try {
       throw Exception('Demo error for testing');
     } catch (error, stackTrace) {
-      EdgeTelemetry.instance
-          .trackError(error, stackTrace: stackTrace, attributes: {
-        'error.context': 'demo_testing',
-        'error.user_triggered': 'true',
-      });
+      EdgeTelemetry.instance.trackError(
+        error,
+        stackTrace: stackTrace,
+        attributes: {
+          'error.context': 'demo_testing',
+          'error.user_triggered': 'true',
+        },
+      );
     }
   }
 }
@@ -150,11 +153,13 @@ class SecondScreen extends StatelessWidget {
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: () {
-                EdgeTelemetry.instance
-                    .trackEvent('demo.second_screen_action', attributes: {
-                  'action.type': 'button_click',
-                  'screen.name': 'second',
-                });
+                EdgeTelemetry.instance.trackEvent(
+                  'demo.second_screen_action',
+                  attributes: {
+                    'action.type': 'button_click',
+                    'screen.name': 'second',
+                  },
+                );
               },
               child: const Text('Track Action on Second Screen'),
             ),

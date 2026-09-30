@@ -12,15 +12,17 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('kSdkVersion matches the pubspec manifest', () {
     final manifest = File('pubspec.yaml').readAsStringSync();
-    final declared = RegExp(r'^version:\s*(\S+)\s*$', multiLine: true)
-        .firstMatch(manifest)
-        ?.group(1);
+    final declared = RegExp(
+      r'^version:\s*(\S+)\s*$',
+      multiLine: true,
+    ).firstMatch(manifest)?.group(1);
 
     expect(declared, isNotNull, reason: 'pubspec.yaml has no version: line');
     expect(
       kSdkVersion,
       declared,
-      reason: 'Bump lib/src/core/sdk_version.dart with pubspec.yaml — '
+      reason:
+          'Bump lib/src/core/sdk_version.dart with pubspec.yaml — '
           'sdk.version ships on every item and a stale one misattributes rows '
           'to the wrong SDK build.',
     );

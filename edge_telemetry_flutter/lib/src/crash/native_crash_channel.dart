@@ -48,7 +48,7 @@ class NativeCrashChannel {
   final MethodChannel _channel;
 
   NativeCrashChannel({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel(channelName);
+    : _channel = channel ?? const MethodChannel(channelName);
 
   /// Pull every native crash payload the OS surfaced since the last drain.
   ///
@@ -56,8 +56,9 @@ class NativeCrashChannel {
   /// state until Phase 4) or when there are no new crashes.
   Future<List<Map<String, String>>> drainNativeCrashes() async {
     try {
-      final raw =
-          await _channel.invokeMethod<List<dynamic>>('drainNativeCrashes');
+      final raw = await _channel.invokeMethod<List<dynamic>>(
+        'drainNativeCrashes',
+      );
       if (raw == null) return const [];
       return raw
           .whereType<Map>()
@@ -108,8 +109,9 @@ class NativeCrashChannel {
   /// its failure mode is having no health signal.
   Future<Map<String, String>> readDeviceState() async {
     try {
-      final raw =
-          await _channel.invokeMapMethod<String, dynamic>('readDeviceState');
+      final raw = await _channel.invokeMapMethod<String, dynamic>(
+        'readDeviceState',
+      );
       if (raw == null) return const {};
       return raw.map((k, v) => MapEntry(k, '$v'));
     } on MissingPluginException {

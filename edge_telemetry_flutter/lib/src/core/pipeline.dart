@@ -40,8 +40,10 @@ class Pipeline {
   /// [context] is the item's hoisted context block (#82), empty while the hoist
   /// is off. A batch carries exactly one such block, so a change to it closes
   /// the current batch before this event joins one.
-  void enqueue(Map<String, dynamic> event,
-      {Map<String, String> context = const {}}) {
+  void enqueue(
+    Map<String, dynamic> event, {
+    Map<String, String> context = const {},
+  }) {
     // One batch is structurally one session and one user. Whole-map equality
     // rather than a session.id/user.id check: it is the same one line, and it
     // makes the server-side merge byte-exact by construction for *every*
@@ -60,8 +62,10 @@ class Pipeline {
     _context = context;
     _buffer.add(event);
     if (debugMode) {
-      print('📦 Queued event (${_buffer.length}/$batchSize): '
-          '${event['eventName'] ?? event['metricName'] ?? 'unknown'}');
+      print(
+        '📦 Queued event (${_buffer.length}/$batchSize): '
+        '${event['eventName'] ?? event['metricName'] ?? 'unknown'}',
+      );
     }
     if (_buffer.length >= batchSize) {
       _flush();
@@ -84,8 +88,12 @@ class Pipeline {
 
   void _flush() {
     if (_buffer.isEmpty) return;
-    transport.send(telemetryBatch(List<Map<String, dynamic>>.from(_buffer),
-        context: _context));
+    transport.send(
+      telemetryBatch(
+        List<Map<String, dynamic>>.from(_buffer),
+        context: _context,
+      ),
+    );
     if (debugMode) print('📤 Sent batch of ${_buffer.length} events');
     _buffer.clear();
     _context = const {};

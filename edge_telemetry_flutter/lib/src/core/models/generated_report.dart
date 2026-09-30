@@ -24,15 +24,15 @@ class GeneratedReport {
 
   /// Convert entire report to JSON
   Map<String, dynamic> toJson() => {
-        'reportId': reportId,
-        'title': title,
-        'format': format,
-        'generatedAt': generatedAt.toIso8601String(),
-        'periodStart': periodStart.toIso8601String(),
-        'periodEnd': periodEnd.toIso8601String(),
-        'metadata': metadata.toJson(),
-        'data': data,
-      };
+    'reportId': reportId,
+    'title': title,
+    'format': format,
+    'generatedAt': generatedAt.toIso8601String(),
+    'periodStart': periodStart.toIso8601String(),
+    'periodEnd': periodEnd.toIso8601String(),
+    'metadata': metadata.toJson(),
+    'data': data,
+  };
 
   /// Get human-readable summary
   String getSummary() {
@@ -64,10 +64,10 @@ class ReportMetadata {
   });
 
   Map<String, dynamic> toJson() => {
-        'totalEvents': totalEvents,
-        'totalMetrics': totalMetrics,
-        'totalSessions': totalSessions,
-        'generationTime': generationTime.inMilliseconds,
-        'additionalInfo': additionalInfo,
-      };
+    'totalEvents': totalEvents,
+    'totalMetrics': totalMetrics,
+    'totalSessions': totalSessions,
+    'generationTime': generationTime.inMilliseconds,
+    'additionalInfo': additionalInfo,
+  };
 }

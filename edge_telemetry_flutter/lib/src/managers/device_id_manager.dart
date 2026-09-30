@@ -19,7 +19,7 @@ class DeviceIdManager {
   String? _cachedDeviceId;
 
   DeviceIdManager({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   /// Get or generate the device ID — stable across sessions and restarts.
   Future<String> getDeviceId() async {

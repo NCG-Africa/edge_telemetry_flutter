@@ -87,8 +87,10 @@ class OfflineQueue {
 
   /// Persist a payload for later drain. Returns the filename, or null on failure.
   /// [isCrash] files use the `crash_` prefix and their own [maxCrashFiles] cap.
-  Future<String?> persist(Map<String, dynamic> payload,
-      {bool isCrash = false}) async {
+  Future<String?> persist(
+    Map<String, dynamic> payload, {
+    bool isCrash = false,
+  }) async {
     if (_dir == null) await initialize();
     if (_dir == null) return null;
 
@@ -113,7 +115,8 @@ class OfflineQueue {
   /// [maxAttempts]), and [DrainResult.offline] abandons the cycle untouched.
   /// Returns the number of payloads the cycle finished.
   Future<int> drain(
-      Future<DrainResult> Function(Map<String, dynamic>) send) async {
+    Future<DrainResult> Function(Map<String, dynamic>) send,
+  ) async {
     if (_dir == null) await initialize();
     if (_dir == null) return 0;
 
@@ -194,9 +197,10 @@ class OfflineQueue {
   Future<void> _enforceCap(String prefix) async {
     final cap = prefix == _crashPrefix ? maxCrashFiles : maxQueueSize;
     try {
-      final files = (await _queueFiles())
-          .where((f) => _name(f).startsWith(prefix))
-          .toList();
+      final files =
+          (await _queueFiles())
+              .where((f) => _name(f).startsWith(prefix))
+              .toList();
       if (files.length <= cap) return;
       files.sort((a, b) => a.path.compareTo(b.path));
       for (final file in files.take(files.length - cap)) {

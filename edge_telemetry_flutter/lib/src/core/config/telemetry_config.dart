@@ -83,7 +83,8 @@ class TelemetryConfig {
 
   /// Enable automatic performance monitoring (frame drops, memory)
   @Deprecated(
-      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.')
+    'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.',
+  )
   final bool enablePerformanceMonitoring;
 
   /// Enable automatic navigation tracking
@@ -99,7 +100,8 @@ class TelemetryConfig {
   /// `device.reduce_motion`). `device.platform_brightness` is captured
   /// regardless — it carries no flag.
   @Deprecated(
-      'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.')
+    'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.',
+  )
   final bool captureAccessibilityContext;
 
   // Report system configuration
@@ -131,17 +133,20 @@ class TelemetryConfig {
     this.redactAttribute,
     this.traceHostAllowlist = const [],
     @Deprecated(
-        'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
+      'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.',
+    )
     this.enableNetworkMonitoring = true,
     @Deprecated(
-        'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.')
+      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.',
+    )
     this.enablePerformanceMonitoring = true,
     @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
     this.enableNavigationTracking = true,
     @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
     this.enableHttpMonitoring = true,
     @Deprecated(
-        'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.')
+      'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.',
+    )
     this.captureAccessibilityContext = false,
     this.enableLocalReporting = false,
     this.reportStoragePath,
@@ -164,17 +169,20 @@ class TelemetryConfig {
     String? Function(String key, String value)? redactAttribute,
     List<String>? traceHostAllowlist,
     @Deprecated(
-        'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
+      'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.',
+    )
     bool? enableNetworkMonitoring,
     @Deprecated(
-        'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.')
+      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.',
+    )
     bool? enablePerformanceMonitoring,
     @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
     bool? enableNavigationTracking,
     @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
     bool? enableHttpMonitoring,
     @Deprecated(
-        'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.')
+      'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.',
+    )
     bool? captureAccessibilityContext,
     bool? enableLocalReporting,
     String? reportStoragePath,
@@ -232,27 +240,27 @@ class TelemetryConfig {
   /// exception is `captureAccessibilityContext`, whose `true` is the opt-in it
   /// always was.
   Map<Capture, bool> get _legacyOverrides => {
-        // ignore: deprecated_member_use_from_same_package
-        if (!enableHttpMonitoring) Capture.http: false,
-        // ignore: deprecated_member_use_from_same_package
-        if (!enableNavigationTracking) Capture.navigation: false,
-        // ignore: deprecated_member_use_from_same_package
-        if (!enablePerformanceMonitoring) ...{
-          Capture.frames: false,
-          Capture.health: false,
-        },
-        // ignore: deprecated_member_use_from_same_package
-        if (!enableNetworkMonitoring) Capture.connectivity: false,
-        // ignore: deprecated_member_use_from_same_package
-        if (captureAccessibilityContext) Capture.accessibilityContext: true,
-        ...captureOverrides,
-      };
+    // ignore: deprecated_member_use_from_same_package
+    if (!enableHttpMonitoring) Capture.http: false,
+    // ignore: deprecated_member_use_from_same_package
+    if (!enableNavigationTracking) Capture.navigation: false,
+    // ignore: deprecated_member_use_from_same_package
+    if (!enablePerformanceMonitoring) ...{
+      Capture.frames: false,
+      Capture.health: false,
+    },
+    // ignore: deprecated_member_use_from_same_package
+    if (!enableNetworkMonitoring) Capture.connectivity: false,
+    // ignore: deprecated_member_use_from_same_package
+    if (captureAccessibilityContext) Capture.accessibilityContext: true,
+    ...captureOverrides,
+  };
 
   /// Every capture this config enables, by name — for debug output.
   Map<String, bool> get enabledFeatures => {
-        for (final c in Capture.values) c.name: capturesEnabled(c),
-        'localReporting': enableLocalReporting,
-      };
+    for (final c in Capture.values) c.name: capturesEnabled(c),
+    'localReporting': enableLocalReporting,
+  };
 
   /// Whether any automatic capture is running.
   bool get hasAutomaticMonitoring => Capture.values.any(capturesEnabled);

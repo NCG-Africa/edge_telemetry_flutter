@@ -97,10 +97,10 @@ class TelemetryWiring {
     this.networkHook,
     this.screenLoadHook,
     this.memoryBookend,
-  })  : _disposers = disposers,
-        gate = gate ?? CaptureGate(config),
-        policy = policy ?? AttributePolicy(redact: config.redactAttribute),
-        nativeCrash = nativeCrash ?? NativeCrashChannel();
+  }) : _disposers = disposers,
+       gate = gate ?? CaptureGate(config),
+       policy = policy ?? AttributePolicy(redact: config.redactAttribute),
+       nativeCrash = nativeCrash ?? NativeCrashChannel();
 
   EdgeNavigationObserver? get navigationObserver => navHook?.observer;
 
@@ -115,8 +115,10 @@ class TelemetryWiring {
     // Resolve the collection surface once: overrides → deprecated booleans →
     // tier default. Every shed the governor makes lands on the session's
     // dropped-item counter, the same counter the off-canon drop uses.
-    final gate =
-        CaptureGate(config, onShed: () => session.recordDropped('tier_shed'));
+    final gate = CaptureGate(
+      config,
+      onShed: () => session.recordDropped('tier_shed'),
+    );
 
     // The PII policy: the consumer's one redaction hook plus the per-key
     // cardinality cap, both per session and both applied at the Collector.
@@ -216,8 +218,10 @@ class TelemetryWiring {
     // thing to settle inside a merge.
     if (gate.allows(Capture.health)) {
       disposers.add(PerfCaptureHook().start(collector));
-      memoryBookend =
-          MemoryBookendHook(channel: nativeCrash, flush: pipeline.flush);
+      memoryBookend = MemoryBookendHook(
+        channel: nativeCrash,
+        flush: pipeline.flush,
+      );
       disposers.add(memoryBookend.start(collector));
     }
     // Its own switch since #89: `Capture.frames: false` must take the
@@ -276,12 +280,14 @@ class TelemetryWiring {
       disposers.add(navHook.start(collector));
     }
     if (gate.allows(Capture.actions)) {
-      disposers.add(ActionCaptureHook(
-        trace: trace,
-        session: session,
-        breadcrumbs: breadcrumbs,
-        gate: gate,
-      ).start(collector));
+      disposers.add(
+        ActionCaptureHook(
+          trace: trace,
+          session: session,
+          breadcrumbs: breadcrumbs,
+          gate: gate,
+        ).start(collector),
+      );
     }
 
     // The lifecycle→session bridge (paused=flush+mark, resume=rotate-if-idle)
