@@ -41,11 +41,17 @@ const String kCardinalitySentinel = '__over_cardinality__';
 /// type out of two. `session.screen_journey` is deliberately *not* on the list:
 /// it is a joined composite, so nearly every value is distinct and a cap would
 /// sentinel it on the second navigation.
+/// `task.name` is on it because the value is the *developer's* string on an
+/// SDK-spelled key: `startTask('transfer')` is a label, but a name built from an
+/// order id is a cardinality bomb on a key the redaction hook cannot reach — the
+/// hook runs over consumer-supplied bags, and `task.complete`'s bag is the SDK's,
+/// since it also holds a span id and a duration.
 const Set<String> kCappedSdkKeys = {
   'http.url',
   'screen.name',
   'navigation.to',
   'navigation.from',
+  'task.name',
 };
 
 /// Runs over an item's **own** attributes — never the ~30-key context

@@ -4,6 +4,59 @@
 
 ### Added
 
+- **The task-completion model — `startTask` / `completeTask` / `failTask`.** A
+  product owner declares a multi-screen journey (an onboarding, a transfer) and
+  the SDK measures whether users *complete* it, not only whether the individual
+  screens loaded. **String-keyed, no attribute map, no handle to thread**: the
+  motivating transfer spans four routes, so a handle object would have to travel
+  through a state container or route arguments — friction on the one feature
+  whose only weakness is adoption. The calls are fire-and-forget, so an unknown
+  or already-closed name does nothing and unclosed-call failure modes are
+  structurally absent.
+
+  One **terminal-only** `task.complete` event: the start is held in memory (and
+  in the session record) and costs no wire item. It carries `task.name`,
+  `task.outcome` (`completed` / `failed` / `abandoned`) and **`span.duration_ms`
+  — the existing span duration key**, not a new one. A duplicate start
+  supersedes.
+
+  **Trace context freezes at the start**, which is the strongest instance of the
+  freeze rule in the SDK: a root is capped at 10 seconds, so a minutes-long task
+  reading ambient context at its terminal would reparent onto an unrelated tap. A
+  task **mints no root** — a fifth root type with no sibling to conform to would
+  give every request inside the task two candidate parents for minutes.
+
+  **Abandonment fires on session finalize only.** Navigation-away and
+  backgrounding are explicitly *not* triggers, and the motivating example is why:
+  navigation-away would abandon every task in the four-route flow used to justify
+  tasks existing, and backgrounding would report the commonest mobile-banking
+  flow as a failure, because reading the OTP is step 2 of the happy path. There
+  is **no task TTL** — the 30-minute session idle window is the cap. An abandoned
+  task measures start → **last activity**, never → finalize wall-clock, so a
+  phone left in a pocket does not ship a two-hour task.
+
+  A task open when the process dies is reported on the next launch with its
+  frozen attribution intact, and **`task.abandon_source` states the gap rather
+  than hiding it**: `launch_recovery` cannot say whether a crash caused the
+  abandonment, because the backdated finalize is emitted before
+  `drainNativeCrashes()` runs. Join the two on `session.id`. Open task names ride
+  the session record the SDK already writes — same key, same format — with two
+  extra calls to that existing write at the task edges, because the lifecycle
+  edges alone are wrong in both directions on a *foreground crash*, the case the
+  record exists for.
+
+  `task.name` joins `kCappedSdkKeys`, so a name built from an order id is
+  sentinelled at 50 distinct values per session rather than shipping a
+  cardinality bomb on a key the redaction hook cannot reach.
+
+  **Apdex ships zero events, zero attributes, zero bytes.** The client never
+  bands; the threshold is query-time and per-target, so it moves without a client
+  release. Coverage for this category is **conditional**, in those words — the
+  signal exists only where the calls are made. The usual objection to a manual
+  API is declined on a narrow argument: the sibling's manual helper got no
+  adoption because it *duplicated an automatically-captured signal*, so its
+  failure mode was double-counting. This API is the only possible source of its
+  signal.
 - **Device health without a cadence — the fault bundle, and memory at the two
   session bookends.** A second pull-only method, `readDeviceState`, lands on the
   existing `edge_telemetry/native_crash` channel (one channel: the expensive
