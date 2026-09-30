@@ -13,29 +13,44 @@
 //
 // As measured by this file on the shipped v3.0.0 graph:
 //
-//   typical  90 items · 104,105 bytes · 6,619 gzipped   (ceilings 250 / 120 KB / 15 KB)
-//   heavy   419 items · 571,268 bytes · 20,365 gzipped  (ceilings 1,200 / 600 KB / 75 KB)
+//   typical  90 items · ~104,000 bytes ·  ~7,300 gzipped  (ceilings 250 / 120 KB / 15 KB)
+//   heavy   419 items · ~548,000 bytes · ~23,200 gzipped  (ceilings 1,200 / 600 KB / 75 KB)
+//
+// Item counts are exact; byte counts move by a few across runs, because a
+// session id is a millisecond timestamp and its decimal width is not fixed.
+// Both sessions really last their stated span — the clock advances between
+// screens — so `session.duration_ms` comes back as 11 and 46 minutes (the span
+// plus the one-minute backgrounding round trip), not a label on a burst of
+// activity at a single instant.
 //
 // The typical session's 90 items are: 1 `session.started`, 1 `page_load`, 8
 // `navigation`, 8 `screen.load`, 40 `http.request`, 25 `ui.interaction`, 2
 // `app_lifecycle`, 2 `memory_usage` bookends, 2 `frame.summary` (the reservoir's
 // cap, not a count of windows) and 1 `session.finalized`. **The heavy session's
-// uncompressed figure sits at 93% of its ceiling** — that is what no slack
+// uncompressed figure sits at ~89% of its ceiling** — that is what no slack
 // means, and it is why the next default signal is a trade.
 //
-// The stack here is the real one. `TelemetryWiring.build` assembles it — not a
+// The stack here is the real one: `TelemetryWiring.build` assembles it, not a
 // hand-wired copy, because a gate that wires its own hooks asserts its own
-// arithmetic — and every test runs under `testWidgets`, which is the only place
-// a pointer gesture actually dispatches: under a plain `test()` the global
-// pointer route never reaches the action hook, so a budget measured there would
-// silently be missing all 25 of the typical session's `ui.interaction` items.
+// arithmetic.
+//
+// Every **session-driving** test is a `testWidgets` with a pumped tree. That is
+// load-bearing and was found the hard way: under a plain `test()` this graph
+// emits no `ui.interaction` at all, so a budget measured there is silently
+// missing all 25 of the typical session's taps. The pointer events do dispatch
+// under a plain `test()` — that much is verifiable — but the gesture never
+// completes into an item without the widget binding's frame machinery, and
+// `PerfCaptureHook`'s post-frame `page_load` needs a pumped tree for the same
+// reason. Two tests here are plain `test()`s on purpose: the governor's shed
+// arithmetic and the version constant touch neither the graph nor a frame.
 //
 // `testWidgets` runs in fake async, where a real POST never completes, so the
-// transport's one injectable seam (`sender`) records payloads instead. Bytes are
-// then measured **exactly as `RetryTransport` measures them** —
+// transport's one injectable seam (`sender`) records payloads instead. Bytes
+// are measured **the way `RetryTransport` measures them** —
 // `utf8.encode(jsonEncode(payload))`, then `GZipCodec().encode` — so the wire
-// figure is the bytes the transport would have written, not an estimate of
-// them.
+// figure is what the transport would have written rather than an estimate. It
+// is a deliberate duplicate of two lines of `retry_transport.dart`: change the
+// encoding there and this file keeps costing the old shape, so change both.
 //
 // ## What this gate cannot cover
 //
@@ -96,6 +111,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 // ---------------------------------------------------------------------------
 
 /// Typical: 10 min, 8 screens, 40 requests, 25 actions.
+///
+/// The item ceilings are the same two numbers as `kDiagnosticShedCeiling` and
+/// `kStandardShedCeiling`, and that is not a coincidence: the governor's shed
+/// points *are* these ceilings, which is what makes the budget enforceable at
+/// runtime rather than only in a test. They are restated here rather than
+/// imported so that changing what the SDK sheds at cannot silently change what
+/// this file considers a passing budget — the gate has to fail first and be
+/// updated deliberately.
 const int kTypicalItemCeiling = 250;
 const int kTypicalByteCeiling = 120 * 1024;
 const int kTypicalWireCeiling = 15 * 1024;
@@ -126,6 +149,16 @@ class _FakePathProvider extends PathProviderPlatform
 /// rails come through here, so a fatal crash's one-item batch is costed too.
 class _Recorder {
   final List<Map<String, dynamic>> batches = [];
+
+  /// **Every batch this recorder saw**, not just the reference session's.
+  ///
+  /// Item counts are filtered to the session under test ([itemsFor]); these are
+  /// not, because a batch is what the transport actually encodes and a flush
+  /// that straddles a rotation carries both sessions' items in one envelope.
+  /// Splitting it would mean re-encoding a batch the SDK never built. The
+  /// counters therefore include the successor session's opening bookends, so
+  /// they **over**-state the reference session by a handful of items' worth —
+  /// conservative, and never a false pass.
   int uncompressedBytes = 0;
   int wireBytes = 0;
 
@@ -254,11 +287,12 @@ void main() {
       const EventChannel('dev.fluttercommunity.plus/connectivity_status'),
       null,
     );
-    // The directory is deliberately left for the OS to reap. Work started inside
+    // The directory is deliberately left for the OS to reap, unlike
+    // `offline_queue_test.dart`, which deletes its own. Work started inside
     // `tester.runAsync` (a queue write behind a flush) can still be in flight
     // when the test body returns, and deleting the docs dir under it throws
-    // after the test has completed — which surfaces as a failure on the *next*
-    // test rather than this one.
+    // *after* the test has completed — which a try/catch here cannot catch and
+    // which surfaces as a failure on the next test rather than this one.
   });
 
   /// Build and start the real graph over the recording sender.
@@ -360,24 +394,40 @@ void main() {
       builder: (_) => const SizedBox.shrink(),
     );
 
-    // Screens, each settled — an unsettled screen terminates on a deadline the
-    // gate has no clock authority over, and would make the count depend on it.
+    // The session really lasts [span]: the clock advances between screens, so
+    // `session.duration_ms` is the reference session's duration rather than a
+    // label on a burst of activity at one instant. It matters beyond realism —
+    // a trace root is capped at 10 s and expires after 2 s idle, so a session
+    // driven at a single instant would attribute every item to one root and
+    // never exercise the expiry the driver is supposed to cross.
+    //
+    // The step stays well under the 30-minute idle window (75 s typical, 90 s
+    // heavy), so the session survives its own span instead of rotating halfway.
+    final step = Duration(
+      microseconds: span.inMicroseconds ~/ (screens == 0 ? 1 : screens),
+    );
+
     Route<void>? previous;
     for (var i = 0; i < screens; i++) {
       final next = route('/screen$i');
       observer.didPush(next, previous);
+      // Settled explicitly — an unsettled screen terminates on a deadline the
+      // gate has no clock authority over, which would make the count depend on
+      // it.
       g.telemetry.reportScreenSettled();
       previous = next;
-    }
 
-    // Requests, spread over the screens so each one lands inside a real screen
-    // and a real trace root rather than all on the last.
-    await tester.runAsync(() async {
-      for (var i = 0; i < requests; i++) {
-        await client.get(Uri.parse('https://api.example.test/v1/items/$i'));
-      }
-    });
-    await tester.pump();
+      // This screen's share of the requests, inside this screen and its root.
+      final from = (requests * i) ~/ screens;
+      final to = (requests * (i + 1)) ~/ screens;
+      await tester.runAsync(() async {
+        for (var r = from; r < to; r++) {
+          await client.get(Uri.parse('https://api.example.test/v1/items/$r'));
+        }
+      });
+      await tester.pump();
+      g.advance(step);
+    }
 
     // Actions, through the real global pointer route.
     for (var i = 0; i < actions; i++) {
@@ -419,16 +469,19 @@ void main() {
     // One backgrounding round trip: paused (flush + the closing bookend + the
     // reservoir drain) then resumed, inside the idle window so the session
     // survives it.
-    final lifecycle = g.wiring.lifecycleHook!;
-    lifecycle.didChangeAppLifecycleState(AppLifecycleState.paused);
+    // Through the binding, not the hook: `LifecycleCaptureHook` is a
+    // `WidgetsBindingObserver`, so this is the path the OS actually takes and
+    // it asserts the hook is registered as well as that it emits.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
     g.advance(const Duration(minutes: 1));
-    lifecycle.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
 
     // Close the session: idle past the window, then poke it. A rotation is the
-    // only path to `session.finalized` — there is no timer to fire one.
-    g.advance(span + const Duration(minutes: 31));
+    // only path to `session.finalized` — there is no timer to fire one. The
+    // span is already spent above, so this is the idle window and nothing more.
+    g.advance(const Duration(minutes: 31));
     g.session.handleResume();
     g.wiring.pipeline.flush();
     await tester.pump();
@@ -534,8 +587,8 @@ void main() {
       actions: 150,
       span: const Duration(minutes: 45),
     );
-
     final items = g.recorder.itemsFor(id);
+
     expect(
       items.length,
       lessThanOrEqualTo(kHeavyItemCeiling),
@@ -566,7 +619,7 @@ void main() {
   group('budget governor', () {
     test('sheds the lowest tier first, and never essential', () {
       final shed = <String>[];
-      final gate = CaptureGate(
+      final governor = CaptureGate(
         const TelemetryConfig(
           serviceName: 'g',
           endpoint: 'https://x.test',
@@ -575,31 +628,45 @@ void main() {
         onShed: () => shed.add('shed'),
       );
 
-      expect(gate.shedTier, isNull);
-      expect(gate.allows(Capture.swipes), isTrue);
-      expect(gate.allows(Capture.http), isTrue);
+      expect(governor.shedTier, isNull);
+      expect(governor.allows(Capture.swipes), isTrue);
+      expect(governor.allows(Capture.http), isTrue);
 
       // Cross the typical ceiling → diagnostic goes, standard stays.
       for (var i = 0; i <= kDiagnosticShedCeiling; i++) {
-        gate.recordItem();
+        governor.recordItem();
       }
-      expect(gate.shedTier, CollectionTier.diagnostic);
-      expect(gate.allows(Capture.swipes), isFalse);
-      expect(gate.allows(Capture.http), isTrue);
+      expect(governor.shedTier, CollectionTier.diagnostic);
+      expect(governor.allows(Capture.swipes), isFalse);
+      expect(governor.allows(Capture.http), isTrue);
       expect(shed, isNotEmpty, reason: 'every shed lands on the drop counter');
 
       // Cross the heavy ceiling → standard goes too.
-      while (gate.itemCount <= kStandardShedCeiling) {
-        gate.recordItem();
+      while (governor.itemCount <= kStandardShedCeiling) {
+        governor.recordItem();
       }
-      expect(gate.shedTier, CollectionTier.standard);
-      expect(gate.allows(Capture.http), isFalse);
-      expect(gate.allows(Capture.navigation), isFalse);
+      expect(governor.shedTier, CollectionTier.standard);
+      expect(governor.allows(Capture.http), isFalse);
+      expect(governor.allows(Capture.navigation), isFalse);
 
-      // `essential` is unreachable by construction, which is the assertion:
-      // the governor sheds by tier rank, so a shed set containing the crash and
-      // the session bookends would need an `essential` member to shed. There is
-      // none, and the enum is closed at that boundary on purpose.
+      // **Never `essential`, behaviourally.** `standard` is the floor: past it
+      // there is no lower tier to shed, so however far the count runs the shed
+      // tier must stay there. This is the assertion that would catch a governor
+      // taught to shed one rank further.
+      for (var i = 0; i < kStandardShedCeiling * 10; i++) {
+        governor.recordItem();
+      }
+      expect(
+        governor.shedTier,
+        CollectionTier.standard,
+        reason:
+            'ten times the heavy ceiling must still shed no further than '
+            'standard — essential is not a tier the governor may reach',
+      );
+
+      // And structurally: shedding is by tier rank, so an `essential` member
+      // would be sheddable the moment the rank reached it. There is none, and
+      // the enum is closed at that boundary on purpose (see `Capture`).
       expect(
         Capture.values.where((c) => c.tier == CollectionTier.essential),
         isEmpty,
@@ -608,15 +675,10 @@ void main() {
             'the session bookends sheddable — the one thing the governor must '
             'never reach',
       );
-      expect(
-        CollectionTier.essential.index,
-        lessThan(CollectionTier.standard.index),
-        reason: 'shed rank is the enum order; essential must sort below both',
-      );
 
-      gate.resetBudget();
-      expect(gate.shedTier, isNull);
-      expect(gate.itemCount, 0);
+      governor.resetBudget();
+      expect(governor.shedTier, isNull);
+      expect(governor.itemCount, 0);
     });
 
     testWidgets(
@@ -705,12 +767,16 @@ void main() {
 
   test('sdk.version constant matches the package manifest', () {
     final manifest = File('pubspec.yaml').readAsLinesSync();
-    final declared =
-        manifest
-            .firstWhere((l) => l.startsWith('version:'))
-            .split(':')
-            .last
-            .trim();
+    final versionLine = manifest.firstWhere(
+      (l) => l.startsWith('version:'),
+      orElse: () => '',
+    );
+    expect(
+      versionLine,
+      isNotEmpty,
+      reason: 'pubspec.yaml has no version: line to check the constant against',
+    );
+    final declared = versionLine.split(':').last.trim();
     expect(
       kSdkVersion,
       declared,

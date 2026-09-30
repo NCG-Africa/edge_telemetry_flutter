@@ -79,13 +79,14 @@ class TelemetryWiring {
   /// consumer's own choice rather than a silent failure.
   final ScreenLoadHook? screenLoadHook;
 
-  /// Held for the same reason as the five above: the two hooks with no engine
-  /// to drive them under `flutter_test`. Nothing in `lib/` reads either — the
-  /// release gate (#94) does, so it can drive the graph `build` actually
-  /// assembles instead of a parallel one it wires itself. A gate that builds
-  /// its own hooks asserts its own arithmetic.
+  /// Held for the same reason as the five above. Nothing in `lib/` reads it —
+  /// the release gate (#94) does, so it can drive the graph `build` actually
+  /// assembles instead of a parallel one it wires itself; a gate that builds
+  /// its own hooks asserts its own arithmetic. Frames are the one signal with
+  /// no other way in: the timings callback needs an engine, and `flutter_test`
+  /// has none. Lifecycle is deliberately **not** here — that hook is a
+  /// `WidgetsBindingObserver`, so the binding already offers the real path.
   final FrameCaptureHook? frameHook;
-  final LifecycleCaptureHook? lifecycleHook;
 
   TelemetryWiring({
     required this.config,
@@ -108,7 +109,6 @@ class TelemetryWiring {
     this.screenLoadHook,
     this.memoryBookend,
     this.frameHook,
-    this.lifecycleHook,
   }) : _disposers = disposers,
        gate = gate ?? CaptureGate(config),
        policy = policy ?? AttributePolicy(redact: config.redactAttribute),
@@ -156,10 +156,10 @@ class TelemetryWiring {
       debugMode: config.debugMode,
       onDrop: session.recordDropped,
       // The one test seam on the assembled graph (#94). The release gate has to
-      // drive the real `build` — a gate that wires its own hooks asserts its own
-      // arithmetic — and it has to see the payloads without a socket, because
-      // gestures only dispatch under `testWidgets` and `testWidgets` runs in
-      // fake async, where a real POST never completes.
+      // drive the real `build` — a gate that wires its own hooks asserts its
+      // own arithmetic — and it has to see the payloads without a socket: it
+      // runs under `testWidgets`, which is fake async, where a real POST never
+      // completes.
       sender: sender,
     );
     // Drain any crashes persisted on a previous launch (drain-on-startup).
@@ -313,22 +313,23 @@ class TelemetryWiring {
     // is always on — it drives the session model, not an optional monitor. The
     // `app_lifecycle` *event* it also emits is tiered, so the hook holds the
     // gate and checks per emission rather than being started behind one.
-    final lifecycleHook = LifecycleCaptureHook(
-      session: session,
-      trace: trace,
-      flush: pipeline.flush,
-      // Three deferred emitters share the `paused` terminal: the open screen
-      // load, the frame reservoir whose survivors would otherwise be lost to
-      // an OS kill while backgrounded, and the closing memory bookend.
-      onPaused: () {
-        screenLoadHook?.onPaused();
-        frameHook?.flushReservoir();
-        memoryBookend?.onPaused();
-      },
-      breadcrumbs: breadcrumbs,
-      gate: gate,
+    disposers.add(
+      LifecycleCaptureHook(
+        session: session,
+        trace: trace,
+        flush: pipeline.flush,
+        // Three deferred emitters share the `paused` terminal: the open screen
+        // load, the frame reservoir whose survivors would otherwise be lost to
+        // an OS kill while backgrounded, and the closing memory bookend.
+        onPaused: () {
+          screenLoadHook?.onPaused();
+          frameHook?.flushReservoir();
+          memoryBookend?.onPaused();
+        },
+        breadcrumbs: breadcrumbs,
+        gate: gate,
+      ).start(collector),
     );
-    disposers.add(lifecycleHook.start(collector));
 
     return TelemetryWiring(
       config: config,
@@ -350,7 +351,6 @@ class TelemetryWiring {
       screenLoadHook: screenLoadHook,
       memoryBookend: memoryBookend,
       frameHook: frameHook,
-      lifecycleHook: lifecycleHook,
       nativeCrash: nativeCrash,
     );
   }
