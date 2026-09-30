@@ -24,9 +24,25 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  edge_telemetry_flutter: ^2.0.0
-  http: ^1.1.0  # If you're making HTTP requests
+  edge_telemetry_flutter: ^3.0.0
+  http: ^1.2.0  # If you're making HTTP requests
 ```
+
+### Platform requirements
+
+| | Floor |
+|---|---|
+| Dart | `>=3.7.0` |
+| Flutter | `>=3.29.0` |
+| Android `minSdkVersion` | **21** |
+| iOS deployment target | **14.0** |
+
+The Dart/Flutter and Android floors **rose in v3.0.0 to match what was already
+being enforced** — `device_info_plus` already demanded Dart 3.7 / Flutter 3.29,
+and `shared_preferences_android` / `path_provider_android` already declared
+`minSdkVersion 21`, so the manifest merger raised every v2 build to 21 while this
+package advertised 19. Nothing that built on v2 loses support. The iOS floor is
+unchanged.
 
 ### iOS requirement (native crash capture)
 
@@ -51,7 +67,29 @@ Below API 30, native (NDK) crashes and ANRs are a **documented gap** — the OS
 `ApplicationExitInfo` API that surfaces them only exists on API 30+. JVM crashes
 are captured on every level via `UncaughtExceptionHandler`. Each captured crash
 carries `sdk.native_capture_tier` so per-device coverage is visible on the
-dashboard. No minimum-SDK bump — the existing low floor is preserved.
+dashboard. The API 21 floor is the one an existing dependency already demanded,
+not a bump made for crash capture.
+
+## 🧭 Migrating from 2.0.0 to 3.0.0
+
+**The wire changed *and* your code changed** — v2's headline, inverted. No v2
+event or metric name was renamed or dropped, so v3 is additive **by name**, and
+that is the only sense in which it is additive: additive by *value* and by
+*presence* is false seven times (screen dwell stops being its own event, URLs
+become paths, memory becomes a different quantity, lifecycle fires twice rather
+than six times, iOS `device.name` goes, route names stop being fabricated per
+visit, and **crash volume goes from zero to real**).
+
+Four hard compile breaks (`enableCrashReporting`, `enableErrorReporting`,
+`useJsonFormat`, the batch-tuning no-ops), two platform-floor corrections, and a
+dated errata register for telemetry you have **already drawn conclusions from**.
+
+**Whoever owns your pipeline needs one sentence before ship day:** crashes
+accumulated undeliverable since v2.0.0 arrive **in volume, backdated by weeks** —
+an entirely historical spike, not a live incident.
+
+👉 **The whole guide is [`MIGRATION.md`](MIGRATION.md).** The full change list is
+in [`CHANGELOG.md`](CHANGELOG.md) under `[3.0.0]`.
 
 ## 🧭 Migrating from 1.x to 2.0.0
 

@@ -1,6 +1,17 @@
 # Changelog
 
-## [Unreleased]
+## [3.0.0] - 2026-09-30
+
+**The wire changed *and* your code changed.** No v2 name was renamed or removed
+from the allowlist, so v3 is additive **by name** — and that is the only sense in
+which it is additive. Additive by *value* and by *presence* is false seven times.
+The seven, the errata register, the compile breaks and the pipeline warning are
+all in **[`MIGRATION.md`](MIGRATION.md)**; read it before upgrading.
+
+The backend-side companion — the family bag-first JSONB change request — is
+tracked as [#77](https://github.com/NCG-Africa/edge_telemetry_flutter/issues/77)
+and is **not a code dependency of this release**: because the raw key is always
+stored, a ship date here and a column date there are independent.
 
 ### Added
 
@@ -481,6 +492,24 @@
   "A crash is never dropped" is exactly what made the re-POST amplification
   unbounded. Crashes drain ahead of batches, and a drain cycle is paced at five
   files on the existing successful-send trigger — no new timer.
+- **Android `minSdk` rises 19 → 21, and the Dart/Flutter constraints rise to the
+  true floor** (`sdk: >=3.7.0`, `flutter: >=3.29.0`). Both are declarations
+  catching up to a floor already being enforced, so no device or project that
+  built on v2 loses support. `shared_preferences_android` and
+  `path_provider_android` both declare `minSdkVersion 21`, so the manifest merger
+  raised every v2 build's effective floor to 21 while this package advertised 19;
+  `device_info_plus` already demanded Dart 3.7 / Flutter 3.29, so the understated
+  constraint let pub resolve this package onto projects that then failed to
+  build. **No new iOS floor and no iOS build break** — iOS 14 (MetricKit) is
+  unchanged.
+- **Read before ship day: the crash backlog arrives backdated, in volume.**
+  Every crash accumulated undeliverable since v2.0.0 (see *Fixed*) drains as soon
+  as v3 runs once per install, each row carrying **its original timestamp**.
+  Crash-rate alerting will fire and a dashboard bucketing by event time will
+  appear to rewrite history. This is an **entirely historical spike, not a live
+  incident** — suppress or widen alerting for the rollout window, and tell
+  whoever owns the pipeline first. Distinguish backlog from live crashes by
+  comparing event timestamp to ingestion time, or by `sdk.version`.
 - **Collection is now two fields: `tier` and `captureOverrides`.**
   `tier: CollectionTier.essential | standard | diagnostic` is the dial;
   `captureOverrides: Map<Capture, bool>` is the scalpel and works in both
@@ -625,7 +654,24 @@ Deprecated-in-place, still honoured as a fallback (the new key always wins), and
 `enableLocalReporting` is **not** deprecated: it gates a sink (the on-device
 report store), not a capture, and never touches the wire.
 
+**The deprecation cycle, written down.** A deprecation-in-place is four things:
+a `@Deprecated` annotation naming the removal version on **every** declaration
+(field, constructor parameter *and* `copyWith` parameter — "every declaration" is
+the clause that catches a missed field), a shipped release in which the name
+still works, a changelog line, and a runtime warning wherever behaviour
+*changes* rather than disappears (a name that stops being emitted needs none —
+the rows simply stop). Every v3 deprecation names **v4.0.0**. Enforcement stays
+doc convention: **there is no lint gate**, because the gate would have to
+understand the wire canon, and a gate nobody can read is worse than a rule
+everybody can. The one break that skipped the cycle is named as such under
+*Removed* (`TelemetryConfig.useJsonFormat`, never annotated), not left to the
+compiler to explain.
+
 ### Errata
+
+*Register dated 2026-09-30.* Separate from *Removed* on purpose: *removed in v3*
+is a change you act on, *never worked in v2* is a belief you need corrected about
+telemetry you have already shipped and drawn conclusions from.
 
 - **`enableErrorReporting` has had no effect since v2.0.0.** Error capture has
   been unconditional since that release — `initialize()` never exposed the
@@ -634,6 +680,14 @@ report store), not a capture, and never touches the wire.
 - **`TelemetryConfig.hasAutomaticMonitoring` could never return `false`** in
   v2.0.0, because it OR'd `enableErrorReporting`, which was always `true`. It
   now reports whether any capture is actually enabled.
+- **`user.interaction` and `resource_timing` have never produced a row from this
+  SDK.** Both sit on the wire allowlist for family conformance and neither has
+  ever been emitted, in v2 or before. An empty dashboard panel for either was
+  empty for that reason, not because the signal was rare. Their v3 replacements
+  are `ui.interaction` (emitted automatically) and the `http.*` phase keys. The
+  names stay listed — a canon name is never removed.
+- **The declared Android and Dart/Flutter floors were below the real ones.** See
+  *Changed*: the package resolved onto projects that then failed to build.
 
 ## [2.0.0] - 2026-07-13
 
