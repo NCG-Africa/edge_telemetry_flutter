@@ -5,6 +5,7 @@ import '../capture/capture_hook.dart';
 import '../capture/frame_capture_hook.dart';
 import '../capture/http_capture_hook.dart';
 import '../capture/lifecycle_capture_hook.dart';
+import '../capture/memory_bookend_hook.dart';
 import '../capture/nav_capture_hook.dart';
 import '../capture/network_capture_hook.dart';
 import '../capture/perf_capture_hook.dart';
@@ -66,6 +67,11 @@ class TelemetryWiring {
   final NavCaptureHook? navHook;
   final NetworkCaptureHook? networkHook;
 
+  /// Held so the wiring can open and close the memory bookend pair. Null when
+  /// `Capture.health` is off — health is then simply not collected, which is
+  /// the consumer's own choice.
+  final MemoryBookendHook? memoryBookend;
+
   /// Held so the facade's `reportScreenSettled()` has somewhere to go. Null
   /// when `Capture.screenLoad` is off — the call is then a no-op, which is the
   /// consumer's own choice rather than a silent failure.
@@ -90,6 +96,7 @@ class TelemetryWiring {
     this.navHook,
     this.networkHook,
     this.screenLoadHook,
+    this.memoryBookend,
   })  : _disposers = disposers,
         gate = gate ?? CaptureGate(config),
         policy = policy ?? AttributePolicy(redact: config.redactAttribute),
@@ -154,6 +161,12 @@ class TelemetryWiring {
       policy: policy,
     );
 
+    // One channel instance shared by the crash drain and the health read —
+    // declared here because the session-start callback below closes over the
+    // hook, which is built with the rest of the hooks further down.
+    final nativeCrash = NativeCrashChannel();
+    MemoryBookendHook? memoryBookend;
+
     // Declared ahead of the two session callbacks below, which both reach it;
     // assigned when the hooks are started.
     FrameCaptureHook? frameHook;
@@ -167,6 +180,9 @@ class TelemetryWiring {
       collector.resetPerSessionCaps();
       policy.reset();
       frameHook?.resetForNewSession();
+      // The opening bookend, and the reset of the closing one — a rotation is a
+      // new session, so it gets its own pair.
+      memoryBookend?.onSessionStart();
     };
 
     // The frame reservoir holds its two survivors until the session ends, so
@@ -188,8 +204,21 @@ class TelemetryWiring {
       networkHook = NetworkCaptureHook(context: context);
       disposers.add(networkHook.start(collector));
     }
+    // `Capture.health` now switches two unrelated things, because #89 and #91
+    // between them emptied this hook down to startup: frames left for
+    // [FrameCaptureHook] and the polled health emitters were deleted outright.
+    // What is left under the switch is the `page_load` launch pair and the two
+    // native memory reads. The fault bundle is health's third half and needs
+    // nothing here — it is read off the dying thread natively and rides the
+    // fatal crash payload.
+    // ponytail: one switch, two signals. Startup wants its own `Capture` member,
+    // and adding one is a decision about what a consumer may switch off — not a
+    // thing to settle inside a merge.
     if (gate.allows(Capture.health)) {
       disposers.add(PerfCaptureHook().start(collector));
+      memoryBookend =
+          MemoryBookendHook(channel: nativeCrash, flush: pipeline.flush);
+      disposers.add(memoryBookend.start(collector));
     }
     // Its own switch since #89: `Capture.frames: false` must take the
     // `addTimingsCallback` registration with it, so the per-frame cost goes to
@@ -264,12 +293,13 @@ class TelemetryWiring {
         session: session,
         trace: trace,
         flush: pipeline.flush,
-        // Two deferred emitters share the `paused` terminal: the open screen
-        // load, and the frame reservoir whose survivors would otherwise be
-        // lost to an OS kill while backgrounded.
+        // Three deferred emitters share the `paused` terminal: the open screen
+        // load, the frame reservoir whose survivors would otherwise be lost to
+        // an OS kill while backgrounded, and the closing memory bookend.
         onPaused: () {
           screenLoadHook?.onPaused();
           frameHook?.flushReservoir();
+          memoryBookend?.onPaused();
         },
         breadcrumbs: breadcrumbs,
         gate: gate,
@@ -294,6 +324,8 @@ class TelemetryWiring {
       navHook: navHook,
       networkHook: networkHook,
       screenLoadHook: screenLoadHook,
+      memoryBookend: memoryBookend,
+      nativeCrash: nativeCrash,
     );
   }
 

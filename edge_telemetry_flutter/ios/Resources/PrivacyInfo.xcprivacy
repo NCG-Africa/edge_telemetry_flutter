@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  edge_telemetry_flutter — privacy manifest (#91).
+
+  Three claims, each of which is a decision rather than a default:
+
+  1. NSPrivacyAccessedAPITypes is EMPTY, and the required-reason budget is zero.
+     The one consumer that would have justified a declaration — a true
+     process-start cold start — is something Dart structurally cannot see, so the
+     launch mark this SDK reports is SDK-init-to-first-frame, not
+     process-start-to-first-frame, and it needs no protected API. Storage
+     headroom was dropped entirely for the same reason: no approved reason both
+     fits our use and permits off-device transmission.
+
+     Standing rule: an iOS required-reason API is adopted only if an approved
+     reason BOTH fits our use AND permits off-device transmission, and the
+     declaration is made in THIS package's manifest — never inherited from a
+     dependency's.
+
+  2. NSPrivacyTracking false and NSPrivacyTrackingDomains empty. Nothing here is
+     joined to third-party data, and no endpoint is a tracking domain.
+
+  3. Collected data types are declared at the CAPABILITY CEILING — every type
+     this SDK can carry, all of them Linked to identity — not at the type a
+     default build happens to emit. Two widely-used peers declare the same data
+     unlinked while shipping both a device id and a user-identity API; unlinked
+     is the peer-conformant lie. `device.id` rides every item and `setUserProfile`
+     exists, so linked is the only honest answer.
+
+     Nine types, and the line is drawn at what THIS SDK collects. What a host app
+     puts through `trackEvent` / `trackMetric` / `globalAttributes` is arbitrary
+     by definition and belongs in that app's own manifest — a data type we
+     cannot see is not one we can honestly declare.
+-->
+<plist version="1.0">
+<dict>
+  <key>NSPrivacyTracking</key>
+  <false/>
+  <key>NSPrivacyTrackingDomains</key>
+  <array/>
+  <key>NSPrivacyAccessedAPITypes</key>
+  <array/>
+  <key>NSPrivacyCollectedDataTypes</key>
+  <array>
+    <!-- user.name / user.email / user.phone — only when the host app calls
+         setUserProfile(), but the capability is the declaration. -->
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeName</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+      </array>
+    </dict>
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeEmailAddress</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+      </array>
+    </dict>
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypePhoneNumber</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+      </array>
+    </dict>
+    <!-- user.id — the host app's identifier, or the SDK's generated one. -->
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeUserID</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+      </array>
+    </dict>
+    <!-- device.id — SDK-minted, install-scoped, survives reinstall. -->
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeDeviceID</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+      </array>
+    </dict>
+    <!-- app.crash: message, stack trace, exception type, cause. -->
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeCrashData</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+      </array>
+    </dict>
+    <!-- frames, startup, screen load, HTTP timing, memory at the bookends. -->
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypePerformanceData</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+      </array>
+    </dict>
+    <!-- device/app static context, connectivity, the fault bundle. -->
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+        <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+      </array>
+    </dict>
+    <!-- taps, navigation, screen journey. -->
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeProductInteraction</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>

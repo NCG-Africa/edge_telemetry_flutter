@@ -33,9 +33,15 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
   /// Flushes the Pipeline buffer (wired to `pipeline.flush`).
   final void Function() flush;
 
-  /// `ScreenLoadHook.onPaused` — an open screen load has no honest way to
+  /// What else backgrounding terminates, wired by `TelemetryWiring`: an open
+  /// screen load (`ScreenLoadHook.onPaused` — a load has no honest way to
   /// continue once the app stops painting, so backgrounding is one of its four
-  /// terminals. Null when `Capture.screenLoad` is off.
+  /// terminals) and the closing memory bookend
+  /// (`MemoryBookendHook.onPaused` — the last instant the reading is real,
+  /// because the common ending is the OS killing the backgrounded process).
+  /// The wiring always passes the closure; each callee is null-checked inside
+  /// it, so a disabled capture costs a null test rather than a second field.
+  /// Null only in state-only tests.
   final void Function()? onPaused;
 
   /// Crash-context ring: each lifecycle transition drops a breadcrumb.

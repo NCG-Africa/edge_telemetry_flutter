@@ -177,8 +177,10 @@ const Set<String> kMutableSessionCounters = {
 // ponytail: prefix match, not an explicit set — `device.*` is open-ended
 // (device_info_plus mints keys per platform), so no set could stay complete.
 // Ceiling: a *per-item* attribute minted under `device.`/`app.`/`sdk.` would be
-// silently batch-scoped. Today none exists (`app.crash` keys are unprefixed on
-// purpose); add an exception set here the day one does.
+// silently batch-scoped. One now exists — the fatal-crash fault bundle's five
+// `device.*` keys (#91) — and it is safe only because a fatal rides the
+// immediate rail, which is never hoisted. Add an exception set here the day a
+// `device.`/`app.`/`sdk.` key is minted per item on something that *batches*.
 bool isHoistedContextKey(String key) =>
     key.startsWith('device.') ||
     key.startsWith('app.') ||

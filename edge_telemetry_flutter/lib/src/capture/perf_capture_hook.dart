@@ -1,27 +1,29 @@
 // lib/src/capture/perf_capture_hook.dart
 
-import 'dart:async' show Timer;
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../core/edge_event.dart';
-import '../crash/error_category.dart';
 import 'capture_hook.dart';
 
-/// Memory, system and startup capture (`Capture.health`). Ports v1.5.2
-/// `FlutterPerformanceMonitor` onto the [EventSink] seam — same event and
-/// metric names, sent direct (no session-counter bump). `dispose` cancels the
-/// timers (no leak across restarts).
+/// App-startup capture — one `page_load` event and one `performance.startup_time`
+/// metric per launch, nothing else.
 ///
-/// **Frames left this hook in v3** (#89). They are [FrameCaptureHook]'s, behind
-/// their own `Capture.frames` switch, because `Capture.frames: false` has to
-/// take the `addTimingsCallback` registration with it — the per-frame cost then
-/// goes to literally zero rather than to "accumulate and discard".
+/// **Two things left this hook in v3 and neither is coming back.** Frames went to
+/// [FrameCaptureHook] behind `Capture.frames` (#89), because `Capture.frames:
+/// false` has to take the `addTimingsCallback` registration with it — the
+/// per-frame cost then goes to literally zero rather than to "accumulate and
+/// discard". Health stopped being a time series (#91): v2 ran two
+/// `Timer.periodic`s here — a 10-second memory sample (`memory_usage` plus an
+/// off-cadence `performance.memory_pressure`) and a 30-second
+/// `performance.system_check` — roughly 58 items per session into a time series
+/// with no named consumer, two of whose three names the canon allowlist dropped
+/// on every device anyway. Memory now rides the two session bookends
+/// ([MemoryBookendHook]) and the fault bundle rides fatal crashes only.
+///
+/// Nothing here polls and nothing here registers a frame callback, so there is
+/// no timer to cancel, no callback to remove, and nothing to do on pause.
 class PerfCaptureHook implements CaptureHook {
   DateTime? _appStartTime;
-  Timer? _performanceTimer;
-  Timer? _memoryTimer;
 
   @override
   DisposeHandle start(EventSink sink) {
@@ -29,22 +31,7 @@ class PerfCaptureHook implements CaptureHook {
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _trackAppStartup(sink));
 
-    _performanceTimer = Timer.periodic(
-        const Duration(seconds: 30), (_) => _trackSystemPerformance(sink));
-    _memoryTimer = Timer.periodic(
-        const Duration(seconds: 10), (_) => _trackMemoryUsage(sink));
-
-    sink.add(
-        const EdgeEvent.event('performance.monitor_initialized', attributes: {
-      'monitor.type': 'flutter_performance_monitor',
-      'monitoring.memory': 'true',
-      'monitoring.system': 'true',
-    }));
-
-    return () {
-      _performanceTimer?.cancel();
-      _memoryTimer?.cancel();
-    };
+    return () {};
   }
 
   void _trackAppStartup(EventSink sink) {
@@ -70,38 +57,6 @@ class PerfCaptureHook implements CaptureHook {
         }));
   }
 
-  void _trackMemoryUsage(EventSink sink) {
-    try {
-      final memoryUsage = _getMemoryUsage();
-      if (memoryUsage != null) {
-        sink.add(EdgeEvent.metric('memory_usage', memoryUsage.toDouble(),
-            attributes: {
-              'memory.type': 'rss',
-              'memory.unit': 'bytes',
-              'memory.source': 'process_info',
-            }));
-        _trackMemoryPressure(sink, memoryUsage);
-      }
-    } catch (e) {
-      // The SDK's own failure, tagged as the SDK's (#90) — it is not the host
-      // app's error, and untagged it inflates the host's error rate.
-      sink.add(EdgeEvent.error(e, source: kSdkCrashSource, attributes: {
-        'error.context': 'memory_usage_tracking',
-        'error.component': 'performance_monitor',
-      }));
-    }
-  }
-
-  void _trackSystemPerformance(EventSink sink) {
-    final systemInfo = _getSystemPerformanceInfo();
-    sink.add(EdgeEvent.event('performance.system_check', attributes: {
-      'system.timestamp': DateTime.now().toIso8601String(),
-      'system.check_type': 'periodic',
-      'system.platform': systemInfo['platform'] ?? 'unknown',
-      ...systemInfo,
-    }));
-  }
-
   // Canon startup taxonomy is cold | warm (glossary §4). This hook only runs at
   // SDK init, so it can't truly see a warm (already-resident) start; a duration
   // threshold is the passive Dart-side proxy.
@@ -109,49 +64,4 @@ class PerfCaptureHook implements CaptureHook {
   // timeline (deferred to the native-crash ticket #10).
   String _determineStartupType(int durationMs) =>
       durationMs < 2000 ? 'warm' : 'cold';
-
-  int? _getMemoryUsage() {
-    try {
-      return ProcessInfo.currentRss;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  void _trackMemoryPressure(EventSink sink, int memoryBytes) {
-    final memoryMB = memoryBytes / (1024 * 1024);
-    String pressureLevel;
-    if (memoryMB > 500) {
-      pressureLevel = 'critical';
-    } else if (memoryMB > 300) {
-      pressureLevel = 'high';
-    } else if (memoryMB > 150) {
-      pressureLevel = 'moderate';
-    } else {
-      pressureLevel = 'normal';
-    }
-
-    if (pressureLevel != 'normal') {
-      sink.add(EdgeEvent.event('performance.memory_pressure', attributes: {
-        'memory.usage_mb': memoryMB.toStringAsFixed(2),
-        'memory.pressure_level': pressureLevel,
-        'memory.timestamp': DateTime.now().toIso8601String(),
-      }));
-    }
-  }
-
-  Map<String, String> _getSystemPerformanceInfo() {
-    final info = <String, String>{
-      'platform': Platform.operatingSystem,
-      'platform_version': Platform.operatingSystemVersion,
-    };
-    final memoryUsage = _getMemoryUsage();
-    if (memoryUsage != null) {
-      info['memory.current_rss'] = memoryUsage.toString();
-      info['memory.current_mb'] =
-          (memoryUsage / (1024 * 1024)).toStringAsFixed(2);
-    }
-    info['system.processor_count'] = Platform.numberOfProcessors.toString();
-    return info;
-  }
 }
