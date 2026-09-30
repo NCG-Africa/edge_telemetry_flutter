@@ -3,6 +3,7 @@
 import 'dart:convert';
 
 import '../capture/capture_hook.dart';
+import '../crash/error_category.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
 import '../managers/session_manager.dart';
@@ -22,6 +23,18 @@ import 'wire_canon.dart';
 /// attribution and only the behavioural record thins — and
 /// `session.action_count`, taken at the mint, still reports every action.
 const int kActionEventCap = 200;
+
+/// Per-session ceilings on **non-fatal** `app.crash` items (#90, §11). One error
+/// in a `build()` method or a loop is the flood these bound: five occurrences of
+/// one fault is enough to triage it, and fifty faults is more than any session
+/// has to report.
+///
+/// The dedup key is `exception_type` + top stack frame, and it is **client-local
+/// and never sent** — the server owns crash hashing, so this is a counter key,
+/// not a fingerprint. A fatal is exempt from both: it is `essential`, there is at
+/// most one, and it is the item the whole rail exists for.
+const int kErrorPerKeyCap = 5;
+const int kErrorSessionCap = 50;
 
 /// The single per-event gatekeeper. Every [EdgeEvent] — from a capture hook or a
 /// facade API call — passes through here: sample gate, context merge, session
@@ -58,9 +71,14 @@ class Collector implements EventSink {
   final bool hoistBatchContext;
 
   /// `ui.interaction` events admitted this session, against [kActionEventCap].
-  /// Reset by [resetActionCap] on rotation — the cap is per session, like the
-  /// governor's budget.
+  /// Reset by [resetPerSessionCaps] on rotation — the cap is per session, like
+  /// the governor's budget.
   int _actionEvents = 0;
+
+  /// Non-fatal `app.crash` items admitted this session, overall and per dedup
+  /// key. Both reset on rotation beside the action cap.
+  int _nonFatalErrors = 0;
+  final Map<String, int> _errorsByKey = {};
 
   Collector({
     required this.context,
@@ -93,7 +111,10 @@ class Collector implements EventSink {
     session.beforeEvent();
 
     // Allowlist gate: only the canon 16 events / 4 metrics reach the wire.
-    // Immediate crashes (app.crash) bypass — they ride their own rail. Drops
+    // Anything on the immediate rail bypasses it — a fatal crash and the session
+    // bookends, which are their own one-item batches. A **non-fatal** `app.crash`
+    // batches since #90, so it does pass this gate; `app.crash` is on the canon
+    // list, which is what lets it through. Drops
     // happen before the session counters so noise/folded events don't bump
     // session counts. Still a hard drop (#79) — but no longer a silent one: it
     // logs under debugMode and lands on `session.finalized` as a counted reason.
@@ -137,11 +158,38 @@ class Collector implements EventSink {
     // Journey counters by canon name (§2.3). app.crash counts as a crash, and
     // as a non-fatal error when is_fatal=false (all Dart errors); http.request
     // counts an HTTP hit. These feed the session.finalized summary.
+    //
+    // The SDK's own failures are exempt (#90): tagging them
+    // `crash.source = sdk` is only half the fix — left in the counters they
+    // still inflate the one error rate a consumer reads straight off the
+    // bookend, with no way to subtract them.
     if (event.name == 'app.crash') {
-      session.recordCrash();
-      if (event.attributes['is_fatal'] == 'false') session.recordError();
+      if (event.attributes['crash.source'] != kSdkCrashSource) {
+        session.recordCrash();
+        if (event.isNonFatalCrash) session.recordError();
+      }
     } else if (event.name == 'http.request') {
       session.recordHttpRequest();
+    }
+
+    // The non-fatal error caps (#90), deliberately **after** the counters and so
+    // unlike the action cap's position here. The precedent is
+    // `session.action_count`, which is taken at the mint rather than at the
+    // emission for exactly this reason: a counter that counted *sends* would
+    // report 5 for a build method that threw 40 times, and read as a quiet
+    // session. The count is what happened; `error_cap` on the bookend says what
+    // did not ship, and the two add back to the truth.
+    //
+    // A fatal never reaches this gate — it is `essential`, there is at most one,
+    // and it is the item the rails exist for.
+    if (event.isNonFatalCrash && !_claimErrorAllowance(event)) {
+      session.recordDropped('error_cap');
+      if (debugMode) {
+        print('🚫 Dropped non-fatal app.crash "${event.crashDedupKey}" — past '
+            'the per-session caps ($kErrorPerKeyCap per fault, '
+            '$kErrorSessionCap overall)');
+      }
+      return;
     }
 
     // The single wire choke point for the geo/tenant strip: every path below
@@ -173,12 +221,20 @@ class Collector implements EventSink {
 
     // Crash-scoped breadcrumb attach (spec #15 §5.5): the ring rides only on
     // `app.crash`, JSON-encoded (attributes are String-valued on the wire).
+    //
+    // A fatal ships the whole 50-crumb ring; a non-fatal ships the newest ten
+    // (#90). An empty ring omits the key rather than sending `"[]"`.
     if (event.name == 'app.crash' && breadcrumbs != null) {
-      final crumbs = breadcrumbs!.getBreadcrumbsAsJson();
+      final crumbs = breadcrumbs!.getBreadcrumbsAsJson(
+          limit: event.isNonFatalCrash
+              ? BreadcrumbManager.nonFatalBreadcrumbs
+              : null);
       if (crumbs.isNotEmpty) enriched['crash.breadcrumbs'] = jsonEncode(crumbs);
     }
 
-    final timestamp = DateTime.now().toIso8601String();
+    // Backdated when the item says so — an aggregate held in a reservoir
+    // describes a window that closed long before this flush.
+    final timestamp = (event.occurredAt ?? DateTime.now()).toIso8601String();
 
     final wireItem = event.type == 'metric'
         ? {
@@ -201,8 +257,9 @@ class Collector implements EventSink {
     // be leaving the device, so it is the only honest input to the budget.
     gate?.recordItem();
 
-    // Two send rails: crashes (and any immediate event) bypass the batch; every
-    // batched event/metric buffers in the Pipeline.
+    // Two send rails, chosen by the item: a fatal crash and the session bookends
+    // go immediate; everything else — a non-fatal crash included — buffers in
+    // the Pipeline.
     if (event.priority == EventPriority.immediate) {
       // The immediate rail is never hoisted — it is already its own one-item
       // batch, and the `session.*` bookends riding it are exactly where the
@@ -213,10 +270,32 @@ class Collector implements EventSink {
     }
   }
 
-  /// Start a fresh action-cap allowance. Bound to `SessionManager
-  /// .onSessionStart` beside the governor's budget reset — both ceilings are
-  /// per session.
-  void resetActionCap() => _actionEvents = 0;
+  /// Start fresh allowances for every ceiling the Collector owns — the
+  /// `ui.interaction` cap and the two non-fatal error caps. Bound to
+  /// `SessionManager.onSessionStart` beside the governor's budget reset; all of
+  /// them are per session.
+  void resetPerSessionCaps() {
+    _actionEvents = 0;
+    _nonFatalErrors = 0;
+    _errorsByKey.clear();
+  }
+
+  /// Claim one allowance for this non-fatal against [kErrorPerKeyCap] per fault
+  /// and [kErrorSessionCap] overall, returning whether there was one to claim.
+  ///
+  /// Named for the mutation because it mutates: a caller that asks twice for one
+  /// item consumes two allowances. The overall cap is checked first and, once
+  /// reached, short-circuits before the key is read — past 50 the answer is no
+  /// whatever the key is, so `_errorsByKey` stops growing when the gate closes.
+  bool _claimErrorAllowance(EdgeEvent event) {
+    if (_nonFatalErrors >= kErrorSessionCap) return false;
+    final key = event.crashDedupKey;
+    final seen = _errorsByKey[key] ?? 0;
+    if (seen >= kErrorPerKeyCap) return false;
+    _errorsByKey[key] = seen + 1;
+    _nonFatalErrors++;
+    return true;
+  }
 
   /// Split the batch-level context out of [enriched] **in place** — the same map
   /// object the wire item already holds — and return the hoisted block. Mutable

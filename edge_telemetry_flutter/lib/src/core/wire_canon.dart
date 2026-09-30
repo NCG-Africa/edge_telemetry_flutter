@@ -12,8 +12,9 @@
 
 import 'clock_skew.dart';
 
-/// The 16 canon event names (§2). `app.crash` rides the immediate crash rail,
-/// not the batch, but is listed here for completeness.
+/// The 16 canon event names (§2). `app.crash` takes **either** rail — a fatal
+/// goes immediate and skips this gate, a non-fatal batches and passes it (#90) —
+/// so its presence on this list is load-bearing, not completeness.
 ///
 /// v3 adds four (#79): `ui.interaction`, `frame.summary`, `screen.load`,
 /// `task.complete`. Deliberately **not** added:
@@ -51,6 +52,13 @@ const Set<String> kCanonEvents = {
 /// The 4 canon metric names (§4). v3 adds none — the ceiling is 0 new metrics.
 /// `frame_render_time` and `resource_timing` stay listed for the same reason as
 /// above: the name is kept, the emission is their own tickets' business.
+///
+/// `frame_render_time` stopped being emitted in v3 (#89, removal v4.0.0): a
+/// per-frame metric at 60–120 Hz became a windowed `frame.summary` event, and
+/// the build/raster split it carried rides there as two max-duration keys.
+/// `long_task` keeps its name and its slot but **changes population** — v2
+/// rows were frames over 16.67 ms, v3 rows are frozen frames over 700 ms, and
+/// it is `diagnostic`-only, so a default-config consumer now gets none.
 const Set<String> kCanonMetrics = {
   'frame_render_time',
   'memory_usage',

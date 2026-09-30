@@ -1,10 +1,12 @@
 // lib/src/crash/crash_reporting.dart
 
 import '../core/edge_event.dart';
+import 'error_category.dart';
 
 /// The facade's crash seam: maps a Dart error + the catching handler into one
-/// immediate `app.crash` [EdgeEvent], then hands it to the [Collector] (which
-/// routes it down the crash rail).
+/// `app.crash` [EdgeEvent], then hands it to the [Collector], which picks the
+/// rail from the item's own fatality — immediate for a fatal, batched for a
+/// non-fatal.
 ///
 /// Every handler — `FlutterError.onError`, `PlatformDispatcher.onError`,
 /// `runZonedGuarded`, the isolate error-listener, and host `trackError` —
@@ -17,18 +19,24 @@ import '../core/edge_event.dart';
 class CrashReporting {
   const CrashReporting();
 
-  /// Build the immediate `app.crash` event for [error]. [source] records the
-  /// catching handler; omit it for a host `trackError` with no specific origin.
+  /// Build the batched non-fatal `app.crash` event for [error]. [source] records
+  /// the catching handler; omit it for a host `trackError` with no specific
+  /// origin. [category] is the consumer's declaration — left null, the taxonomy
+  /// is inferred from the error's exact type.
   EdgeEvent buildCrashEvent(
     Object error, {
     StackTrace? stackTrace,
     String? source,
     Map<String, String>? attributes,
+    ErrorCategory? category,
   }) =>
       EdgeEvent.error(error,
-          stackTrace: stackTrace, source: source, attributes: attributes);
+          stackTrace: stackTrace,
+          source: source,
+          attributes: attributes,
+          category: category);
 
-  /// Build the immediate `app.crash` event for one native-drained crash
+  /// Build the immediate (fatal) `app.crash` event for one native-drained crash
   /// [payload] (#29). The native side already shaped the unprefixed keys and set
   /// the `NativeCrash`/`ANR`/`Hang` cause + `is_fatal:true` + capture tier — we
   /// carry it verbatim; the Collector folds in identity context downstream.
