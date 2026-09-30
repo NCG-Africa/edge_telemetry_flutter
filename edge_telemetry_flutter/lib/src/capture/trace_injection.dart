@@ -85,8 +85,9 @@ String formatTraceparent(String traceId, String spanId) =>
   return (traceId: traceId, spanId: spanId);
 }
 
-final RegExp _traceparent =
-    RegExp(r'^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$');
+final RegExp _traceparent = RegExp(
+  r'^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$',
+);
 
 bool _isZero(String id) => !id.codeUnits.any((c) => c != 0x30);
 
@@ -146,8 +147,10 @@ class TraceInjector {
     this.debugMode = false,
   }) {
     if (debugMode && allowlist.isEmpty) {
-      print('🔗 traceHostAllowlist is empty — no traceparent will be '
-          'injected (dark by default)');
+      print(
+        '🔗 traceHostAllowlist is empty — no traceparent will be '
+        'injected (dark by default)',
+      );
     }
   }
 
@@ -202,13 +205,10 @@ class TraceInjector {
     // Rung 1. Off-allowlist: ids are stamped locally so the request is still
     // correlatable inside the session, and nothing is propagated.
     if (!hostAllowed(url.host, allowlist)) {
-      return TraceDecision(
-        {
-          ...(carrier ?? trace.startRequestRoot()).attributes,
-          'traceparent.outcome': kOutcomeSkippedOffAllowlist,
-        },
-        null,
-      );
+      return TraceDecision({
+        ...(carrier ?? trace.startRequestRoot()).attributes,
+        'traceparent.outcome': kOutcomeSkippedOffAllowlist,
+      }, null);
     }
 
     // Rung 2. The host app is already tracing: mirror its ids, leave its header
@@ -232,15 +232,16 @@ class TraceInjector {
     // path already comparing hosts. "Mostly true" is a worse property for a
     // backend join than false.
     final sent = carrier ?? trace.startRequestRoot();
-    final outcome = carrier != null
-        ? kOutcomeInjectedAttributed
-        : expired
+    final outcome =
+        carrier != null
+            ? kOutcomeInjectedAttributed
+            : expired
             ? kOutcomeInjectedExpired
             : kOutcomeInjectedUnattributed;
-    return TraceDecision(
-      {...sent.attributes, 'traceparent.outcome': outcome},
-      formatTraceparent(sent.traceId, sent.spanId),
-    );
+    return TraceDecision({
+      ...sent.attributes,
+      'traceparent.outcome': outcome,
+    }, formatTraceparent(sent.traceId, sent.spanId));
   }
 
   /// Context existed at the freeze and is no longer valid — the root aged out

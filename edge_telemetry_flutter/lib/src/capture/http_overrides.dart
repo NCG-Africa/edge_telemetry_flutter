@@ -51,12 +51,13 @@ class TelemetryHttpOverrides extends HttpOverrides {
     this.injector,
     this.selfUrl,
     HttpOverrides? previousOverrides,
-  })  : _onRequestComplete = onRequestComplete,
-        _previousOverrides = previousOverrides;
+  }) : _onRequestComplete = onRequestComplete,
+       _previousOverrides = previousOverrides;
 
   @override
   HttpClient createHttpClient(SecurityContext? context) {
-    final baseClient = _previousOverrides?.createHttpClient(context) ??
+    final baseClient =
+        _previousOverrides?.createHttpClient(context) ??
         super.createHttpClient(context);
 
     return TelemetryHttpClient(
@@ -162,7 +163,7 @@ class TelemetryHttpClient implements HttpClient {
   /// so their socket still gets made — and the pinning threading above stays
   /// theirs, exactly as it was before we existed.
   Future<ConnectionTask<Socket>> Function(Uri, String?, int?)?
-      _consumerConnectionFactory;
+  _consumerConnectionFactory;
 
   /// Live connections by local port. Bounded by the socket's own lifetime:
   /// each entry is removed when its socket closes.
@@ -182,9 +183,9 @@ class TelemetryHttpClient implements HttpClient {
     this.injector,
     this.selfUrl,
     SecurityContext? securityContext,
-  })  : _baseClient = baseClient,
-        _onRequestComplete = onRequestComplete,
-        _securityContext = securityContext {
+  }) : _baseClient = baseClient,
+       _onRequestComplete = onRequestComplete,
+       _securityContext = securityContext {
     _baseClient.connectionFactory = _connect;
   }
 
@@ -225,7 +226,10 @@ class TelemetryHttpClient implements HttpClient {
   /// time is unreachable at **any** tier and the fused number is proxy-connect
   /// only.
   Future<ConnectionTask<Socket>> _connect(
-      Uri url, String? proxyHost, int? proxyPort) async {
+    Uri url,
+    String? proxyHost,
+    int? proxyPort,
+  ) async {
     // Monotonic: a wall clock spanning an NTP correction can report a negative
     // connect time. Every duration in this file comes off a Stopwatch; only
     // timestamps stay wall-clock, because they must be absolute to join.
@@ -251,29 +255,35 @@ class TelemetryHttpClient implements HttpClient {
         if (addresses.isNotEmpty) connectHost = addresses.first;
       }
 
-      task = secure
-          ? await SecureSocket.startConnect(
-              connectHost,
-              port,
-              context: _securityContext,
-              onBadCertificate: _badCertificateCallback == null
-                  ? null
-                  : (cert) => _badCertificateCallback!(cert, host, port),
-              keyLog: _keyLog == null ? null : (line) => _keyLog!(line),
-            )
-          : await Socket.startConnect(connectHost, port);
+      task =
+          secure
+              ? await SecureSocket.startConnect(
+                connectHost,
+                port,
+                context: _securityContext,
+                onBadCertificate:
+                    _badCertificateCallback == null
+                        ? null
+                        : (cert) => _badCertificateCallback!(cert, host, port),
+                keyLog: _keyLog == null ? null : (line) => _keyLog!(line),
+              )
+              : await Socket.startConnect(connectHost, port);
     }
 
-    unawaited(task.socket.then((socket) {
-      final localPort = socket.port;
-      _connects[localPort] = HttpConnectRecord(
-        connect: elapsed.elapsed,
-        dns: dns,
-      );
-      unawaited(socket.done
-          .then((_) {}, onError: (_) {})
-          .whenComplete(() => _connects.remove(localPort)));
-    }, onError: (_) {}));
+    unawaited(
+      task.socket.then((socket) {
+        final localPort = socket.port;
+        _connects[localPort] = HttpConnectRecord(
+          connect: elapsed.elapsed,
+          dns: dns,
+        );
+        unawaited(
+          socket.done
+              .then((_) {}, onError: (_) {})
+              .whenComplete(() => _connects.remove(localPort)),
+        );
+      }, onError: (_) {}),
+    );
 
     return task;
   }
@@ -315,9 +325,15 @@ class TelemetryHttpClient implements HttpClient {
   // nor content download and under-reported a cold request by 3.5-4x.
   @override
   Future<HttpClientRequest> open(
-          String method, String host, int port, String path) =>
-      _track(method, _plainUri(host, port, path),
-          () => _baseClient.open(method, host, port, path));
+    String method,
+    String host,
+    int port,
+    String path,
+  ) => _track(
+    method,
+    _plainUri(host, port, path),
+    () => _baseClient.open(method, host, port, path),
+  );
 
   @override
   Future<HttpClientRequest> openUrl(String method, Uri url) =>
@@ -325,9 +341,10 @@ class TelemetryHttpClient implements HttpClient {
 
   @override
   Future<HttpClientRequest> get(String host, int port, String path) => _track(
-      'GET',
-      _plainUri(host, port, path),
-      () => _baseClient.get(host, port, path));
+    'GET',
+    _plainUri(host, port, path),
+    () => _baseClient.get(host, port, path),
+  );
 
   @override
   Future<HttpClientRequest> getUrl(Uri url) =>
@@ -335,9 +352,10 @@ class TelemetryHttpClient implements HttpClient {
 
   @override
   Future<HttpClientRequest> post(String host, int port, String path) => _track(
-      'POST',
-      _plainUri(host, port, path),
-      () => _baseClient.post(host, port, path));
+    'POST',
+    _plainUri(host, port, path),
+    () => _baseClient.post(host, port, path),
+  );
 
   @override
   Future<HttpClientRequest> postUrl(Uri url) =>
@@ -345,9 +363,10 @@ class TelemetryHttpClient implements HttpClient {
 
   @override
   Future<HttpClientRequest> put(String host, int port, String path) => _track(
-      'PUT',
-      _plainUri(host, port, path),
-      () => _baseClient.put(host, port, path));
+    'PUT',
+    _plainUri(host, port, path),
+    () => _baseClient.put(host, port, path),
+  );
 
   @override
   Future<HttpClientRequest> putUrl(Uri url) =>
@@ -355,8 +374,11 @@ class TelemetryHttpClient implements HttpClient {
 
   @override
   Future<HttpClientRequest> delete(String host, int port, String path) =>
-      _track('DELETE', _plainUri(host, port, path),
-          () => _baseClient.delete(host, port, path));
+      _track(
+        'DELETE',
+        _plainUri(host, port, path),
+        () => _baseClient.delete(host, port, path),
+      );
 
   @override
   Future<HttpClientRequest> deleteUrl(Uri url) =>
@@ -364,9 +386,10 @@ class TelemetryHttpClient implements HttpClient {
 
   @override
   Future<HttpClientRequest> patch(String host, int port, String path) => _track(
-      'PATCH',
-      _plainUri(host, port, path),
-      () => _baseClient.patch(host, port, path));
+    'PATCH',
+    _plainUri(host, port, path),
+    () => _baseClient.patch(host, port, path),
+  );
 
   @override
   Future<HttpClientRequest> patchUrl(Uri url) =>
@@ -374,9 +397,10 @@ class TelemetryHttpClient implements HttpClient {
 
   @override
   Future<HttpClientRequest> head(String host, int port, String path) => _track(
-      'HEAD',
-      _plainUri(host, port, path),
-      () => _baseClient.head(host, port, path));
+    'HEAD',
+    _plainUri(host, port, path),
+    () => _baseClient.head(host, port, path),
+  );
 
   @override
   Future<HttpClientRequest> headUrl(Uri url) =>
@@ -387,15 +411,16 @@ class TelemetryHttpClient implements HttpClient {
 
   @override
   set authenticate(
-      Future<bool> Function(Uri url, String scheme, String? realm)? f) {
+    Future<bool> Function(Uri url, String scheme, String? realm)? f,
+  ) {
     _baseClient.authenticate = f;
   }
 
   @override
   set authenticateProxy(
-      Future<bool> Function(
-              String host, int port, String scheme, String? realm)?
-          f) {
+    Future<bool> Function(String host, int port, String scheme, String? realm)?
+    f,
+  ) {
     _baseClient.authenticateProxy = f;
   }
 
@@ -409,29 +434,41 @@ class TelemetryHttpClient implements HttpClient {
   /// still runs in the platform.
   @override
   set badCertificateCallback(
-      bool Function(X509Certificate cert, String host, int port)? callback) {
+    bool Function(X509Certificate cert, String host, int port)? callback,
+  ) {
     _badCertificateCallback = callback;
     _baseClient.badCertificateCallback = callback;
   }
 
   @override
   void addCredentials(
-      Uri url, String realm, HttpClientCredentials credentials) {
+    Uri url,
+    String realm,
+    HttpClientCredentials credentials,
+  ) {
     _baseClient.addCredentials(url, realm, credentials);
   }
 
   @override
   void addProxyCredentials(
-      String host, int port, String realm, HttpClientCredentials credentials) {
+    String host,
+    int port,
+    String realm,
+    HttpClientCredentials credentials,
+  ) {
     _baseClient.addProxyCredentials(host, port, realm, credentials);
   }
 
   /// Chained, never replaced — see [_consumerConnectionFactory].
   @override
   set connectionFactory(
-      Future<ConnectionTask<Socket>> Function(
-              Uri url, String? proxyHost, int? proxyPort)?
-          f) {
+    Future<ConnectionTask<Socket>> Function(
+      Uri url,
+      String? proxyHost,
+      int? proxyPort,
+    )?
+    f,
+  ) {
     _consumerConnectionFactory = f;
   }
 
@@ -450,7 +487,10 @@ class TelemetryHttpClient implements HttpClient {
   /// Start the clock, open the connection, and hand the request wrapper
   /// everything it needs to resolve its phases at completion.
   Future<HttpClientRequest> _track(
-      String method, Uri url, Future<HttpClientRequest> Function() open) async {
+    String method,
+    Uri url,
+    Future<HttpClientRequest> Function() open,
+  ) async {
     // Before anything else, and before the first await: the SDK's own upload is
     // not a request the SDK reports on.
     if (isSelfUpload(url)) return open();
@@ -489,8 +529,16 @@ class TelemetryHttpClient implements HttpClient {
       //
       // It carries the frozen ids but **no outcome**: no header was ever
       // written, and absence is the contract's own member for "not traced".
-      complete(_failed(url, method, callStart, clock, error,
-          traceAttributes: injector?.stamp(freeze) ?? const {}));
+      complete(
+        _failed(
+          url,
+          method,
+          callStart,
+          clock,
+          error,
+          traceAttributes: injector?.stamp(freeze) ?? const {},
+        ),
+      );
       rethrow;
     }
     return TelemetryHttpClientRequest(
@@ -568,9 +616,9 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
     this.debugMode = false,
     this.injector,
     this.freeze = (carrier: null, expired: false),
-  })  : _baseRequest = baseRequest,
-        _connects = connects,
-        _onRequestComplete = onRequestComplete;
+  }) : _baseRequest = baseRequest,
+       _connects = connects,
+       _onRequestComplete = onRequestComplete;
 
   /// Join this request to the connect record by local port, and claim it.
   ///
@@ -645,8 +693,17 @@ class TelemetryHttpClientRequest implements HttpClientRequest {
       // A failed request still measures what it reached: the re-based clock
       // runs from before the call, so a connect failure now reports the
       // connect time it actually spent instead of a near-zero.
-      _onRequestComplete(_failed(url, method, callStart, clock, error,
-          phases: phases, traceAttributes: _traceAttributes));
+      _onRequestComplete(
+        _failed(
+          url,
+          method,
+          callStart,
+          clock,
+          error,
+          phases: phases,
+          traceAttributes: _traceAttributes,
+        ),
+      );
       rethrow;
     }
   }
@@ -771,20 +828,19 @@ HttpRequestTelemetry _failed(
   Object error, {
   HttpPhases phases = const HttpPhases(),
   Map<String, String> traceAttributes = const {},
-}) =>
-    HttpRequestTelemetry(
-      url: url.toString(),
-      method: method,
-      statusCode: 0,
-      duration: clock.elapsed,
-      timestamp: callStart,
-      error: error.toString(),
-      traceAttributes: traceAttributes,
-      connectDuration: phases.connect,
-      dnsDuration: phases.dns,
-      queueDuration: phases.queue,
-      connectionReused: phases.reused,
-    );
+}) => HttpRequestTelemetry(
+  url: url.toString(),
+  method: method,
+  statusCode: 0,
+  duration: clock.elapsed,
+  timestamp: callStart,
+  error: error.toString(),
+  traceAttributes: traceAttributes,
+  connectDuration: phases.connect,
+  dnsDuration: phases.dns,
+  queueDuration: phases.queue,
+  connectionReused: phases.reused,
+);
 
 /// Response wrapper: counts the body, times the download tail, and emits the
 /// one `http.request` telemetry record when the body ends.
@@ -826,8 +882,8 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
     required Function(HttpRequestTelemetry) onRequestComplete,
     this.traceAttributes = const {},
     this.debugMode = false,
-  })  : _baseResponse = baseResponse,
-        _onRequestComplete = onRequestComplete;
+  }) : _baseResponse = baseResponse,
+       _onRequestComplete = onRequestComplete;
 
   void _emitOnce() {
     if (_emitted) return;
@@ -837,8 +893,10 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
     final download = clock.elapsed - elapsedAtHeaders;
 
     if (debugMode) {
-      print('🌐 HTTP ${method.toUpperCase()} $url - $statusCode '
-          '(${duration.inMilliseconds}ms + ${download.inMilliseconds}ms body)');
+      print(
+        '🌐 HTTP ${method.toUpperCase()} $url - $statusCode '
+        '(${duration.inMilliseconds}ms + ${download.inMilliseconds}ms body)',
+      );
     }
 
     // `dart:io` spells "no content-length" as -1; the shared rule speaks null.
@@ -849,22 +907,24 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
       complete: _bodyComplete,
     );
 
-    _onRequestComplete(HttpRequestTelemetry(
-      url: url.toString(),
-      method: method,
-      statusCode: statusCode,
-      duration: duration,
-      timestamp: callStart,
-      downloadDuration: download,
-      responseSize: sized.size,
-      responseSizeSource: sized.source,
-      connectDuration: phases.connect,
-      dnsDuration: phases.dns,
-      queueDuration: phases.queue,
-      connectionReused: phases.reused,
-      redirectCount: _baseResponse.redirects.length,
-      traceAttributes: traceAttributes,
-    ));
+    _onRequestComplete(
+      HttpRequestTelemetry(
+        url: url.toString(),
+        method: method,
+        statusCode: statusCode,
+        duration: duration,
+        timestamp: callStart,
+        downloadDuration: download,
+        responseSize: sized.size,
+        responseSizeSource: sized.source,
+        connectDuration: phases.connect,
+        dnsDuration: phases.dns,
+        queueDuration: phases.queue,
+        connectionReused: phases.reused,
+        redirectCount: _baseResponse.redirects.length,
+        traceAttributes: traceAttributes,
+      ),
+    );
   }
 
   @override
@@ -874,25 +934,30 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
     void Function()? onDone,
     bool? cancelOnError,
   }) {
-    final counted = _baseResponse
-        .transform(StreamTransformer<List<int>, List<int>>.fromHandlers(
-      handleData: (chunk, sink) {
-        _decodedBytes += chunk.length;
-        sink.add(chunk);
-      },
-      handleError: (error, stack, sink) {
-        _emitOnce();
-        sink.addError(error, stack);
-      },
-      handleDone: (sink) {
-        _bodyComplete = true;
-        _emitOnce();
-        sink.close();
-      },
-    ));
+    final counted = _baseResponse.transform(
+      StreamTransformer<List<int>, List<int>>.fromHandlers(
+        handleData: (chunk, sink) {
+          _decodedBytes += chunk.length;
+          sink.add(chunk);
+        },
+        handleError: (error, stack, sink) {
+          _emitOnce();
+          sink.addError(error, stack);
+        },
+        handleDone: (sink) {
+          _bodyComplete = true;
+          _emitOnce();
+          sink.close();
+        },
+      ),
+    );
     return _TrackedSubscription(
-      counted.listen(onData,
-          onError: onError, onDone: onDone, cancelOnError: cancelOnError),
+      counted.listen(
+        onData,
+        onError: onError,
+        onDone: onDone,
+        cancelOnError: cancelOnError,
+      ),
       _emitOnce,
     );
   }
@@ -931,9 +996,11 @@ class TelemetryHttpClientResponse extends Stream<List<int>>
   bool get persistentConnection => _baseResponse.persistentConnection;
 
   @override
-  Future<HttpClientResponse> redirect(
-          [String? method, Uri? url, bool? followLoops]) =>
-      _baseResponse.redirect(method, url, followLoops);
+  Future<HttpClientResponse> redirect([
+    String? method,
+    Uri? url,
+    bool? followLoops,
+  ]) => _baseResponse.redirect(method, url, followLoops);
 
   @override
   List<RedirectInfo> get redirects => _baseResponse.redirects;
@@ -1008,9 +1075,10 @@ const String kSizeFromDecodedBytes = 'decoded_bytes';
   final size = declared ?? (complete ? counted : null);
   return (
     size: size,
-    source: size == null
-        ? null
-        : declared != null
+    source:
+        size == null
+            ? null
+            : declared != null
             ? kSizeFromContentLength
             : kSizeFromDecodedBytes,
   );
@@ -1113,9 +1181,10 @@ class HttpRequestTelemetry {
     // A URL the platform will not parse is still not allowed to ship its query
     // at the default tier — the flag would say `false` on the one row that
     // needed it to say `true`.
-    final sent = fullUrl
-        ? url
-        : uri == null
+    final sent =
+        fullUrl
+            ? url
+            : uri == null
             ? url.split('#').first.split('?').first
             : redactUrl(uri);
 
@@ -1151,9 +1220,9 @@ class HttpRequestTelemetry {
       // children, so a re-rooted (or adopted, root-shaped) request sends none.
       // The measurement is not lost: `http.duration_ms` carries it either way.
       if (traceAttributes.containsKey('parent.span.id'))
-        'span.duration_ms': (duration + (downloadDuration ?? Duration.zero))
-            .inMilliseconds
-            .toString(),
+        'span.duration_ms':
+            (duration + (downloadDuration ?? Duration.zero)).inMilliseconds
+                .toString(),
       ...traceAttributes,
     };
   }

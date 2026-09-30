@@ -21,23 +21,22 @@ HttpRequestTelemetry _record({
   int? size,
   String? sizeSource,
   String? error,
-}) =>
-    HttpRequestTelemetry(
-      url: url,
-      method: 'GET',
-      statusCode: statusCode,
-      duration: duration,
-      timestamp: DateTime.utc(2026, 1, 1),
-      downloadDuration: download,
-      connectDuration: connect,
-      dnsDuration: dns,
-      queueDuration: queue,
-      connectionReused: reused,
-      redirectCount: redirects,
-      responseSize: size,
-      responseSizeSource: sizeSource,
-      error: error,
-    );
+}) => HttpRequestTelemetry(
+  url: url,
+  method: 'GET',
+  statusCode: statusCode,
+  duration: duration,
+  timestamp: DateTime.utc(2026, 1, 1),
+  downloadDuration: download,
+  connectDuration: connect,
+  dnsDuration: dns,
+  queueDuration: queue,
+  connectionReused: reused,
+  redirectCount: redirects,
+  responseSize: size,
+  responseSizeSource: sizeSource,
+  error: error,
+);
 
 void main() {
   group('path templating — the exact enumerable rule', () {
@@ -58,16 +57,20 @@ void main() {
 
     test('templates each id segment and leaves the rest alone', () {
       expect(
-          templatePath(
-              '/v1/users/42/orders/3f2504e0-4f89-11d3-9a0c-0305e82c3301'),
-          '/v1/users/{id}/orders/{id}');
+        templatePath(
+          '/v1/users/42/orders/3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+        ),
+        '/v1/users/{id}/orders/{id}',
+      );
       expect(templatePath('/health'), '/health');
       expect(templatePath(''), '');
     });
 
     test('the braces survive — no percent-encoding on the wire', () {
-      expect(redactUrl(Uri.parse('https://a.test/users/42')),
-          'https://a.test/users/{id}');
+      expect(
+        redactUrl(Uri.parse('https://a.test/users/42')),
+        'https://a.test/users/{id}',
+      );
     });
   });
 
@@ -87,21 +90,24 @@ void main() {
     test('diagnostic gets the full URL verbatim and says it is unredacted', () {
       final a = _record().toAttributes(fullUrl: true);
       expect(
-          a['http.url'], 'https://api.example.test/v1/users/42?token=secret');
+        a['http.url'],
+        'https://api.example.test/v1/users/42?token=secret',
+      );
       expect(a['http.url_redacted'], 'false');
     });
   });
 
   group('tiers', () {
     test('the default map carries three numbers and no diagnostic phases', () {
-      final a = _record(
-        download: const Duration(milliseconds: 30),
-        connect: const Duration(milliseconds: 509),
-        dns: const Duration(milliseconds: 40),
-        queue: const Duration(milliseconds: 5),
-        reused: false,
-        redirects: 1,
-      ).toAttributes();
+      final a =
+          _record(
+            download: const Duration(milliseconds: 30),
+            connect: const Duration(milliseconds: 509),
+            dns: const Duration(milliseconds: 40),
+            queue: const Duration(milliseconds: 5),
+            reused: false,
+            redirects: 1,
+          ).toAttributes();
 
       expect(a['http.connect_ms'], '509');
       expect(a['http.download_ms'], '30');
@@ -154,8 +160,11 @@ void main() {
 
   group('response size', () {
     test('a declared length carries the content-length source', () {
-      final a = _record(size: 1200, sizeSource: kSizeFromContentLength)
-          .toAttributes();
+      final a =
+          _record(
+            size: 1200,
+            sizeSource: kSizeFromContentLength,
+          ).toAttributes();
       expect(a['http.response_size'], '1200');
       expect(a['http.response_size_source'], 'content_length');
     });
@@ -178,12 +187,17 @@ void main() {
     });
 
     test('a transport error is never a success whatever the status', () {
-      expect(_record(statusCode: 200, error: 'SocketException').isSuccess,
-          isFalse);
       expect(
-          _record(statusCode: 0, error: 'SocketException')
-              .toAttributes()['http.success'],
-          'false');
+        _record(statusCode: 200, error: 'SocketException').isSuccess,
+        isFalse,
+      );
+      expect(
+        _record(
+          statusCode: 0,
+          error: 'SocketException',
+        ).toAttributes()['http.success'],
+        'false',
+      );
     });
   });
 }

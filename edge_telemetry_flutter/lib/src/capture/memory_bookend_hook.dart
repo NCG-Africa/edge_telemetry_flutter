@@ -97,16 +97,22 @@ class MemoryBookendHook implements CaptureHook {
     // Nothing to report rather than a zero: a plugin-less platform has no
     // memory signal, and a false 0 is the one reading a chart cannot ignore.
     if (bytes == null) return false;
-    _sink?.add(EdgeEvent.metric('memory_usage', bytes, attributes: {
-      'memory.unit': 'bytes',
-      // `footprint` (iOS) | `pss` (Android). v2's `process_info` value named
-      // the *reader*; this names the **quantity**, which is the break that
-      // needs to be legible. v2's companion `memory.type: rss` is gone with the
-      // quantity it described.
-      if (state['memory.source'] != null)
-        'memory.source': state['memory.source']!,
-      'memory.phase': phase,
-    }));
+    _sink?.add(
+      EdgeEvent.metric(
+        'memory_usage',
+        bytes,
+        attributes: {
+          'memory.unit': 'bytes',
+          // `footprint` (iOS) | `pss` (Android). v2's `process_info` value named
+          // the *reader*; this names the **quantity**, which is the break that
+          // needs to be legible. v2's companion `memory.type: rss` is gone with the
+          // quantity it described.
+          if (state['memory.source'] != null)
+            'memory.source': state['memory.source']!,
+          'memory.phase': phase,
+        },
+      ),
+    );
     return true;
   }
 }

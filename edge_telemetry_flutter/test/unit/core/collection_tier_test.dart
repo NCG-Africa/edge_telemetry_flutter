@@ -48,13 +48,14 @@ class _NoopQueue extends OfflineQueue {
   @override
   Future<void> initialize() async {}
   @override
-  Future<String?> persist(Map<String, dynamic> p,
-          {bool isCrash = false}) async =>
-      null;
+  Future<String?> persist(
+    Map<String, dynamic> p, {
+    bool isCrash = false,
+  }) async => null;
   @override
   Future<int> drain(
-          Future<DrainResult> Function(Map<String, dynamic>) s) async =>
-      0;
+    Future<DrainResult> Function(Map<String, dynamic>) s,
+  ) async => 0;
 }
 
 const _config = TelemetryConfig(
@@ -64,12 +65,12 @@ const _config = TelemetryConfig(
 
 /// Every wire item the sender saw, flattened out of its batch envelope.
 List<Map<String, dynamic>> _items(_RecordingSender sender) => [
-      for (final payload in sender.sent)
-        if (payload['type'] == 'telemetry_batch')
-          ...(payload['events'] as List).cast<Map<String, dynamic>>()
-        else
-          payload,
-    ];
+  for (final payload in sender.sent)
+    if (payload['type'] == 'telemetry_batch')
+      ...(payload['events'] as List).cast<Map<String, dynamic>>()
+    else
+      payload,
+];
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -91,10 +92,13 @@ void main() {
         'error',
         'profile',
         'crashes',
-        'sessions'
+        'sessions',
       ]) {
-        expect(names, isNot(contains(forbidden)),
-            reason: '$forbidden is essential — it has no switch');
+        expect(
+          names,
+          isNot(contains(forbidden)),
+          reason: '$forbidden is essential — it has no switch',
+        );
       }
     });
 
@@ -109,28 +113,35 @@ void main() {
   // ==================== The two config fields ====================
 
   group('the tier dial', () {
-    test('standard collects the standard set and none of the diagnostic set',
-        () {
-      for (final c in Capture.values) {
-        expect(_config.capturesEnabled(c), c.tier == CollectionTier.standard,
-            reason: c.name);
-      }
-    });
+    test(
+      'standard collects the standard set and none of the diagnostic set',
+      () {
+        for (final c in Capture.values) {
+          expect(
+            _config.capturesEnabled(c),
+            c.tier == CollectionTier.standard,
+            reason: c.name,
+          );
+        }
+      },
+    );
 
     test('essential sheds everything sheddable', () {
       const cfg = TelemetryConfig(
-          serviceName: 't',
-          endpoint: 'https://x.test',
-          tier: CollectionTier.essential);
+        serviceName: 't',
+        endpoint: 'https://x.test',
+        tier: CollectionTier.essential,
+      );
       expect(Capture.values.any(cfg.capturesEnabled), isFalse);
       expect(cfg.hasAutomaticMonitoring, isFalse);
     });
 
     test('diagnostic turns the opt-in set on as well', () {
       const cfg = TelemetryConfig(
-          serviceName: 't',
-          endpoint: 'https://x.test',
-          tier: CollectionTier.diagnostic);
+        serviceName: 't',
+        endpoint: 'https://x.test',
+        tier: CollectionTier.diagnostic,
+      );
       expect(Capture.values.every(cfg.capturesEnabled), isTrue);
     });
   });
@@ -175,17 +186,19 @@ void main() {
       expect(cfg.capturesEnabled(Capture.navigation), isTrue);
     });
 
-    test('captureAccessibilityContext still opts into its diagnostic member',
-        () {
-      const cfg = TelemetryConfig(
-        serviceName: 't',
-        endpoint: 'https://x.test',
-        // ignore: deprecated_member_use_from_same_package
-        captureAccessibilityContext: true,
-      );
-      expect(cfg.capturesEnabled(Capture.accessibilityContext), isTrue);
-      expect(cfg.capturesEnabled(Capture.swipes), isFalse);
-    });
+    test(
+      'captureAccessibilityContext still opts into its diagnostic member',
+      () {
+        const cfg = TelemetryConfig(
+          serviceName: 't',
+          endpoint: 'https://x.test',
+          // ignore: deprecated_member_use_from_same_package
+          captureAccessibilityContext: true,
+        );
+        expect(cfg.capturesEnabled(Capture.accessibilityContext), isTrue);
+        expect(cfg.capturesEnabled(Capture.swipes), isFalse);
+      },
+    );
 
     test('the new key wins over the deprecated one', () {
       const cfg = TelemetryConfig(
@@ -225,18 +238,26 @@ void main() {
       hook.didChangeAppLifecycleState(AppLifecycleState.paused);
       hook.didChangeAppLifecycleState(AppLifecycleState.resumed);
       expect(sink.events, hasLength(2)); // Capture.lifecycle is on
-      expect(sink.events.map((e) => e.attributes['lifecycle.state']),
-          ['paused', 'resumed']);
+      expect(sink.events.map((e) => e.attributes['lifecycle.state']), [
+        'paused',
+        'resumed',
+      ]);
     });
 
     test('a shed tier stops a hook that is already running', () {
       // The other half: the governor moves at runtime, so a hook started when
       // the budget was healthy must stop emitting once its tier is shed.
       final sink = _FakeSink();
-      final gate = CaptureGate(_config.copyWith(
-          captureOverrides: const {Capture.lifecycleTransitions: true}));
+      final gate = CaptureGate(
+        _config.copyWith(
+          captureOverrides: const {Capture.lifecycleTransitions: true},
+        ),
+      );
       final hook = LifecycleCaptureHook(
-          session: SessionManager(), flush: () {}, gate: gate);
+        session: SessionManager(),
+        flush: () {},
+        gate: gate,
+      );
       hook.start(sink);
       addTearDown(() => WidgetsBinding.instance.removeObserver(hook));
 
@@ -277,10 +298,11 @@ void main() {
   // ==================== The budget governor ====================
 
   group('the governor sheds whole tiers', () {
-    CaptureGate gate() => CaptureGate(_config.copyWith(captureOverrides: const {
-          Capture.swipes: true,
-          Capture.longTask: true
-        }));
+    CaptureGate gate() => CaptureGate(
+      _config.copyWith(
+        captureOverrides: const {Capture.swipes: true, Capture.longTask: true},
+      ),
+    );
 
     test('nothing is shed under the typical ceiling', () {
       final g = gate();
@@ -327,8 +349,9 @@ void main() {
     test('a consumer-disabled capture is not a shed and is not counted', () {
       var sheds = 0;
       final g = CaptureGate(
-          _config.copyWith(captureOverrides: const {Capture.http: false}),
-          onShed: () => sheds++);
+        _config.copyWith(captureOverrides: const {Capture.http: false}),
+        onShed: () => sheds++,
+      );
       expect(g.allows(Capture.http), isFalse);
       expect(sheds, 0); // they chose it — nothing was dropped
     });
@@ -349,20 +372,28 @@ void main() {
       sender = _RecordingSender();
       session = SessionManager(clock: () => clock);
       final transport = RetryTransport(
-          endpoint: _config.endpoint, queue: _NoopQueue(), sender: sender.call);
+        endpoint: _config.endpoint,
+        queue: _NoopQueue(),
+        sender: sender.call,
+      );
       pipeline = Pipeline(transport: transport, batchSize: 1);
       // Diagnostic members opted in, so a shed of them is a real shed: a
       // capture the consumer never enabled is not dropped, it was never on.
       gate = CaptureGate(
-          _config.copyWith(captureOverrides: const {
+        _config.copyWith(
+          captureOverrides: const {
             Capture.swipes: true,
             Capture.longTask: true,
-          }),
-          onShed: () => session.recordDropped('tier_shed'));
+          },
+        ),
+        onShed: () => session.recordDropped('tier_shed'),
+      );
       session.onSessionStart = gate.resetBudget;
       collector = Collector(
         context: ContextManager(
-            sessionManager: session, global: const {'device.id': 'd'}),
+          sessionManager: session,
+          global: const {'device.id': 'd'},
+        ),
         session: session,
         pipeline: pipeline,
         gate: gate,
@@ -384,11 +415,20 @@ void main() {
       expect(Capture.values.any(gate.allows), isFalse); // everything sheddable
 
       collector.add(EdgeEvent.error(StateError('boom')));
-      collector.add(const EdgeEvent.event('user.profile.update',
-          attributes: {'user.id': 'u'}, bypassSampling: true));
+      collector.add(
+        const EdgeEvent.event(
+          'user.profile.update',
+          attributes: {'user.id': 'u'},
+          bypassSampling: true,
+        ),
+      );
       clock = clock.add(const Duration(minutes: 31));
-      collector.add(const EdgeEvent.event('navigation',
-          attributes: {'navigation.to': '/x'})); // triggers the rotation
+      collector.add(
+        const EdgeEvent.event(
+          'navigation',
+          attributes: {'navigation.to': '/x'},
+        ),
+      ); // triggers the rotation
 
       final names = _items(sender).map((e) => e['eventName']).toList();
       expect(names, contains('app.crash'));
@@ -406,53 +446,66 @@ void main() {
       gate.allows(Capture.http); // standard — survives, not counted
 
       clock = clock.add(const Duration(minutes: 31));
-      collector.add(const EdgeEvent.event('navigation',
-          attributes: {'navigation.to': '/x'}));
+      collector.add(
+        const EdgeEvent.event(
+          'navigation',
+          attributes: {'navigation.to': '/x'},
+        ),
+      );
 
-      final finalized = _items(sender)
-          .firstWhere((e) => e['eventName'] == 'session.finalized');
+      final finalized = _items(
+        sender,
+      ).firstWhere((e) => e['eventName'] == 'session.finalized');
       final attrs = finalized['attributes'] as Map<String, dynamic>;
       expect(attrs['session.dropped_reasons'], 'tier_shed=2');
       expect(attrs['session.dropped_item_count'], '2');
     });
 
     test('the generic calls stringify exactly as v2 did', () async {
-      final telemetry = EdgeTelemetry.fromWiring(TelemetryWiring(
-        config: _config,
-        session: session,
-        context: ContextManager(
-            sessionManager: session, global: const {'device.id': 'd'}),
-        trace: TraceManager(session: session),
-        breadcrumbs: BreadcrumbManager(),
-        crashReporting: const CrashReporting(),
-        queue: _NoopQueue(),
-        transport: RetryTransport(
+      final telemetry = EdgeTelemetry.fromWiring(
+        TelemetryWiring(
+          config: _config,
+          session: session,
+          context: ContextManager(
+            sessionManager: session,
+            global: const {'device.id': 'd'},
+          ),
+          trace: TraceManager(session: session),
+          breadcrumbs: BreadcrumbManager(),
+          crashReporting: const CrashReporting(),
+          queue: _NoopQueue(),
+          transport: RetryTransport(
             endpoint: _config.endpoint,
             queue: _NoopQueue(),
-            sender: sender.call),
-        pipeline: pipeline,
-        collector: collector,
-        disposers: const [],
-      ));
+            sender: sender.call,
+          ),
+          pipeline: pipeline,
+          collector: collector,
+          disposers: const [],
+        ),
+      );
 
       // `Map<String, Object?>` in place of `dynamic`: the conversion already
       // stringified every value, so these call sites keep compiling and the
       // bytes on the wire do not move.
-      telemetry.trackEvent('checkout', attributes: {
-        'count': 3,
-        'ratio': 1.5,
-        'ok': true,
-        'missing': null,
-        'tags': ['a', 'b'],
-        'at': DateTime.utc(2026, 1, 1),
-        'took': const Duration(milliseconds: 250),
-        'already': 'string',
-        'nested': {'a': 1},
-        'listOfLists': [
-          [1, 2],
-          [3],
-        ],
-      });
+      telemetry.trackEvent(
+        'checkout',
+        attributes: {
+          'count': 3,
+          'ratio': 1.5,
+          'ok': true,
+          'missing': null,
+          'tags': ['a', 'b'],
+          'at': DateTime.utc(2026, 1, 1),
+          'took': const Duration(milliseconds: 250),
+          'already': 'string',
+          'nested': {'a': 1},
+          'listOfLists': [
+            [1, 2],
+            [3],
+          ],
+        },
+      );
       // A canon metric name — an off-canon one is dropped by the allowlist,
       // which is #79's business, not this ticket's.
       telemetry.trackMetric('memory_usage', 12.0, attributes: {'retries': 2});
@@ -467,7 +520,9 @@ void main() {
       expect(event['attributes'], containsPair('missing', 'null'));
       expect(event['attributes'], containsPair('tags', 'a,b'));
       expect(
-          event['attributes'], containsPair('at', '2026-01-01T00:00:00.000Z'));
+        event['attributes'],
+        containsPair('at', '2026-01-01T00:00:00.000Z'),
+      );
       expect(event['attributes'], containsPair('took', '250'));
       expect(event['attributes'], containsPair('already', 'string'));
       expect(event['attributes'], containsPair('nested', '{a: 1}'));

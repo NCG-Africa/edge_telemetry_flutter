@@ -47,19 +47,16 @@ class SimpleReportGenerator implements ReportGenerator {
           'end': end.toIso8601String(),
           'duration_hours': end.difference(start).inHours,
         },
-        'totals': {
-          'events': events.length,
-          'metrics': metrics.length,
-        },
+        'totals': {'events': events.length, 'metrics': metrics.length},
         'breakdown': {
           'events_by_type': eventCounts,
           'metrics_by_type': metricCounts,
-        }
+        },
       },
       'raw_data': {
         'events': events.map((e) => e.toJson()).toList(),
         'metrics': metrics.map((m) => m.toJson()).toList(),
-      }
+      },
     };
 
     stopwatch.stop();
@@ -97,21 +94,26 @@ class SimpleReportGenerator implements ReportGenerator {
 
     // Get performance-related metrics
     final metrics = await _storage.getMetrics(startTime: start, endTime: end);
-    final performanceMetrics = metrics
-        .where((m) =>
-            m.metricName.contains('performance') ||
-            m.metricName.contains('frame') ||
-            m.metricName.contains('startup') ||
-            m.metricName.contains('memory'))
-        .toList();
+    final performanceMetrics =
+        metrics
+            .where(
+              (m) =>
+                  m.metricName.contains('performance') ||
+                  m.metricName.contains('frame') ||
+                  m.metricName.contains('startup') ||
+                  m.metricName.contains('memory'),
+            )
+            .toList();
 
     // Calculate performance stats
-    final frameMetrics = performanceMetrics
-        .where((m) => m.metricName.contains('frame'))
-        .toList();
-    final memoryMetrics = performanceMetrics
-        .where((m) => m.metricName.contains('memory'))
-        .toList();
+    final frameMetrics =
+        performanceMetrics
+            .where((m) => m.metricName.contains('frame'))
+            .toList();
+    final memoryMetrics =
+        performanceMetrics
+            .where((m) => m.metricName.contains('memory'))
+            .toList();
 
     final reportData = {
       'performance_summary': {
@@ -121,18 +123,20 @@ class SimpleReportGenerator implements ReportGenerator {
         },
         'frame_performance': {
           'total_frames_tracked': frameMetrics.length,
-          'average_frame_time': frameMetrics.isEmpty
-              ? 0
-              : frameMetrics.map((m) => m.value).reduce((a, b) => a + b) /
-                  frameMetrics.length,
+          'average_frame_time':
+              frameMetrics.isEmpty
+                  ? 0
+                  : frameMetrics.map((m) => m.value).reduce((a, b) => a + b) /
+                      frameMetrics.length,
         },
         'memory_performance': {
           'memory_checks': memoryMetrics.length,
-          'average_memory_usage': memoryMetrics.isEmpty
-              ? 0
-              : memoryMetrics.map((m) => m.value).reduce((a, b) => a + b) /
-                  memoryMetrics.length,
-        }
+          'average_memory_usage':
+              memoryMetrics.isEmpty
+                  ? 0
+                  : memoryMetrics.map((m) => m.value).reduce((a, b) => a + b) /
+                      memoryMetrics.length,
+        },
       },
       'detailed_metrics': performanceMetrics.map((m) => m.toJson()).toList(),
     };
@@ -176,20 +180,26 @@ class SimpleReportGenerator implements ReportGenerator {
 
     // Get user behavior events
     final events = await _storage.getEvents(startTime: start, endTime: end);
-    final navigationEvents = events
-        .where((e) =>
-            e.eventName.contains('navigation') ||
-            e.eventName.contains('screen') ||
-            e.eventName.contains('route'))
-        .toList();
+    final navigationEvents =
+        events
+            .where(
+              (e) =>
+                  e.eventName.contains('navigation') ||
+                  e.eventName.contains('screen') ||
+                  e.eventName.contains('route'),
+            )
+            .toList();
 
     // Analyze user actions
-    final userActions = events
-        .where((e) =>
-            e.eventName.contains('button') ||
-            e.eventName.contains('click') ||
-            e.eventName.contains('tap'))
-        .toList();
+    final userActions =
+        events
+            .where(
+              (e) =>
+                  e.eventName.contains('button') ||
+                  e.eventName.contains('click') ||
+                  e.eventName.contains('tap'),
+            )
+            .toList();
 
     final reportData = {
       'user_behavior_summary': {
@@ -204,7 +214,7 @@ class SimpleReportGenerator implements ReportGenerator {
         'interactions': {
           'total_user_actions': userActions.length,
           'action_types': _countActionTypes(userActions),
-        }
+        },
       },
       'detailed_events': events.map((e) => e.toJson()).toList(),
     };

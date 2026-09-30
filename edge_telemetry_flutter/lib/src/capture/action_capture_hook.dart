@@ -170,9 +170,10 @@ class ActionCaptureHook implements CaptureHook {
 
     final _GestureKind kind;
     if (track.maxTravel < kTouchSlop) {
-      kind = up.timeStamp - track.downAt < kLongPressTimeout
-          ? _GestureKind.tap
-          : _GestureKind.longPress;
+      kind =
+          up.timeStamp - track.downAt < kLongPressTimeout
+              ? _GestureKind.tap
+              : _GestureKind.longPress;
     } else if (velocity.distance >= kMinFlingVelocity) {
       kind = _GestureKind.swipe;
     } else {
@@ -216,18 +217,24 @@ class ActionCaptureHook implements CaptureHook {
             (name == null ? UiNameSource.none : UiNameSource.trackAction).wire,
         if (name != null) 'ui.target': name,
       };
-      breadcrumbs?.addUserAction(name ?? kind.wire, data: {
-        'ui.type': kind.wire,
-        if (screen != null) 'ui.screen': screen,
-      });
-      _sink?.add(EdgeEvent.event('ui.interaction',
-          attributes: attributes, ownsTraceContext: true));
+      breadcrumbs?.addUserAction(
+        name ?? kind.wire,
+        data: {'ui.type': kind.wire, if (screen != null) 'ui.screen': screen},
+      );
+      _sink?.add(
+        EdgeEvent.event(
+          'ui.interaction',
+          attributes: attributes,
+          ownsTraceContext: true,
+        ),
+      );
     });
   }
 
   /// The fling's exit direction — the velocity vector, not the down-to-up
   /// delta, so a flick back over its own start still reads as the way it left.
-  String _directionOf(Offset velocity) => velocity.dx.abs() >= velocity.dy.abs()
-      ? (velocity.dx > 0 ? 'right' : 'left')
-      : (velocity.dy > 0 ? 'down' : 'up');
+  String _directionOf(Offset velocity) =>
+      velocity.dx.abs() >= velocity.dy.abs()
+          ? (velocity.dx > 0 ? 'right' : 'left')
+          : (velocity.dy > 0 ? 'down' : 'up');
 }

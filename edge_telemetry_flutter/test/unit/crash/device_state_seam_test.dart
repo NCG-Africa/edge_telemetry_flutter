@@ -67,25 +67,33 @@ void main() {
     expect(state.values, isNot(contains('unknown')));
   });
 
-  test('a native read that throws degrades to empty, not to an app error',
-      () async {
-    messenger.setMockMethodCallHandler(
-        channel, (call) async => throw PlatformException(code: 'READ_FAILED'));
-    expect(await NativeCrashChannel().readDeviceState(), isEmpty);
-  });
+  test(
+    'a native read that throws degrades to empty, not to an app error',
+    () async {
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => throw PlatformException(code: 'READ_FAILED'),
+      );
+      expect(await NativeCrashChannel().readDeviceState(), isEmpty);
+    },
+  );
 
-  test('the thermal vocabulary is the normalised string, not an ordinal',
-      () async {
-    // Android's 2 is MODERATE and iOS's 2 is serious — the ordinal means two
-    // different things across the family, so only the name crosses the wire.
-    for (final name in ['nominal', 'fair', 'serious', 'critical']) {
-      messenger.setMockMethodCallHandler(channel,
-          (call) async => <String, dynamic>{'device.thermal_state': name});
-      final state = await NativeCrashChannel().readDeviceState();
-      expect(state['device.thermal_state'], name);
-      expect(int.tryParse(state['device.thermal_state']!), isNull);
-    }
-  });
+  test(
+    'the thermal vocabulary is the normalised string, not an ordinal',
+    () async {
+      // Android's 2 is MODERATE and iOS's 2 is serious — the ordinal means two
+      // different things across the family, so only the name crosses the wire.
+      for (final name in ['nominal', 'fair', 'serious', 'critical']) {
+        messenger.setMockMethodCallHandler(
+          channel,
+          (call) async => <String, dynamic>{'device.thermal_state': name},
+        );
+        final state = await NativeCrashChannel().readDeviceState();
+        expect(state['device.thermal_state'], name);
+        expect(int.tryParse(state['device.thermal_state']!), isNull);
+      }
+    },
+  );
 
   test('no cache: each call reads again', () async {
     var calls = 0;

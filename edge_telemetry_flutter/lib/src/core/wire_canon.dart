@@ -89,9 +89,10 @@ const Set<String> kAmbientTraceAttributes = {
 };
 
 /// Whether a batched item of [type] (`event`/`metric`) named [name] is canon.
-bool isCanonWireItem(String type, String name) => type == 'metric'
-    ? kCanonMetrics.contains(name)
-    : kCanonEvents.contains(name);
+bool isCanonWireItem(String type, String name) =>
+    type == 'metric'
+        ? kCanonMetrics.contains(name)
+        : kCanonEvents.contains(name);
 
 /// The one wire envelope (`telemetry_batch`). Both rails send this shape — the
 /// batched flush and the one-item immediate crash — so a payload the queue
@@ -108,15 +109,14 @@ bool isCanonWireItem(String type, String name) => type == 'metric'
 Map<String, dynamic> telemetryBatch(
   List<Map<String, dynamic>> items, {
   Map<String, String> context = const {},
-}) =>
-    {
-      'type': 'telemetry_batch',
-      'timestamp': DateTime.now().toIso8601String(),
-      'batch_size': items.length,
-      if (recordedClockSkewMs != null) 'clock_skew_ms': recordedClockSkewMs,
-      if (context.isNotEmpty) 'context': context,
-      'events': items,
-    };
+}) => {
+  'type': 'telemetry_batch',
+  'timestamp': DateTime.now().toIso8601String(),
+  'batch_size': items.length,
+  if (recordedClockSkewMs != null) 'clock_skew_ms': recordedClockSkewMs,
+  if (context.isNotEmpty) 'context': context,
+  'events': items,
+};
 
 // ==================== BATCH CONTEXT HOIST (#82) ====================
 

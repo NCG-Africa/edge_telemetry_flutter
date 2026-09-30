@@ -29,9 +29,9 @@ class _RecordingSender {
   /// Wire items, unwrapped from their `telemetry_batch` envelope. Since #81
   /// both rails envelope — the immediate crash as a one-item batch.
   List<Map<String, dynamic>> get items => [
-        for (final p in sent)
-          ...?(p['events'] as List?)?.cast<Map<String, dynamic>>()
-      ];
+    for (final p in sent)
+      ...?(p['events'] as List?)?.cast<Map<String, dynamic>>(),
+  ];
   Future<bool> call(Map<String, dynamic> payload) async {
     sent.add(payload);
     return true;
@@ -54,8 +54,10 @@ class _FakeQueue extends OfflineQueue {
   Future<void> initialize() async {}
 
   @override
-  Future<String?> persist(Map<String, dynamic> payload,
-      {bool isCrash = false}) async {
+  Future<String?> persist(
+    Map<String, dynamic> payload, {
+    bool isCrash = false,
+  }) async {
     persisted.add(payload);
     pending.add(payload);
     return 'fake_${persisted.length}.json';
@@ -63,7 +65,8 @@ class _FakeQueue extends OfflineQueue {
 
   @override
   Future<int> drain(
-      Future<DrainResult> Function(Map<String, dynamic>) send) async {
+    Future<DrainResult> Function(Map<String, dynamic>) send,
+  ) async {
     var count = 0;
     for (final payload in List.of(pending)) {
       if (await send(payload) == DrainResult.done) {
@@ -94,61 +97,74 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('Seam 1 — EdgeTelemetry.fromWiring injects a faked stack', () {
-    test('facade.trackEvent delegates through the injected collector→transport',
-        () async {
-      final sender = _RecordingSender();
-      final session = SessionManager();
-      await session.startSession('session_test');
-      final context = ContextManager(
-          sessionManager: session, global: {'device.id': 'device_x'});
-      final queue = _FakeQueue();
-      final transport = RetryTransport(
-          endpoint: _config.endpoint, queue: queue, sender: sender.call);
-      final pipeline = Pipeline(transport: transport, batchSize: 1);
-      final collector =
-          Collector(context: context, session: session, pipeline: pipeline);
-      final wiring = TelemetryWiring(
-        config: _config,
-        session: session,
-        context: context,
-        trace: TraceManager(session: session),
-        breadcrumbs: BreadcrumbManager(),
-        crashReporting: const CrashReporting(),
-        queue: queue,
-        transport: transport,
-        pipeline: pipeline,
-        collector: collector,
-        disposers: const [],
-      );
+    test(
+      'facade.trackEvent delegates through the injected collector→transport',
+      () async {
+        final sender = _RecordingSender();
+        final session = SessionManager();
+        await session.startSession('session_test');
+        final context = ContextManager(
+          sessionManager: session,
+          global: {'device.id': 'device_x'},
+        );
+        final queue = _FakeQueue();
+        final transport = RetryTransport(
+          endpoint: _config.endpoint,
+          queue: queue,
+          sender: sender.call,
+        );
+        final pipeline = Pipeline(transport: transport, batchSize: 1);
+        final collector = Collector(
+          context: context,
+          session: session,
+          pipeline: pipeline,
+        );
+        final wiring = TelemetryWiring(
+          config: _config,
+          session: session,
+          context: context,
+          trace: TraceManager(session: session),
+          breadcrumbs: BreadcrumbManager(),
+          crashReporting: const CrashReporting(),
+          queue: queue,
+          transport: transport,
+          pipeline: pipeline,
+          collector: collector,
+          disposers: const [],
+        );
 
-      final telemetry = EdgeTelemetry.fromWiring(wiring);
-      telemetry.trackEvent('demo.click', attributes: {'button': 'x'});
-      await Future<void>(() {});
+        final telemetry = EdgeTelemetry.fromWiring(wiring);
+        telemetry.trackEvent('demo.click', attributes: {'button': 'x'});
+        await Future<void>(() {});
 
-      expect(sender.sent, hasLength(1));
-      final batch = sender.sent.single;
-      expect(batch['type'], 'telemetry_batch');
-      final events = batch['events'] as List;
-      // Host names wrap into custom_event with event.name carrying the name.
-      expect(events.single['eventName'], 'custom_event');
-      final attrs = events.single['attributes'] as Map;
-      expect(attrs['event.name'], 'demo.click');
-      expect(attrs['button'], 'x');
-      expect(attrs['device.id'], 'device_x');
-    });
+        expect(sender.sent, hasLength(1));
+        final batch = sender.sent.single;
+        expect(batch['type'], 'telemetry_batch');
+        final events = batch['events'] as List;
+        // Host names wrap into custom_event with event.name carrying the name.
+        expect(events.single['eventName'], 'custom_event');
+        final attrs = events.single['attributes'] as Map;
+        expect(attrs['event.name'], 'demo.click');
+        expect(attrs['button'], 'x');
+        expect(attrs['device.id'], 'device_x');
+      },
+    );
   });
 
   group('Seam 2 — EventSink injected into a CaptureHook', () {
     test('NavCaptureHook emits navigation to a fake sink', () {
       final sink = _FakeSink();
       final hook = NavCaptureHook(
-          session: SessionManager(), breadcrumbs: BreadcrumbManager());
+        session: SessionManager(),
+        breadcrumbs: BreadcrumbManager(),
+      );
       hook.start(sink);
 
       hook.observer!.didPush(
         MaterialPageRoute<void>(
-            builder: (_) => const SizedBox(),
-            settings: const RouteSettings(name: '/home')),
+          builder: (_) => const SizedBox(),
+          settings: const RouteSettings(name: '/home'),
+        ),
         null,
       );
 
@@ -184,7 +200,10 @@ void main() {
     test('batched enqueue builds the telemetry batch envelope', () async {
       final sender = _RecordingSender();
       final transport = RetryTransport(
-          endpoint: _config.endpoint, queue: _FakeQueue(), sender: sender.call);
+        endpoint: _config.endpoint,
+        queue: _FakeQueue(),
+        sender: sender.call,
+      );
       final pipeline = Pipeline(transport: transport, batchSize: 2);
 
       pipeline.enqueue({'type': 'event', 'eventName': 'a'});
@@ -202,7 +221,10 @@ void main() {
     test('sendNow bypasses the batch (immediate path)', () async {
       final sender = _RecordingSender();
       final transport = RetryTransport(
-          endpoint: _config.endpoint, queue: _FakeQueue(), sender: sender.call);
+        endpoint: _config.endpoint,
+        queue: _FakeQueue(),
+        sender: sender.call,
+      );
       final pipeline = Pipeline(transport: transport, batchSize: 99);
 
       pipeline.sendNow({'type': 'error', 'error': 'boom'});
@@ -218,55 +240,73 @@ void main() {
   });
 
   group('Seam 5 — Collector sample gate + session.sampled', () {
-    test('sampled-out drops batched events but keeps immediate crashes',
-        () async {
-      final sender = _RecordingSender();
-      final session = SessionManager();
-      await session.startSession('session_s');
-      final context = ContextManager(sessionManager: session);
-      context.setGlobalAttribute('session.sampled', 'false');
-      final transport = RetryTransport(
-          endpoint: _config.endpoint, queue: _FakeQueue(), sender: sender.call);
-      final pipeline = Pipeline(transport: transport, batchSize: 1);
-      final collector =
-          Collector(context: context, session: session, pipeline: pipeline);
+    test(
+      'sampled-out drops batched events but keeps immediate crashes',
+      () async {
+        final sender = _RecordingSender();
+        final session = SessionManager();
+        await session.startSession('session_s');
+        final context = ContextManager(sessionManager: session);
+        context.setGlobalAttribute('session.sampled', 'false');
+        final transport = RetryTransport(
+          endpoint: _config.endpoint,
+          queue: _FakeQueue(),
+          sender: sender.call,
+        );
+        final pipeline = Pipeline(transport: transport, batchSize: 1);
+        final collector = Collector(
+          context: context,
+          session: session,
+          pipeline: pipeline,
+        );
 
-      // A canon event (passes the allowlist) so the drop is purely sampling.
-      collector.add(const EdgeEvent.event('navigation'));
-      await Future<void>(() {});
-      expect(sender.sent, isEmpty); // subject-to-sample event dropped
+        // A canon event (passes the allowlist) so the drop is purely sampling.
+        collector.add(const EdgeEvent.event('navigation'));
+        await Future<void>(() {});
+        expect(sender.sent, isEmpty); // subject-to-sample event dropped
 
-      // Batched-but-bypass: identity mutation lands (in a batch) when sampled out.
-      collector.add(
-          const EdgeEvent.event('user.profile.update', bypassSampling: true));
-      await Future<void>(() {});
-      expect(sender.sent, hasLength(1));
-      expect(sender.sent.single['type'], 'telemetry_batch');
-      expect((sender.sent.single['events'] as List).single['eventName'],
-          'user.profile.update');
+        // Batched-but-bypass: identity mutation lands (in a batch) when sampled out.
+        collector.add(
+          const EdgeEvent.event('user.profile.update', bypassSampling: true),
+        );
+        await Future<void>(() {});
+        expect(sender.sent, hasLength(1));
+        expect(sender.sent.single['type'], 'telemetry_batch');
+        expect(
+          (sender.sent.single['events'] as List).single['eventName'],
+          'user.profile.update',
+        );
 
-      collector.add(EdgeEvent.error(StateError('boom')));
-      await Future<void>(() {});
-      expect(sender.sent, hasLength(2)); // crash still sent (immediate+bypass)
-      expect(sender.sent[1]['type'], 'telemetry_batch'); // enveloped (#81)
-      expect(sender.items[1]['type'], 'event'); // immediate app.crash
-      expect(sender.items[1]['eventName'], 'app.crash');
-    });
+        collector.add(EdgeEvent.error(StateError('boom')));
+        await Future<void>(() {});
+        expect(
+          sender.sent,
+          hasLength(2),
+        ); // crash still sent (immediate+bypass)
+        expect(sender.sent[1]['type'], 'telemetry_batch'); // enveloped (#81)
+        expect(sender.items[1]['type'], 'event'); // immediate app.crash
+        expect(sender.items[1]['eventName'], 'app.crash');
+      },
+    );
 
-    test('sampleRate rolled once/session → stored as session.sampled',
-        () async {
-      SharedPreferences.setMockInitialValues({});
-      // Deterministic roll: sampled-out.
-      final session = SessionManager(sampledRoll: () => false);
-      await session.startSession('session_r');
-      expect(session.getSessionAttributes()['session.sampled'], 'false');
+    test(
+      'sampleRate rolled once/session → stored as session.sampled',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        // Deterministic roll: sampled-out.
+        final session = SessionManager(sampledRoll: () => false);
+        await session.startSession('session_r');
+        expect(session.getSessionAttributes()['session.sampled'], 'false');
 
-      // Default (no roll, sampleRate 1.0) omits the flag entirely → keep-all.
-      final keepAll = SessionManager();
-      await keepAll.startSession('session_k');
-      expect(keepAll.getSessionAttributes().containsKey('session.sampled'),
-          isFalse);
-    });
+        // Default (no roll, sampleRate 1.0) omits the flag entirely → keep-all.
+        final keepAll = SessionManager();
+        await keepAll.startSession('session_k');
+        expect(
+          keepAll.getSessionAttributes().containsKey('session.sampled'),
+          isFalse,
+        );
+      },
+    );
   });
 
   group('Seam 6 — OfflineQueue injected into RetryTransport', () {
@@ -274,7 +314,10 @@ void main() {
       final queue = _FakeQueue();
       final failing = _FailingSender();
       final downTransport = RetryTransport(
-          endpoint: _config.endpoint, queue: queue, sender: failing.call);
+        endpoint: _config.endpoint,
+        queue: queue,
+        sender: failing.call,
+      );
 
       await downTransport.sendImmediate({'type': 'error', 'error': 'c1'});
       await downTransport.sendImmediate({'type': 'error', 'error': 'c2'});
@@ -283,7 +326,10 @@ void main() {
       // Reconnect: a successful batch send drains the queue FIFO.
       final recovered = _RecordingSender();
       final upTransport = RetryTransport(
-          endpoint: _config.endpoint, queue: queue, sender: recovered.call);
+        endpoint: _config.endpoint,
+        queue: queue,
+        sender: recovered.call,
+      );
       await upTransport.drainQueue();
 
       expect(queue.drainOrder.map((p) => p['error']), ['c1', 'c2']);

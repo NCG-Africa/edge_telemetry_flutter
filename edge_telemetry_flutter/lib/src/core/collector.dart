@@ -127,8 +127,10 @@ class Collector implements EventSink {
         !isCanonWireItem(event.type, event.name)) {
       session.recordDropped('off_canon');
       if (debugMode) {
-        print('🚫 Dropped off-canon ${event.type} "${event.name}" '
-            '— not on the wire allowlist (lib/src/core/wire_canon.dart)');
+        print(
+          '🚫 Dropped off-canon ${event.type} "${event.name}" '
+          '— not on the wire allowlist (lib/src/core/wire_canon.dart)',
+        );
       }
       return;
     }
@@ -143,8 +145,10 @@ class Collector implements EventSink {
     if (event.name == 'ui.interaction' && ++_actionEvents > kActionEventCap) {
       session.recordDropped('action_cap');
       if (debugMode) {
-        print('🚫 Dropped ui.interaction — past the per-session cap of '
-            '$kActionEventCap events (the root was still minted)');
+        print(
+          '🚫 Dropped ui.interaction — past the per-session cap of '
+          '$kActionEventCap events (the root was still minted)',
+        );
       }
       return;
     }
@@ -185,9 +189,11 @@ class Collector implements EventSink {
     if (event.isNonFatalCrash && !_claimErrorAllowance(event)) {
       session.recordDropped('error_cap');
       if (debugMode) {
-        print('🚫 Dropped non-fatal app.crash "${event.crashDedupKey}" — past '
-            'the per-session caps ($kErrorPerKeyCap per fault, '
-            '$kErrorSessionCap overall)');
+        print(
+          '🚫 Dropped non-fatal app.crash "${event.crashDedupKey}" — past '
+          'the per-session caps ($kErrorPerKeyCap per fault, '
+          '$kErrorSessionCap overall)',
+        );
       }
       return;
     }
@@ -216,8 +222,11 @@ class Collector implements EventSink {
     // callback over all of it would be 30 callbacks per item on the UI isolate
     // for values the SDK already controls — and, within those, split by who
     // chose them (`EdgeEvent.consumerAttributes`).
-    policy?.apply(enriched, event.attributes.keys,
-        consumerSupplied: event.consumerAttributes);
+    policy?.apply(
+      enriched,
+      event.attributes.keys,
+      consumerSupplied: event.consumerAttributes,
+    );
 
     // Crash-scoped breadcrumb attach (spec #15 §5.5): the ring rides only on
     // `app.crash`, JSON-encoded (attributes are String-valued on the wire).
@@ -226,9 +235,11 @@ class Collector implements EventSink {
     // (#90). An empty ring omits the key rather than sending `"[]"`.
     if (event.name == 'app.crash' && breadcrumbs != null) {
       final crumbs = breadcrumbs!.getBreadcrumbsAsJson(
-          limit: event.isNonFatalCrash
-              ? BreadcrumbManager.nonFatalBreadcrumbs
-              : null);
+        limit:
+            event.isNonFatalCrash
+                ? BreadcrumbManager.nonFatalBreadcrumbs
+                : null,
+      );
       if (crumbs.isNotEmpty) enriched['crash.breadcrumbs'] = jsonEncode(crumbs);
     }
 
@@ -236,22 +247,23 @@ class Collector implements EventSink {
     // describes a window that closed long before this flush.
     final timestamp = (event.occurredAt ?? DateTime.now()).toIso8601String();
 
-    final wireItem = event.type == 'metric'
-        ? {
-            'type': 'metric',
-            'metricName': event.name,
-            'value': event.value,
-            'timestamp': timestamp,
-            'attributes': enriched,
-          }
-        : {
-            // 'event' — incl. the immediate `app.crash` (unprefixed keys ride in
-            // `enriched`; there is no bare `type:"error"` item on the wire in v2).
-            'type': 'event',
-            'eventName': event.name,
-            'timestamp': timestamp,
-            'attributes': enriched,
-          };
+    final wireItem =
+        event.type == 'metric'
+            ? {
+              'type': 'metric',
+              'metricName': event.name,
+              'value': event.value,
+              'timestamp': timestamp,
+              'attributes': enriched,
+            }
+            : {
+              // 'event' — incl. the immediate `app.crash` (unprefixed keys ride in
+              // `enriched`; there is no bare `type:"error"` item on the wire in v2).
+              'type': 'event',
+              'eventName': event.name,
+              'timestamp': timestamp,
+              'attributes': enriched,
+            };
 
     // Counted here and nowhere else: this is the one place an item is known to
     // be leaving the device, so it is the only honest input to the budget.

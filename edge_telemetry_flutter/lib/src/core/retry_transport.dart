@@ -68,18 +68,19 @@ class RetryTransport {
     this.onDrop,
     HttpClient? httpClient,
     Sender? sender,
-  })  : _httpClient = httpClient ?? HttpClient(),
-        _sender = sender,
-        _url = _resolveUrl(endpoint);
+  }) : _httpClient = httpClient ?? HttpClient(),
+       _sender = sender,
+       _url = _resolveUrl(endpoint);
 
   /// The resolved POST target. Read by the HTTP capture hook to exclude the
   /// SDK's own upload **explicitly** rather than by construction order.
   Uri get resolvedUrl => _url;
 
   static Uri _resolveUrl(String endpoint) {
-    final base = endpoint.endsWith('/')
-        ? endpoint.substring(0, endpoint.length - 1)
-        : endpoint;
+    final base =
+        endpoint.endsWith('/')
+            ? endpoint.substring(0, endpoint.length - 1)
+            : endpoint;
     if (base.endsWith('/collector/telemetry')) return Uri.parse(base);
     return Uri.parse('$base/collector/telemetry');
   }
@@ -150,14 +151,14 @@ class RetryTransport {
   /// offline result teaches nothing about the payload, so it abandons the cycle
   /// rather than spending every queued file's attempt allowance on the weather.
   Future<void> drainQueue() => queue.drain((stored) async {
-        final status = await _status(rewrapIfBare(stored));
-        if (_ok(status)) return DrainResult.done;
-        if (_clientError(status)) {
-          _countDrop(status);
-          return DrainResult.done; // refused outright — stop retrying it
-        }
-        return status == 0 ? DrainResult.offline : DrainResult.failed;
-      });
+    final status = await _status(rewrapIfBare(stored));
+    if (_ok(status)) return DrainResult.done;
+    if (_clientError(status)) {
+      _countDrop(status);
+      return DrainResult.done; // refused outright — stop retrying it
+    }
+    return status == 0 ? DrainResult.offline : DrainResult.failed;
+  });
 
   bool _ok(int status) => status >= 200 && status < 300;
 
