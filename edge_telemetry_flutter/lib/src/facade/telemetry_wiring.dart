@@ -159,11 +159,12 @@ class TelemetryWiring {
     FrameCaptureHook? frameHook;
 
     // Every per-session ceiling starts a fresh allowance on rotation: the
-    // governor's item budget, the Collector's `ui.interaction` cap, the
-    // cardinality counters and the frame hook's `long_task` backstop.
+    // governor's item budget, the Collector's `ui.interaction` and non-fatal
+    // error caps, the cardinality counters and the frame hook's `long_task`
+    // backstop.
     session.onSessionStart = () {
       gate.resetBudget();
-      collector.resetActionCap();
+      collector.resetPerSessionCaps();
       policy.reset();
       frameHook?.resetForNewSession();
     };

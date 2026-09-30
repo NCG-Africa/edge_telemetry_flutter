@@ -23,6 +23,7 @@ import '../core/models/breadcrumb.dart';
 import '../core/models/generated_report.dart';
 import '../core/models/report_data.dart';
 import '../core/models/telemetry_session.dart';
+import '../crash/error_category.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
 import '../managers/identity_format.dart';
@@ -310,14 +311,19 @@ class EdgeTelemetry {
   }
 
   /// The one internal crash entry point — builds the `app.crash` event via
-  /// [CrashReporting] and hands it to the Collector's immediate rail.
+  /// [CrashReporting] and hands it to the Collector, which picks the rail from
+  /// the item's fatality (batched for a non-fatal, immediate for a fatal).
   void _emitCrash(Object error,
       {StackTrace? stackTrace,
       String? source,
-      Map<String, String>? attributes}) {
+      Map<String, String>? attributes,
+      ErrorCategory? category}) {
     if (_wiring == null) return;
     _wiring!.collector.add(_wiring!.crashReporting.buildCrashEvent(error,
-        stackTrace: stackTrace, source: source, attributes: attributes));
+        stackTrace: stackTrace,
+        source: source,
+        attributes: attributes,
+        category: category));
   }
 
   // ==================== CORE TRACKING API ====================
@@ -450,11 +456,22 @@ class EdgeTelemetry {
     }
   }
 
-  /// Track an error or exception (immediate crash rail).
+  /// Track a handled error or exception (batch rail, never sampled away).
+  ///
+  /// [category] declares the error's taxonomy where the SDK cannot infer it:
+  /// [ErrorCategory.auth] and [ErrorCategory.business] have no platform type
+  /// that means them, so they are declared-only. Everything else is inferred
+  /// from the error's exact type, so an app that never passes [category] still
+  /// gets `network` / `timeout` / `parse` / `storage` for free — declared-only
+  /// for everything was rejected on the measured finding that consumers do not
+  /// call helpers.
   void trackError(Object error,
-      {StackTrace? stackTrace, Map<String, String>? attributes}) {
+      {StackTrace? stackTrace,
+      Map<String, String>? attributes,
+      ErrorCategory? category}) {
     _ensureInitialized();
-    _emitCrash(error, stackTrace: stackTrace, attributes: attributes);
+    _emitCrash(error,
+        stackTrace: stackTrace, attributes: attributes, category: category);
   }
 
   // ==================== USER PROFILE API ====================

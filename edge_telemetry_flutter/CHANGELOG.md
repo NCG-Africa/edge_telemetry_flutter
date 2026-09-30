@@ -224,6 +224,37 @@
   screen is never navigated away from, so nothing was ever there to emit it. It
   now lands on a bookend that was being sent anyway, at **zero extra items**,
   and survives a killed app through the recovery record.
+- **A non-fatal error taxonomy: `error.category` plus `error.category_source`.**
+  `network` / `timeout` / `auth` / `parse` / `storage` / `business` / `unknown`,
+  on a **new dotted key** rather than the shipped `cause` — the sibling's `cause`
+  is free text and Flutter's is an enum, both shipped, so the no-renames rule
+  keeps the taxonomy out of it. The category is inferred from the error's **exact
+  platform type — never its message**: a `TimeoutException` is `timeout`, a
+  `SocketException` or `HttpException` `network`, a `FormatException` `parse`, a
+  `FileSystemException` `storage`. A message is a string a library author rewords
+  in a patch release; a type is a compile-time fact. `auth` and `business` have no
+  platform type that means them, so they are **declared-only**, through a new
+  additive `category:` parameter on `trackError` — declared-only for *everything*
+  was rejected on the measured finding that consumers do not call helpers, so an
+  app that never passes it still gets four categories for free.
+  `error.category_source` says which it was, `inferred` or `declared` — and is
+  **omitted** where neither happened (an SDK-internal failure, a native crash),
+  rather than stamping `inferred` on a guess that never ran. A fatal carries
+  `error.category: "unknown"` so the facet covers every `app.crash` instead of
+  silently excluding the fatal half; what a fatal *is* rides `cause`.
+  **An HTTP failure emits no `app.crash` and never did** — the status code and
+  `http.error` already ride `http.request`, so auth-vs-server is a query, not a
+  second item. That invariant now has a regression test rather than only a
+  convention.
+- **`handled` on `app.crash`** — `"true"` for `trackError` and the SDK's own
+  self-diagnostics, `"false"` for the three auto-installed handlers
+  (`flutter_error`, `platform_dispatcher`, `isolate`) and every native crash. A **string**, matching the shipped `is_fatal`, rather than the
+  sibling's JSON bool: retyping a shipped key is a rename wearing a correction's
+  clothes.
+- **SDK-internal failures are tagged `crash.source: "sdk"`** and kept off
+  `session.error_count` / `session.crash_count`. Until now the SDK's own capture-
+  hook failures were indistinguishable from the host app's errors and inflated
+  the one error rate a consumer reads straight off the session bookend.
 
 - **`frame.summary` — windowed frame aggregation, at most two events per
   session.** Frames accumulate per screen segment (a window closes on a screen
@@ -353,6 +384,26 @@
   with `captureOverrides: {Capture.lifecycleTransitions: true}`. The
   lifecycle→session bridge is unchanged and unconditional — only the event is
   tiered.
+- **Non-fatal errors move from the immediate rail to the batch rail.** The
+  immediate rail exists because a fatal's process is dying; a non-fatal's process
+  lives, so the Pipeline's retries and the offline queue can deliver it instead of
+  one attempt. One error thrown from a `build()` method was **N single-attempt
+  POSTs, each carrying the whole breadcrumb ring**; it is now items in a batch.
+  A fatal — native crash, ANR, iOS hang — still POSTs immediately. **Sampling
+  bypass is kept on both**: rail and sampling are orthogonal axes, so a non-fatal
+  is batched-but-bypass, like `user.profile.update`.
+- **Per-session caps on non-fatals: 5 per exception-type-and-top-frame, 50
+  overall.** The overflow is **counted on `session.finalized`** under the
+  `error_cap` reason, not dropped silently. The dedup key is client-local and
+  never sent — there is still **no error id and no client-side fingerprint**,
+  because the server owns crash hashing in both SDKs. A fatal is exempt from both
+  caps.
+- **The breadcrumb ring grows from 20 to 50, and what a crash ships depends on its
+  fatality.** A fatal ships all 50; a non-fatal ships the newest 10. Twenty was
+  measured too small once actions are captured — ~20 taps evicted every navigation
+  and network crumb from crash triage, which is the half a stack trace does not
+  already tell you. Fifty non-fatals × 50 crumbs would be ~110 KB against a 120 KB
+  session ceiling, which is why the non-fatal slice exists.
 - **`trackEvent` / `trackMetric` take `Map<String, Object?>?`** instead of
   `dynamic`. Values are stringified as before, so `{'count': 3, 'ok': true}`
   keeps compiling and the bytes on the wire are unchanged. The `toJson()`

@@ -7,6 +7,7 @@ export 'src/facade/edge_telemetry.dart' show EdgeTelemetry;
 export 'src/core/config/telemetry_config.dart' show TelemetryConfig;
 export 'src/core/config/collection_tier.dart' show CollectionTier, Capture;
 export 'src/core/models/breadcrumb.dart' show Breadcrumb, BreadcrumbLevel;
+export 'src/crash/error_category.dart' show ErrorCategory;
 export 'src/core/models/generated_report.dart';
 export 'src/core/models/report_data.dart';
 export 'src/core/models/telemetry_session.dart';
