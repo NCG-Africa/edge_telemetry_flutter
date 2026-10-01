@@ -1,5 +1,7 @@
 // lib/src/facade/telemetry_wiring.dart
 
+import 'package:flutter/foundation.dart';
+
 import '../capture/action_capture_hook.dart';
 import '../capture/capture_hook.dart';
 import '../capture/frame_capture_hook.dart';
@@ -77,6 +79,15 @@ class TelemetryWiring {
   /// consumer's own choice rather than a silent failure.
   final ScreenLoadHook? screenLoadHook;
 
+  /// Held for the same reason as the five above. Nothing in `lib/` reads it —
+  /// the release gate (#94) does, so it can drive the graph `build` actually
+  /// assembles instead of a parallel one it wires itself; a gate that builds
+  /// its own hooks asserts its own arithmetic. Frames are the one signal with
+  /// no other way in: the timings callback needs an engine, and `flutter_test`
+  /// has none. Lifecycle is deliberately **not** here — that hook is a
+  /// `WidgetsBindingObserver`, so the binding already offers the real path.
+  final FrameCaptureHook? frameHook;
+
   TelemetryWiring({
     required this.config,
     required this.session,
@@ -97,6 +108,7 @@ class TelemetryWiring {
     this.networkHook,
     this.screenLoadHook,
     this.memoryBookend,
+    this.frameHook,
   }) : _disposers = disposers,
        gate = gate ?? CaptureGate(config),
        policy = policy ?? AttributePolicy(redact: config.redactAttribute),
@@ -111,6 +123,7 @@ class TelemetryWiring {
     required ContextManager context,
     required TraceManager trace,
     required BreadcrumbManager breadcrumbs,
+    @visibleForTesting Sender? sender,
   }) async {
     // Resolve the collection surface once: overrides → deprecated booleans →
     // tier default. Every shed the governor makes lands on the session's
@@ -142,6 +155,12 @@ class TelemetryWiring {
       queue: queue,
       debugMode: config.debugMode,
       onDrop: session.recordDropped,
+      // The one test seam on the assembled graph (#94). The release gate has to
+      // drive the real `build` — a gate that wires its own hooks asserts its
+      // own arithmetic — and it has to see the payloads without a socket: it
+      // runs under `testWidgets`, which is fake async, where a real POST never
+      // completes.
+      sender: sender,
     );
     // Drain any crashes persisted on a previous launch (drain-on-startup).
     await transport.drainQueue();
@@ -331,6 +350,7 @@ class TelemetryWiring {
       networkHook: networkHook,
       screenLoadHook: screenLoadHook,
       memoryBookend: memoryBookend,
+      frameHook: frameHook,
       nativeCrash: nativeCrash,
     );
   }
