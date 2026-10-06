@@ -11,5 +11,3 @@ jobs:
     permissions:
       id-token: write # required for OIDC auth to pub.dev (no secret token needed)
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: edge_telemetry_flutter
