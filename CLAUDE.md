@@ -11,9 +11,6 @@ captured with a single `EdgeTelemetry.initialize()` call plus one `navigationObs
 
 Domain vocabulary lives in [`CONTEXT.md`](CONTEXT.md) — read it before naming anything new.
 
-Note: the git repo root is the **parent** directory; this package lives in `edge_telemetry_flutter/`.
-Sibling dirs (`bomayetu/`, `tiifu/`, `edge_telemetry_android/`) are unrelated projects.
-
 ## Commands
 
 ```bash
