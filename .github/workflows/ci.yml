@@ -6,10 +6,6 @@ on:
   push:
     branches: [master]
 
-defaults:
-  run:
-    working-directory: edge_telemetry_flutter
-
 jobs:
   test:
     runs-on: ubuntu-latest
