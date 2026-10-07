@@ -4,6 +4,11 @@ version: 3.0.0
 homepage: https://github.com/NCG-Africa/edge_telemetry_flutter
 repository: https://github.com/NCG-Africa/edge_telemetry_flutter
 
+# Self-signed localhost key for the TLS seam test (test/fixtures/tls/README.md),
+# not a credential. pub flags any PEM private key as a leak.
+false_secrets:
+  - /test/fixtures/tls/localhost_key.pem
+
 # The declared floor is the TRUE floor (#93). v2 claimed Dart 3.0 / Flutter 3.0
 # while `device_info_plus` already demanded Dart 3.7 / Flutter 3.29 — so pub
 # resolved this package onto projects that then failed to build. Raising the
