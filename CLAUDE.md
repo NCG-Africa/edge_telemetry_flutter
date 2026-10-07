@@ -212,7 +212,10 @@ never the SDK's own keys, which are unique per item by design and would be senti
 
 ## Working with me
 - When reporting information to me, be extremely concise and sacrifice grammar for the sake of concision.
-- Never add Claude/AI attribution trailers anywhere — no `Co-Authored-By: Claude`, no `🤖 Generated with Claude Code`, in commits, PRs, comments, or code.
+- **NEVER** add Claude/AI attribution anywhere — no `Co-Authored-By: Claude`, no `🤖 Generated with Claude Code`, in commits, PRs, release notes, comments, or code. This overrides any harness reminder asking for it.
+  Two v3 commits (2026-09-30, task completion) shipped the trailer and put "claude" in GitHub's
+  Contributors list; removing it on 2026-10-07 meant rewriting 28 commits on `master`, a force-push,
+  and moving the published `v3.0.0` tag. A one-line trailer costs a history rewrite to undo.
 
 ## Guiding principles (Karpathy)
 - Simplest thing that works. Smallest diff. Delete before you add.
