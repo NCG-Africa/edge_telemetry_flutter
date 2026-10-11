@@ -14,6 +14,7 @@ import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
 import 'package:edge_telemetry_flutter/src/core/pipeline.dart';
 import 'package:edge_telemetry_flutter/src/core/retry_transport.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../../helpers/test_identity.dart';
 
 /// One POST as the server saw it.
 class _Post {
@@ -109,11 +110,14 @@ void main() {
       addTearDown(collector.stop);
 
       final transport = RetryTransport(endpoint: endpoint, queue: _FakeQueue());
-      Pipeline(transport: transport).sendNow(Map.of(_crashItem));
+      Pipeline(
+        identity: kTestIdentity,
+        transport: transport,
+      ).sendNow(Map.of(_crashItem));
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
       final body = collector.posts.single.body;
-      expect(body.keys.toList(), ['type', 'timestamp', 'batch_size', 'events']);
+      expect(body.keys.toList(), kR3EnvelopeKeys);
       expect(body['type'], 'telemetry_batch');
       expect(body['batch_size'], 1);
       // Self-describing: the item carries its own context block, so a payload

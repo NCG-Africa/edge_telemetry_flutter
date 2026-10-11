@@ -19,6 +19,7 @@ import '../core/collector.dart';
 import '../core/offline_queue.dart';
 import '../core/pipeline.dart';
 import '../core/retry_transport.dart';
+import '../core/wire_canon.dart';
 import '../core/config/collection_tier.dart';
 import '../core/config/telemetry_config.dart';
 import '../crash/crash_reporting.dart';
@@ -123,6 +124,7 @@ class TelemetryWiring {
     required ContextManager context,
     required TraceManager trace,
     required BreadcrumbManager breadcrumbs,
+    required BatchIdentity identity,
     @visibleForTesting Sender? sender,
   }) async {
     // Resolve the collection surface once: overrides → deprecated booleans →
@@ -167,6 +169,7 @@ class TelemetryWiring {
 
     final pipeline = Pipeline(
       transport: transport,
+      identity: identity,
       batchSize: config.batchSize,
       flushInterval: Duration(milliseconds: config.flushIntervalMs),
       debugMode: config.debugMode,

@@ -106,6 +106,8 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../helpers/test_identity.dart';
+
 // ---------------------------------------------------------------------------
 // The published ceilings (#49 §3, restated in the spec's Testing Decisions).
 // ---------------------------------------------------------------------------
@@ -343,6 +345,7 @@ void main() {
             context: context,
             trace: trace,
             breadcrumbs: breadcrumbs,
+            identity: kTestIdentity,
             sender: recorder.call,
           ),
         ))!;

@@ -13,6 +13,10 @@ import 'wire_canon.dart';
 /// transport.
 class Pipeline {
   final RetryTransport transport;
+
+  /// The envelope identity every batch carries (R1). Required: an envelope
+  /// without `device_id` is a collector 400 (C6).
+  final BatchIdentity identity;
   final int batchSize;
   final Duration flushInterval;
   final bool debugMode;
@@ -22,6 +26,7 @@ class Pipeline {
 
   Pipeline({
     required this.transport,
+    required this.identity,
     int batchSize = 30,
     this.flushInterval = const Duration(seconds: 5),
     this.debugMode = false,
@@ -49,7 +54,7 @@ class Pipeline {
   /// Enveloped as a one-item `telemetry_batch` — the collector rejects a bare
   /// item with a 400, which is why no crash was ever delivered in v2.
   void sendNow(Map<String, dynamic> item) {
-    transport.sendImmediate(telemetryBatch([item]));
+    transport.sendImmediate(telemetryBatch([item], identity));
   }
 
   /// Force-send any buffered events (call on shutdown).
@@ -59,7 +64,9 @@ class Pipeline {
 
   void _flush() {
     if (_buffer.isEmpty) return;
-    transport.send(telemetryBatch(List<Map<String, dynamic>>.from(_buffer)));
+    transport.send(
+      telemetryBatch(List<Map<String, dynamic>>.from(_buffer), identity),
+    );
     if (debugMode) print('📤 Sent batch of ${_buffer.length} events');
     _buffer.clear();
     _timer?.cancel();

@@ -26,6 +26,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 const _config = TelemetryConfig(
   serviceName: 'test',
@@ -82,6 +83,7 @@ class _Rig {
       global: {'device.id': 'device_1'},
     );
     pipeline = Pipeline(
+      identity: kTestIdentity,
       transport: RetryTransport(
         endpoint: config.endpoint,
         queue: _NoopQueue(),

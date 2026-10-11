@@ -16,6 +16,7 @@ import 'package:edge_telemetry_flutter/src/managers/context_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -172,7 +173,11 @@ void main() {
       );
       // batchSize huge → a batched event would NOT flush; only the immediate
       // rail can produce a send here.
-      final pipeline = Pipeline(transport: transport, batchSize: 999);
+      final pipeline = Pipeline(
+        identity: kTestIdentity,
+        transport: transport,
+        batchSize: 999,
+      );
       final collector = Collector(
         context: context,
         session: session,

@@ -10,6 +10,8 @@
 // `Collector.add`, which logs under `debugMode` and bumps a session-scoped
 // dropped-item counter that ships on `session.finalized`.
 
+import 'sdk_version.dart';
+
 /// The 16 canon event names (§2). `app.crash` takes **either** rail — a fatal
 /// goes immediate and skips this gate, a non-fatal batches and passes it (#90) —
 /// so its presence on this list is load-bearing, not completeness.
@@ -92,24 +94,72 @@ bool isCanonWireItem(String type, String name) =>
         ? kCanonMetrics.contains(name)
         : kCanonEvents.contains(name);
 
-/// The one wire envelope (`telemetry_batch`). Both rails send this shape — the
-/// batched flush and the one-item immediate crash — so a payload the queue
-/// stored verbatim and drained days later is still self-describing: the item
-/// carries its own context snapshot in `attributes`, and the envelope names it.
+/// The batch contract version (R11): one semver shared by every SDK in the
+/// family, so it is **not** [kSdkVersion]. Minor = additive, major = breaking.
+const String kContractVersion = '4.0.0';
+
+/// Who sent a batch (R1, R9): the root `device_id` and the `app` block.
+/// Captured once at init — never read from the mutable global bag, so a
+/// consumer global cannot override it.
+typedef BatchIdentity = ({String deviceId, Map<String, String> app});
+
+/// The envelope `app` block (R3), in canon key order. An empty or null [name],
+/// [version] or [buildNumber] is **omitted**, never sent as `""` (R15) — the
+/// processor stores `'unknown'` for a missing one.
+Map<String, String> appIdentity({
+  String? name,
+  required String packageName,
+  required String platform,
+  String? version,
+  String? buildNumber,
+}) => {
+  if (name != null && name.isNotEmpty) 'name': name,
+  'package_name': packageName,
+  'platform': platform,
+  if (version != null && version.isNotEmpty) 'version': version,
+  if (buildNumber != null && buildNumber.isNotEmpty)
+    'build_number': buildNumber,
+};
+
+/// UTC RFC 3339 with a `Z` (R13). Local time with no offset — what v3 sent —
+/// skews the server's `received_at − timestamp` by the device's time zone.
+String utcNow() => DateTime.now().toUtc().toIso8601String();
+
+/// The one wire envelope, contract 4.0.0 (R3). Both rails send this shape —
+/// the batched flush and the one-item immediate crash.
 ///
-/// Field order is part of the canon (`type`/`timestamp`/`batch_size`/`events`).
-/// There is no `context` block and no `clock_skew_ms` (contract 4.0.0 R5, R6):
-/// context rides each item's `attributes`, and skew is derived server-side as
-/// `received_at − timestamp`.
-Map<String, dynamic> telemetryBatch(List<Map<String, dynamic>> items) => {
+/// Closed at exactly these eight keys, in this order. There is no `context`
+/// block and no `clock_skew_ms` (R5, R6): context rides each item's
+/// `attributes`, and skew is derived server-side as `received_at − timestamp`.
+/// Identity lives here and only here (R1); the Collector strips per-item
+/// copies.
+Map<String, dynamic> telemetryBatch(
+  List<Map<String, dynamic>> items,
+  BatchIdentity identity,
+) => {
   'type': 'telemetry_batch',
-  'timestamp': DateTime.now().toIso8601String(),
+  'contract_version': kContractVersion,
+  'timestamp': utcNow(),
   'batch_size': items.length,
+  'device_id': identity.deviceId,
+  'sdk': const {'name': 'flutter', 'version': kSdkVersion},
+  'app': identity.app,
   'events': items,
 };
 
 /// A payload stored before the immediate rail was enveloped (v2.0.0 → v3) is a
 /// bare wire item. Re-wrap it at drain so the crash backlog becomes deliverable
 /// at the moment the envelope fix ships.
+///
+/// The bare item still carries its own per-event identity, so it is wrapped as
+/// a **legacy** envelope (no `contract_version`), which the processor
+/// normalizes from per-event attributes.
 Map<String, dynamic> rewrapIfBare(Map<String, dynamic> stored) =>
-    stored['type'] == 'telemetry_batch' ? stored : telemetryBatch([stored]);
+    stored['type'] == 'telemetry_batch'
+        ? stored
+        : {
+          'type': 'telemetry_batch',
+          'timestamp': stored['timestamp'] ?? utcNow(),
+          'batch_size': 1,
+          'events': [stored],
+        };

@@ -21,6 +21,7 @@ import 'package:edge_telemetry_flutter/src/managers/trace_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 /// Records every payload that would go on the wire.
 class _RecordingSender {
@@ -113,7 +114,11 @@ void main() {
           queue: queue,
           sender: sender.call,
         );
-        final pipeline = Pipeline(transport: transport, batchSize: 1);
+        final pipeline = Pipeline(
+          identity: kTestIdentity,
+          transport: transport,
+          batchSize: 1,
+        );
         final collector = Collector(
           context: context,
           session: session,
@@ -204,7 +209,11 @@ void main() {
         queue: _FakeQueue(),
         sender: sender.call,
       );
-      final pipeline = Pipeline(transport: transport, batchSize: 2);
+      final pipeline = Pipeline(
+        identity: kTestIdentity,
+        transport: transport,
+        batchSize: 2,
+      );
 
       pipeline.enqueue({'type': 'event', 'eventName': 'a'});
       expect(sender.sent, isEmpty); // buffered, not yet flushed
@@ -225,7 +234,11 @@ void main() {
         queue: _FakeQueue(),
         sender: sender.call,
       );
-      final pipeline = Pipeline(transport: transport, batchSize: 99);
+      final pipeline = Pipeline(
+        identity: kTestIdentity,
+        transport: transport,
+        batchSize: 99,
+      );
 
       pipeline.sendNow({'type': 'error', 'error': 'boom'});
       await Future<void>(() {});
@@ -253,7 +266,11 @@ void main() {
           queue: _FakeQueue(),
           sender: sender.call,
         );
-        final pipeline = Pipeline(transport: transport, batchSize: 1);
+        final pipeline = Pipeline(
+          identity: kTestIdentity,
+          transport: transport,
+          batchSize: 1,
+        );
         final collector = Collector(
           context: context,
           session: session,

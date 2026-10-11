@@ -1,8 +1,21 @@
 {
-  "_comment": "Golden canon batch shape (eventname-envelope-mapping.md §1/§2/§4). Volatile timestamps are '<TS>'; session.*/network.* attrs are normalized out before comparison (they are #9's concern, not the wire-flip canon). sdk.http_seam_state is canon on every item; its value is '<SEAM>' because which seams are live is a property of the process, not of the wire.",
+  "_comment": "Golden contract 4.0.0 batch (R3). Volatile timestamps are '<TS>'; sdk.version is '<SDK>' (it is kSdkVersion, asserted elsewhere); session.*/network.* attrs are normalized out before comparison (they are #9's concern, not the wire canon). sdk.http_seam_state is canon on every item; its value is '<SEAM>' because which seams are live is a property of the process, not of the wire.",
   "type": "telemetry_batch",
+  "contract_version": "4.0.0",
   "timestamp": "<TS>",
   "batch_size": 2,
+  "device_id": "device_abc",
+  "sdk": {
+    "name": "flutter",
+    "version": "<SDK>"
+  },
+  "app": {
+    "name": "Test App",
+    "package_name": "com.example.test",
+    "platform": "android",
+    "version": "1.0.0",
+    "build_number": "1"
+  },
   "events": [
     {
       "type": "event",

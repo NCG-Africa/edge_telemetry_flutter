@@ -21,6 +21,7 @@ import 'package:edge_telemetry_flutter/src/managers/trace_manager.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -71,6 +72,7 @@ class _Rig {
       global: {'device.id': 'device_1', 'user.id': 'user_1'},
     );
     pipeline = Pipeline(
+      identity: kTestIdentity,
       transport: RetryTransport(
         endpoint: 'https://example.test',
         queue: _NoopQueue(),

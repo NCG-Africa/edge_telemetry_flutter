@@ -15,6 +15,7 @@ import 'package:edge_telemetry_flutter/src/managers/context_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -65,6 +66,7 @@ void main() {
       global: {'device.id': 'd_1'},
     );
     final pipeline = Pipeline(
+      identity: kTestIdentity,
       transport: RetryTransport(
         endpoint: 'https://api.example.test',
         queue: _NoopQueue(),

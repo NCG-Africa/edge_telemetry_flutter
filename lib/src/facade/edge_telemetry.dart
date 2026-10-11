@@ -23,6 +23,7 @@ import '../core/models/breadcrumb.dart';
 import '../core/models/generated_report.dart';
 import '../core/models/report_data.dart';
 import '../core/models/telemetry_session.dart';
+import '../core/wire_canon.dart';
 import '../crash/error_category.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
@@ -181,6 +182,9 @@ class EdgeTelemetry {
       // Device + app info → global context bag.
       _deviceInfoCollector = FlutterDeviceInfoCollector();
       _globalAttributes = await _deviceInfoCollector!.collectDeviceInfo();
+      // The envelope identity (R1), taken *before* the consumer's globals merge
+      // so a global named `app.*` can never override it.
+      final identity = _batchIdentity(_globalAttributes);
       _globalAttributes.addAll(config.globalAttributes);
       _globalAttributes['user.id'] = _currentUserId!;
 
@@ -209,6 +213,7 @@ class EdgeTelemetry {
         context: context,
         trace: trace,
         breadcrumbs: breadcrumbs,
+        identity: identity,
       );
 
       await _sessionManager!.recoverAndStart();
@@ -268,6 +273,20 @@ class EdgeTelemetry {
       rethrow;
     }
   }
+
+  /// The envelope identity from the collected device info. Read once at init;
+  /// the bag keeps its own `app.*` / `device.id` copies for local reporting,
+  /// and the Collector strips them from every wire item.
+  static BatchIdentity _batchIdentity(Map<String, String> info) => (
+    deviceId: info['device.id']!,
+    app: appIdentity(
+      name: info['app.name'],
+      packageName: info['app.package_name'] ?? '',
+      platform: platformTag(),
+      version: info['app.version'],
+      buildNumber: info['app.build_number'],
+    ),
+  );
 
   /// Pull native crashes surfaced by the OS since last launch, once on init,
   /// and route each into the immediate `app.crash` rail (spec #15 Phase 4, #29).

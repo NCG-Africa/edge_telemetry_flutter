@@ -27,6 +27,7 @@ import 'package:edge_telemetry_flutter/src/managers/trace_manager.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 /// Collects EdgeEvents a capture hook emits — nothing reaches it unless the
 /// hook actually built an attribute map.
@@ -286,6 +287,7 @@ void main() {
         context: ContextManager(sessionManager: session, global: const {}),
         trace: TraceManager(session: session),
         breadcrumbs: BreadcrumbManager(),
+        identity: kTestIdentity,
       ).then((wiring) {
         expect(HttpOverrides.current, isNull);
         expect(wiring.navigationObserver, isNull);
@@ -376,7 +378,11 @@ void main() {
         queue: _NoopQueue(),
         sender: sender.call,
       );
-      pipeline = Pipeline(transport: transport, batchSize: 1);
+      pipeline = Pipeline(
+        identity: kTestIdentity,
+        transport: transport,
+        batchSize: 1,
+      );
       // Diagnostic members opted in, so a shed of them is a real shed: a
       // capture the consumer never enabled is not dropped, it was never on.
       gate = CaptureGate(

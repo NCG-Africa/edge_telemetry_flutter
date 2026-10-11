@@ -13,10 +13,14 @@ import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
 import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
 import 'package:edge_telemetry_flutter/src/core/pipeline.dart';
 import 'package:edge_telemetry_flutter/src/core/retry_transport.dart';
+import 'package:edge_telemetry_flutter/src/core/sdk_version.dart';
+import 'package:edge_telemetry_flutter/src/core/wire_canon.dart';
 import 'package:edge_telemetry_flutter/src/managers/context_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../helpers/test_identity.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -61,7 +65,11 @@ Future<(Collector, _RecordingSender)> _wire({
     queue: _NoopQueue(),
     sender: realHttp ? null : sender.call,
   );
-  final pipeline = Pipeline(transport: transport, batchSize: flushAt);
+  final pipeline = Pipeline(
+    transport: transport,
+    identity: kTestIdentity,
+    batchSize: flushAt,
+  );
   final collector = Collector(
     context: context,
     session: session,
@@ -77,6 +85,7 @@ Future<(Collector, _RecordingSender)> _wire({
 Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
   ...batch,
   'timestamp': '<TS>',
+  'sdk': {...batch['sdk'] as Map, 'version': '<SDK>'},
   'events':
       (batch['events'] as List).map((e) {
         final ev = Map<String, dynamic>.from(e as Map);
@@ -123,14 +132,14 @@ void main() {
 
       expect(sender.sent, hasLength(1));
       final batch = sender.sent.single;
-      expect(batch.keys.toList(), [
-        'type',
-        'timestamp',
-        'batch_size',
-        'events',
-      ]);
+      // Exactly the R3 eight, in canon order.
+      expect(batch.keys.toList(), kR3EnvelopeKeys);
       expect(batch['type'], 'telemetry_batch');
+      expect(batch['contract_version'], '4.0.0');
       expect(batch['batch_size'], 2);
+      expect(batch['device_id'], kTestIdentity.deviceId);
+      expect(batch['sdk'], {'name': 'flutter', 'version': kSdkVersion});
+      expect(batch['app'], kTestIdentity.app);
 
       final events = (batch['events'] as List).cast<Map<String, dynamic>>();
       expect(events.map((e) => e['eventName'] ?? e['metricName']), [
@@ -146,6 +155,55 @@ void main() {
       expect(events[1]['value'], 12.5);
     },
   );
+
+  test('envelope timestamp is UTC RFC 3339 with a Z (R13)', () async {
+    final (collector, sender) = await _wire(flushAt: 1);
+    collector.add(const EdgeEvent.event('navigation'));
+    await Future<void>(() {});
+
+    final ts = sender.sent.single['timestamp'] as String;
+    expect(ts, endsWith('Z'));
+    expect(DateTime.parse(ts).isUtc, isTrue);
+    expect(
+      DateTime.parse(ts).difference(DateTime.now().toUtc()).abs(),
+      lessThan(const Duration(seconds: 5)),
+    );
+  });
+
+  test('the immediate rail sends the same 4.0 envelope', () async {
+    final (collector, sender) = await _wire();
+    collector.add(const EdgeEvent.session('session.started', {}));
+    await Future<void>(() {});
+
+    final batch = sender.sent.single;
+    expect(batch['contract_version'], '4.0.0');
+    expect(batch['device_id'], kTestIdentity.deviceId);
+    expect(batch['app'], kTestIdentity.app);
+    expect(batch['batch_size'], 1);
+  });
+
+  test('app block: empty version, build_number or name is omitted (R15)', () {
+    expect(
+      appIdentity(
+        name: '',
+        packageName: 'com.x',
+        platform: 'ios',
+        version: '',
+        buildNumber: null,
+      ),
+      {'package_name': 'com.x', 'platform': 'ios'},
+    );
+    expect(
+      appIdentity(
+        name: 'X',
+        packageName: 'com.x',
+        platform: 'android',
+        version: '1.2',
+        buildNumber: '7',
+      ).keys.toList(),
+      ['name', 'package_name', 'platform', 'version', 'build_number'],
+    );
+  });
 
   test('no clock_skew_ms and no context block, even after a POST whose Date '
       'header is 30s ahead (R5, R6)', () async {
