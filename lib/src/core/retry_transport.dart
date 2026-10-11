@@ -26,7 +26,7 @@ const List<Duration> kDefaultBackoff = [
 /// The longest `Retry-After` a batch send will wait out in memory — the
 /// schedule's own longest step. A collector asking for longer gets the batch
 /// queued now, to go out on a later drain.
-const Duration kMaxRetryAfter = Duration(seconds: 30);
+final Duration kMaxRetryAfter = kDefaultBackoff.last;
 
 /// One POST's outcome: the HTTP status (0 = unreachable) and the collector's
 /// `Retry-After`, when it sent one as delta-seconds.
@@ -101,7 +101,7 @@ class RetryTransport {
     for (var i = 0; i < backoff.length; i++) {
       final wait = backoff[i] > asked ? backoff[i] : asked;
       if (wait > Duration.zero) await Future.delayed(wait);
-      final (:status, :retryAfter) = await _status(batch);
+      final (:status, :retryAfter) = await _attempt(batch);
       if (_ok(status)) {
         await drainQueue();
         return true;
@@ -122,7 +122,7 @@ class RetryTransport {
   /// queue stores bytes verbatim, so what is persisted here must already be a
   /// payload the collector will accept whenever it is drained.
   Future<void> sendImmediate(Map<String, dynamic> crashBatch) async {
-    final (:status, retryAfter: _) = await _status(crashBatch);
+    final (:status, retryAfter: _) = await _attempt(crashBatch);
     final item = (crashBatch['events'] as List?)?.firstOrNull;
     if (_ok(status)) {
       // Error-report send logs are intentionally always printed (see CLAUDE.md).
@@ -164,14 +164,14 @@ class RetryTransport {
   /// A `Retry-After` also ends the cycle — the collector asked us to wait, so
   /// the files behind this one are not POSTed into the same refusal.
   Future<void> drainQueue() => queue.drain((stored) async {
-    final (:status, :retryAfter) = await _status(rewrapIfBare(stored));
+    final (:status, :retryAfter) = await _attempt(rewrapIfBare(stored));
     if (_ok(status)) return DrainResult.done;
     if (_clientError(status)) {
       _countDrop(status);
       return DrainResult.done; // refused outright — stop retrying it
     }
     if (status == 0) return DrainResult.offline;
-    return retryAfter != null ? DrainResult.throttled : DrainResult.failed;
+    return retryAfter != null ? DrainResult.deferred : DrainResult.failed;
   });
 
   bool _ok(int status) => status >= 200 && status < 300;
@@ -190,10 +190,10 @@ class RetryTransport {
     return false;
   }
 
-  /// One send attempt → HTTP status. Injected [Sender] wins (tests): `true`→200,
+  /// One send attempt → the collector's reply. Injected [Sender] wins (tests): `true`→200,
   /// `false`→500 (a reachable failure). Real HTTP returns the status, or 0 when
   /// the connection can't be made (offline).
-  Future<_Reply> _status(Map<String, dynamic> data) async {
+  Future<_Reply> _attempt(Map<String, dynamic> data) async {
     stampForSend(data);
     final sender = _sender;
     if (sender != null) {
@@ -255,7 +255,7 @@ class RetryTransport {
       return (
         status: response.statusCode,
         retryAfter:
-            seconds == null || seconds < 0 ? null : Duration(seconds: seconds),
+            seconds == null || seconds <= 0 ? null : Duration(seconds: seconds),
       );
     } catch (e) {
       print('❌ Error: $e');

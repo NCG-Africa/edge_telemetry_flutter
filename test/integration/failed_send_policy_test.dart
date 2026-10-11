@@ -464,6 +464,24 @@ void main() {
         );
       }
 
+      test(
+        'a stored crash refused on replay (401) is dropped, not re-queued',
+        () async {
+          // Offline spends no attempt, so the 401 — not the attempt
+          // ceiling — is what removes the file.
+          stub.script = (b) => isNativeCrash(b) ? hangUp : ok;
+          await init();
+          expect(queued(), [matches(RegExp(r'^crash_.*_a0\.json$'))]);
+
+          stub.script = (b) => isNativeCrash(b) ? status(401) : ok;
+          EdgeTelemetry.instance.trackEvent('d');
+          await until(() => queued().isEmpty, 'crash dropped');
+
+          expect(stub.delivered.where(isNativeCrash), isEmpty);
+          expect(stub.attempts.last.batch, predicate(isNativeCrash));
+        },
+      );
+
       for (final code in [401, 404]) {
         test('$code: dropped, never stored', () async {
           stub.script = (b) => isNativeCrash(b) ? status(code) : ok;

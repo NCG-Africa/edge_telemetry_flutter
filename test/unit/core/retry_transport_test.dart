@@ -93,7 +93,8 @@ void main() {
 
     final queue = _RecordingQueue();
     final transport = RetryTransport(
-      endpoint: 'http://${server.address.host}:${server.port}/collector-go/telemetry',
+      endpoint:
+          'http://${server.address.host}:${server.port}/collector-go/telemetry',
       apiKey: 'secret-123',
       queue: queue,
     );
