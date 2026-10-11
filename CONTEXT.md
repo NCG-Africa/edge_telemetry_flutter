@@ -268,7 +268,7 @@ missing".
 _Avoid_: interceptor, adapter, hook (a capture hook is a different thing)
 
 **Seam state**:
-Which seams are **live**, on every item as `sdk.http_seam_state` in four values —
+Which seams are **live**, on every item as `http_seam_state` (`sdk.http_seam_state` through v3) in four values —
 `overrides`, `wrapper`, `both`, `blind`. It never says how much of the app's traffic
 they see, which the SDK cannot know. `blind` is provable; the case that is not — every
 request going through a bypassing client nobody wrapped — is a backend alert on
@@ -361,7 +361,7 @@ _Avoid_: stall, hang, blocked frame
 An attribute whose only job is to stop a derived value from reading as a measured one, or a
 capability gap from reading as a backend bug. Nine on the wire today: `ui.name_source`,
 `screen.load.source`, `error.category_source`, `http.url_redacted`, `http.response_size_source`,
-`http.seam`, `sdk.http_seam_state`, `task.abandon_source`, `memory.source`.
+`http.seam`, `http_seam_state`, `task.abandon_source`, `memory.source`.
 _Avoid_: metadata, provenance, quality flag, debug attribute
 
 ### Screen load
@@ -501,7 +501,7 @@ Dart, so next-launch pull is the only model.
 _Avoid_: flush, fetch
 
 **Native capture tier**:
-Honest per-device native coverage, reported as `sdk.native_capture_tier`: `full` on Android
+Honest per-device native coverage, reported as `native_capture_tier` (`sdk.native_capture_tier` through v3): `full` on Android
 API 30+, `jvm_only` below it. Unrelated to a collection **Tier** — one word, two things.
 _Avoid_: capability, support level, collection tier
 
@@ -523,9 +523,11 @@ _Avoid_: install ID, client ID
 attributes but never changes the ID, so anonymous and identified activity stitch to one timeline.
 _Avoid_: account ID, customer ID
 
-**Platform vs SDK platform**:
-`device.platform` is the real OS (`ios`/`android`) so Flutter devices group with native ones;
-`sdk.platform` (`flutter-ios`/`flutter-android`) is the only place "built with Flutter" appears.
+**Platform vs SDK name**:
+`device.platform` (per item) and envelope `app.platform` are the real OS (`ios`/`android`) so
+Flutter devices group with native ones; envelope `sdk.name: "flutter"` is the only place "built
+with Flutter" appears. The v3 `sdk.platform` (`flutter-ios`/`flutter-android`) is gone (contract
+4.0.0 R2).
 _Avoid_: os, runtime
 
 ### Migration

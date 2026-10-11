@@ -58,7 +58,7 @@ platform :ios, '14.0'
 Android native crash capture is **tiered by OS version**, with no watchdog
 threads or hand-rolled signal handlers:
 
-| API level | JVM/Kotlin crashes | Native (NDK) crashes | ANRs | `sdk.native_capture_tier` |
+| API level | JVM/Kotlin crashes | Native (NDK) crashes | ANRs | `native_capture_tier` |
 |-----------|:---:|:---:|:---:|:---:|
 | **30+**   | ✅ | ✅ | ✅ | `full` |
 | **< 30**  | ✅ | ❌ | ❌ | `jvm_only` |
@@ -66,7 +66,7 @@ threads or hand-rolled signal handlers:
 Below API 30, native (NDK) crashes and ANRs are a **documented gap** — the OS
 `ApplicationExitInfo` API that surfaces them only exists on API 30+. JVM crashes
 are captured on every level via `UncaughtExceptionHandler`. Each captured crash
-carries `sdk.native_capture_tier` so per-device coverage is visible on the
+carries `native_capture_tier` so per-device coverage is visible on the
 dashboard. The API 21 floor is the one an existing dependency already demanded,
 not a bump made for crash capture.
 
@@ -217,7 +217,7 @@ the wrapper owns the connection pool, so those are structurally out of reach her
 gRPC, HTTP/2 and Dio's `http2_adapter` stay out of scope: they bypass `package:http`
 as well, which is a protocol gap rather than a wrapper gap.
 
-#### `sdk.http_seam_state`
+#### `http_seam_state`
 
 Every item carries which seams are **live** — never how much of your traffic they see,
 which the SDK cannot know:
@@ -995,7 +995,7 @@ print('Session: ${EdgeTelemetry.instance.currentSessionInfo}');
 - Don't set custom `HttpOverrides.global` after initialization
 - Using `cupertino_http` / `cronet_http`? They bypass `HttpOverrides` entirely — pass
   the client through `EdgeTelemetry.instance.captureClient(...)`. Check
-  `sdk.http_seam_state` on any item to see which seams are live
+  `http_seam_state` on any item to see which seams are live
 - A response whose body is never read is never reported — `dart:io` requires the body
   be drained or the connection stalls, so drain it (`package:http` and Dio already do)
 

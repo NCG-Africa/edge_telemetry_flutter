@@ -106,7 +106,7 @@ void main() {
         await session.startSession('session_test');
         final context = ContextManager(
           sessionManager: session,
-          global: {'device.id': 'device_x'},
+          global: {'device.model': 'device_x'},
         );
         final queue = _FakeQueue();
         final transport = RetryTransport(
@@ -151,7 +151,7 @@ void main() {
         final attrs = events.single['attributes'] as Map;
         expect(attrs['event.name'], 'demo.click');
         expect(attrs['button'], 'x');
-        expect(attrs['device.id'], 'device_x');
+        expect(attrs['device.model'], 'device_x');
       },
     );
   });

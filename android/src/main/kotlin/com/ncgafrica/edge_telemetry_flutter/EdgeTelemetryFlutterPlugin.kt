@@ -34,7 +34,7 @@ import java.io.File
  * `REASON_CRASH` (JVM) from `ApplicationExitInfo` is ignored — the live handler
  * above is the single source for JVM crashes, so we never double-report.
  *
- * Coverage is honest per device via `sdk.native_capture_tier`: `full` on API
+ * Coverage is honest per device via `native_capture_tier`: `full` on API
  * 30+ (JVM + native + ANR), `jvm_only` below (native/ANR is a documented gap —
  * the OS-API-first trade for zero async-signal-safe native code).
  *
@@ -110,7 +110,7 @@ class EdgeTelemetryFlutterPlugin : FlutterPlugin, MethodCallHandler {
       put("cause", "NativeCrash")
       put("is_fatal", "true")
       put("crash.source", "uncaught_handler")
-      put("sdk.native_capture_tier", tier())
+      put("native_capture_tier", tier())
       // The fault bundle, read here and nowhere else on the hot path: this
       // thread is already dying, so the binder calls cost the user nothing.
       // Memory is deliberately absent — the PSS read is far too slow to spend
@@ -177,7 +177,7 @@ class EdgeTelemetryFlutterPlugin : FlutterPlugin, MethodCallHandler {
     "cause" to cause,
     "is_fatal" to "true",
     "crash.source" to "app_exit_info",
-    "sdk.native_capture_tier" to tier(),
+    "native_capture_tier" to tier(),
   )
 
   /** Raw tombstone (native) or ANR trace — the OS provides it for these reasons. */

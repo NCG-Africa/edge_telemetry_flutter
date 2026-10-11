@@ -63,7 +63,7 @@ void main() {
     );
     final context = ContextManager(
       sessionManager: session,
-      global: {'device.id': 'd_1'},
+      global: {'device.model': 'd_1'},
     );
     final pipeline = Pipeline(
       identity: kTestIdentity,
@@ -302,7 +302,7 @@ void main() {
               )['attributes']
               as Map;
       expect(
-        attrs['device.id'],
+        attrs['device.model'],
         'd_1',
         reason: 'the SDK\'s own keys are its own',
       );

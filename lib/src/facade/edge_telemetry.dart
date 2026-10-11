@@ -293,7 +293,7 @@ class EdgeTelemetry {
   ///
   /// Each payload arrives pre-shaped by the native plugin (unprefixed keys,
   /// `cause` ∈ NativeCrash/ANR/Hang, `is_fatal:true`, `crash.source`,
-  /// `sdk.native_capture_tier`); the Collector folds in identity context and
+  /// `native_capture_tier`); the Collector folds in context and
   /// sends immediately (bypass batch). Empty until the native plugin registers
   /// the channel — the drain returns `[]` and nothing is sent.
   Future<void> _drainNativeCrashes() async {
@@ -500,7 +500,7 @@ class EdgeTelemetry {
   ///
   /// gRPC, HTTP/2 and `http2_adapter` are **out of scope** — they bypass
   /// `package:http` as well, which is a protocol gap rather than a wrapper gap.
-  /// `sdk.http_seam_state` says which seams are live so a dashboard never has
+  /// `http_seam_state` says which seams are live so a dashboard never has
   /// to infer coverage from silence.
   http.Client captureClient(http.Client client) =>
       _wiring?.httpHook?.capture(client) ?? client;

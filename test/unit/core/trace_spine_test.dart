@@ -279,7 +279,7 @@ void main() {
       expect(attrs['trace.id'], isNot(live['trace.id']));
       // Everything outside the three keys still spreads normally.
       expect(attrs['session.id'], 'session_1');
-      expect(attrs['device.id'], 'device_1');
+      expect(attrs['user.id'], 'user_1');
     });
 
     test('a frozen-empty item carries no trace keys — absence cannot lose to a '

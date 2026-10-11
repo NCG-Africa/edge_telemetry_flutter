@@ -137,7 +137,7 @@ Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
               // seams happen to be live in this process, so the fixture pins the
               // presence and not the environment.
               ..update(
-                'sdk.http_seam_state',
+                'http_seam_state',
                 (_) => '<SEAM>',
                 ifAbsent: () => '<MISSING>',
               );
@@ -166,7 +166,7 @@ void main() {
       expect(event['eventName'], 'custom_event');
       final attrs = event['attributes'] as Map;
       expect(attrs['event.name'], 'demo.click');
-      expect(attrs['device.id'], 'device_gate');
+      expect(attrs.containsKey('device.id'), isFalse); // envelope only (R1)
       wiring.disposeAll();
     },
   );

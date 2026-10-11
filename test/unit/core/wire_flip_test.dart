@@ -104,7 +104,7 @@ Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
               // seams happen to be live in this process, so the fixture pins the
               // presence and not the environment.
               ..update(
-                'sdk.http_seam_state',
+                'http_seam_state',
                 (_) => '<SEAM>',
                 ifAbsent: () => '<MISSING>',
               );
@@ -146,13 +146,62 @@ void main() {
         'navigation',
         'frame_render_time',
       ]);
-      // device.id rides in every event's attributes (Collector 400s without it).
+      // Identity rides the envelope only (R1): no per-item copy.
       for (final e in events) {
-        expect((e['attributes'] as Map)['device.id'], 'device_abc');
+        expect((e['attributes'] as Map).containsKey('device.id'), isFalse);
       }
       // The metric keeps metricName + value at root (shape unchanged).
       expect(events[1]['metricName'], 'frame_render_time');
       expect(events[1]['value'], 12.5);
+    },
+  );
+
+  test(
+    'items carry no device.id, app.* or sdk.* — whoever set them (R1)',
+    () async {
+      final (collector, sender) = await _wire(
+        flushAt: 1,
+        global: {
+          'device.id': 'device_abc',
+          'device.model': 'Pixel 9',
+          'device.platform': 'android',
+          'app.version': '9.9.9', // a consumer global must not reach the wire
+          'app.name': 'X',
+          'sdk.version': '0.0.1',
+          'user.id': 'user_abc',
+        },
+      );
+      collector.add(
+        const EdgeEvent.event(
+          'custom_event',
+          attributes: {'app.environment': 'prod', 'sdk.health': 'x'},
+        ),
+      );
+      collector.add(const EdgeEvent.session('session.started', {}));
+      await Future<void>(() {});
+
+      final batches = sender.sent;
+      expect(batches, hasLength(2)); // immediate + batched rails
+      for (final batch in batches) {
+        expect(batch['app'], kTestIdentity.app); // envelope wins
+        for (final e in batch['events'] as List) {
+          final attrs = (e as Map)['attributes'] as Map<String, dynamic>;
+          expect(
+            attrs.keys.where(
+              (k) =>
+                  k == 'device.id' ||
+                  k.startsWith('app.') ||
+                  k.startsWith('sdk.'),
+            ),
+            isEmpty,
+          );
+          // Other device.* keys stay per item.
+          expect(attrs['device.model'], 'Pixel 9');
+          expect(attrs['device.platform'], 'android');
+          // The seam state moves into the item without its sdk. prefix.
+          expect(attrs['http_seam_state'], isNotNull);
+        }
+      }
     },
   );
 
@@ -300,7 +349,6 @@ void main() {
 
       final attrs =
           (sender.sent.single['events'] as List).single['attributes'] as Map;
-      expect(attrs['device.id'], 'device_abc');
       expect(attrs.containsKey('location'), isFalse);
       expect(attrs.containsKey('tenant_id'), isFalse);
       expect(attrs.containsKey('geo'), isFalse);

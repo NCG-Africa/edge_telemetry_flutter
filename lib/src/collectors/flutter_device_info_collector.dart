@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../core/interfaces/device_info_collector.dart';
-import '../core/sdk_version.dart';
 import '../managers/device_id_manager.dart';
 import '../managers/identity_format.dart';
 
@@ -41,16 +40,9 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
         'app.package_name': packageInfo.packageName,
       });
 
-      // Collect platform information.
-      // device.platform = real OS; sdk.platform = flutter-{os} (ticket #20).
-      // platformTag() is the same lowercased token baked into device/session IDs.
-      final platform = platformTag();
-      attributes['device.platform'] = platform;
-      attributes['sdk.platform'] = 'flutter-$platform';
-      // Which SDK build produced this row. A compile-time constant because
-      // Dart cannot read its own package's version at runtime — see
-      // [kSdkVersion] for the manifest assertion that keeps it honest.
-      attributes['sdk.version'] = kSdkVersion;
+      // device.platform = real OS, per item. `sdk.platform` is gone (R2) and
+      // `sdk.version` rides the envelope's `sdk` block.
+      attributes['device.platform'] = platformTag();
       attributes['device.platform_version'] = Platform.operatingSystemVersion;
 
       // Collect platform-specific device information

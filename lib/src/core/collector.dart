@@ -222,6 +222,10 @@ class Collector implements EventSink {
       consumerSupplied: event.consumerAttributes,
     );
 
+    // Identity rides the envelope only (R1). After the policy pass, so a
+    // consumer's `app.*` cannot dodge the strip by being redacted into shape.
+    enriched.removeWhere((k, _) => isEnvelopeIdentityKey(k));
+
     // Crash-scoped breadcrumb attach (spec #15 §5.5): the ring rides only on
     // `app.crash`, JSON-encoded (attributes are String-valued on the wire).
     //

@@ -1,6 +1,8 @@
 // lib/src/core/http_seam_state.dart
 //
-// `sdk.http_seam_state` — which HTTP capture seams are **live** (#87).
+// `http_seam_state` — which HTTP capture seams are **live** (#87). It shipped
+// as `sdk.http_seam_state` through v3; contract 4.0.0 (R1) moves it into the
+// item's attributes without the prefix, because `sdk.*` is envelope-only.
 //
 // Its own file in `core/`: the `dart:io` seam is what installs one half and the
 // wrapper seam is what sets the other, so a holder in either would make that

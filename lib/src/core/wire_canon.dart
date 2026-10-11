@@ -88,6 +88,14 @@ const Set<String> kAmbientTraceAttributes = {
   'trace.root_type',
 };
 
+/// Whether [key] is a per-item copy of envelope identity (R1): `device.id`,
+/// any `app.*`, any `sdk.*`. The Collector strips these from every item —
+/// identity lives in the envelope only, so whatever set them (the device-info
+/// bag, a consumer global, an event attribute) never reaches the wire. Every
+/// other `device.*` key (model, `device.platform`, the fault bundle) stays.
+bool isEnvelopeIdentityKey(String key) =>
+    key == 'device.id' || key.startsWith('app.') || key.startsWith('sdk.');
+
 /// Whether a batched item of [type] (`event`/`metric`) named [name] is canon.
 bool isCanonWireItem(String type, String name) =>
     type == 'metric'
