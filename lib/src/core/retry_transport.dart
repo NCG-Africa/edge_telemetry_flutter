@@ -23,6 +23,15 @@ const List<Duration> kDefaultBackoff = [
   Duration(seconds: 30),
 ];
 
+/// The longest `Retry-After` a batch send will wait out in memory — the
+/// schedule's own longest step. A collector asking for longer gets the batch
+/// queued now, to go out on a later drain.
+const Duration kMaxRetryAfter = Duration(seconds: 30);
+
+/// One POST's outcome: the HTTP status (0 = unreachable) and the collector's
+/// `Retry-After`, when it sent one as delta-seconds.
+typedef _Reply = ({int status, Duration? retryAfter});
+
 /// The single network rail: POSTs assembled payloads and, for the crash path,
 /// persists to the [OfflineQueue] on failure and drains it on reconnect.
 ///
@@ -83,12 +92,16 @@ class RetryTransport {
 
   /// Send a batch. Exhaust the [backoff] schedule before giving up; on the last
   /// failure persist the batch verbatim for a later drain. An offline result
-  /// (`status == 0`) skips the remaining backoff and queues immediately. On any
-  /// success, opportunistically drains the queue.
+  /// (`status == 0`) skips the remaining backoff and queues immediately. A
+  /// `Retry-After` stretches the next wait to at least what the collector
+  /// asked for, up to [kMaxRetryAfter]; beyond that the batch queues now. On
+  /// any success, opportunistically drains the queue.
   Future<bool> send(Map<String, dynamic> batch) async {
+    var asked = Duration.zero;
     for (var i = 0; i < backoff.length; i++) {
-      if (backoff[i] > Duration.zero) await Future.delayed(backoff[i]);
-      final status = await _status(batch);
+      final wait = backoff[i] > asked ? backoff[i] : asked;
+      if (wait > Duration.zero) await Future.delayed(wait);
+      final (:status, :retryAfter) = await _status(batch);
       if (_ok(status)) {
         await drainQueue();
         return true;
@@ -96,6 +109,8 @@ class RetryTransport {
       // 4xx (not 429): never retried, never queued.
       if (_clientError(status)) return _countDrop(status);
       if (status == 0) break; // offline — don't burn backoff, queue now
+      asked = retryAfter ?? Duration.zero;
+      if (asked > kMaxRetryAfter) break; // longer than we hold a batch: queue
     }
     await queue.persist(batch);
     return false;
@@ -107,7 +122,7 @@ class RetryTransport {
   /// queue stores bytes verbatim, so what is persisted here must already be a
   /// payload the collector will accept whenever it is drained.
   Future<void> sendImmediate(Map<String, dynamic> crashBatch) async {
-    final status = await _status(crashBatch);
+    final (:status, retryAfter: _) = await _status(crashBatch);
     final item = (crashBatch['events'] as List?)?.firstOrNull;
     if (_ok(status)) {
       // Error-report send logs are intentionally always printed (see CLAUDE.md).
@@ -146,14 +161,17 @@ class RetryTransport {
   /// A 4xx other than 429 counts as *done with this file*: it is dropped, not retried. An
   /// offline result teaches nothing about the payload, so it abandons the cycle
   /// rather than spending every queued file's attempt allowance on the weather.
+  /// A `Retry-After` also ends the cycle — the collector asked us to wait, so
+  /// the files behind this one are not POSTed into the same refusal.
   Future<void> drainQueue() => queue.drain((stored) async {
-    final status = await _status(rewrapIfBare(stored));
+    final (:status, :retryAfter) = await _status(rewrapIfBare(stored));
     if (_ok(status)) return DrainResult.done;
     if (_clientError(status)) {
       _countDrop(status);
       return DrainResult.done; // refused outright — stop retrying it
     }
-    return status == 0 ? DrainResult.offline : DrainResult.failed;
+    if (status == 0) return DrainResult.offline;
+    return retryAfter != null ? DrainResult.throttled : DrainResult.failed;
   });
 
   bool _ok(int status) => status >= 200 && status < 300;
@@ -175,10 +193,12 @@ class RetryTransport {
   /// One send attempt → HTTP status. Injected [Sender] wins (tests): `true`→200,
   /// `false`→500 (a reachable failure). Real HTTP returns the status, or 0 when
   /// the connection can't be made (offline).
-  Future<int> _status(Map<String, dynamic> data) async {
+  Future<_Reply> _status(Map<String, dynamic> data) async {
     stampForSend(data);
     final sender = _sender;
-    if (sender != null) return (await sender(data)) ? 200 : 500;
+    if (sender != null) {
+      return (status: (await sender(data)) ? 200 : 500, retryAfter: null);
+    }
     return _httpPost(data);
   }
 
@@ -191,11 +211,11 @@ class RetryTransport {
   /// launch; if it fails too, the payload was simply bad and the probe is spent
   /// either way. No config flag and no version endpoint — the probe *is* the
   /// capability check.
-  Future<int> _httpPost(Map<String, dynamic> data) async {
+  Future<_Reply> _httpPost(Map<String, dynamic> data) async {
     final body = utf8.encode(json.encode(data));
 
-    var status = await _post(body, gzip: _compress);
-    if (status == 400 && _compress && !_probeSpent) {
+    var reply = await _post(body, gzip: _compress);
+    if (reply.status == 400 && _compress && !_probeSpent) {
       // ponytail: one probe per launch, even when the plain retry also fails.
       // A 400 on both means the payload was bad, not the encoding — so gzip
       // stays on. The residual: if that first 400 is a bad payload *and* the
@@ -203,23 +223,22 @@ class RetryTransport {
       // re-probes on the next one. Spend a second probe on a later 400 if that
       // shows up in the field; the issue's ceiling is one wasted POST.
       _probeSpent = true;
-      final plain = await _post(body, gzip: false);
-      if (_ok(plain)) {
+      reply = await _post(body, gzip: false);
+      if (_ok(reply.status)) {
         _compress = false;
         if (debugMode) print('🗜️ gzip not accepted — sending uncompressed');
       }
-      status = plain;
     }
 
-    if (_ok(status)) {
+    if (_ok(reply.status)) {
       print('✅ Sent telemetry data successfully');
     } else {
-      print('❌ Failed: HTTP $status');
+      print('❌ Failed: HTTP ${reply.status}');
     }
-    return status;
+    return reply;
   }
 
-  Future<int> _post(List<int> body, {required bool gzip}) async {
+  Future<_Reply> _post(List<int> body, {required bool gzip}) async {
     try {
       final request = await _httpClient.postUrl(_url);
       request.headers.set('Content-Type', 'application/json');
@@ -228,10 +247,19 @@ class RetryTransport {
       request.add(gzip ? GZipCodec().encode(body) : body);
       final response = await request.close();
       await response.drain<void>();
-      return response.statusCode;
+      // ponytail: delta-seconds only; an HTTP-date Retry-After is ignored
+      // (the collector sends seconds). Parse dates if another server needs it.
+      final seconds = int.tryParse(
+        response.headers.value(HttpHeaders.retryAfterHeader)?.trim() ?? '',
+      );
+      return (
+        status: response.statusCode,
+        retryAfter:
+            seconds == null || seconds < 0 ? null : Duration(seconds: seconds),
+      );
     } catch (e) {
       print('❌ Error: $e');
-      return 0; // offline / no connection
+      return (status: 0, retryAfter: null); // offline / no connection
     }
   }
 

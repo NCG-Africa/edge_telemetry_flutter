@@ -293,4 +293,70 @@ void main() {
       'c',
     ]);
   });
+
+  group('Retry-After on a retryable status is honoured (bounded)', () {
+    test(
+      'the next attempt waits at least Retry-After, not the backoff step',
+      () async {
+        var tries = 0;
+        stub.script = (b) {
+          if (customName(b) != 'probe') return ok;
+          return ++tries == 1 ? status(503, retryAfter: '1') : ok;
+        };
+        await init();
+        EdgeTelemetry.instance.trackEvent('probe');
+        await until(
+          () => stub.delivered.any((b) => customName(b) == 'probe'),
+          'probe delivered',
+        );
+
+        final at = [
+          for (final a in stub.attempts)
+            if (customName(a.batch) == 'probe') a.at,
+        ];
+        expect(at, hasLength(2));
+        // The schedule's next step is 10 ms; the collector asked for 1 s.
+        expect(
+          at[1].difference(at[0]),
+          greaterThanOrEqualTo(const Duration(milliseconds: 950)),
+        );
+      },
+    );
+
+    test('a Retry-After longer than the 30 s ceiling queues at once', () async {
+      stub.script =
+          (b) => customName(b) == 'probe' ? status(429, retryAfter: '60') : ok;
+      await init();
+      EdgeTelemetry.instance.trackEvent('probe');
+      await until(() => queuedNames().contains('probe'), 'probe queued');
+
+      expect(attemptsAt('probe'), hasLength(1));
+    });
+
+    test('on drain, a Retry-After ends the cycle — the files behind it are '
+        'not hammered', () async {
+      stub.script = (b) => customName(b) == null ? ok : status(503);
+      await init();
+      for (final name in ['a', 'b', 'c']) {
+        EdgeTelemetry.instance.trackEvent(name);
+        await until(() => queuedNames().contains(name), '$name queued');
+      }
+      final before = stub.attempts.length;
+
+      stub.script =
+          (b) => customName(b) == 'd' ? ok : status(503, retryAfter: '5');
+      EdgeTelemetry.instance.trackEvent('d'); // the success that drains
+      await until(
+        () => stub.delivered.any((b) => customName(b) == 'd'),
+        'd delivered',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      final drained =
+          stub.attempts.skip(before).map((a) => customName(a.batch)).toList();
+      expect(drained.where((n) => n != 'd'), ['a']); // b, c untouched
+      expect(queuedNames(), ['a', 'b', 'c']);
+      expect(queued().first, endsWith('_a1.json')); // a spent an attempt
+    });
+  });
 }
