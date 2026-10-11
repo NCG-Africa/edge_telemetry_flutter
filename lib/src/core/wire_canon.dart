@@ -155,6 +155,20 @@ Map<String, dynamic> telemetryBatch(
   'events': items,
 };
 
+/// Re-stamp a 4.x envelope's `timestamp` to now (R13) — called on every POST
+/// attempt, so a retried, queued or drained batch carries its *send* time,
+/// never the time it was built or stored. Everything else is sent verbatim,
+/// including a persisted crash batch's own build identity (R14).
+///
+/// A legacy envelope (no `contract_version`: a 3.x batch, or a v2 bare item
+/// [rewrapIfBare] wrapped) is left as stored — the processor treats its
+/// offset-less local time as a known limit, and re-stamping it would mix two
+/// clocks in one legacy batch.
+Map<String, dynamic> stampForSend(Map<String, dynamic> batch) {
+  if (batch['contract_version'] != null) batch['timestamp'] = utcNow();
+  return batch;
+}
+
 /// A payload stored before the immediate rail was enveloped (v2.0.0 → v3) is a
 /// bare wire item. Re-wrap it at drain so the crash backlog becomes deliverable
 /// at the moment the envelope fix ships.

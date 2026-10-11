@@ -177,6 +177,7 @@ class RetryTransport {
   /// `false`→500 (a reachable failure). Real HTTP returns the status, or 0 when
   /// the connection can't be made (offline).
   Future<int> _status(Map<String, dynamic> data) async {
+    stampForSend(data);
     final sender = _sender;
     if (sender != null) return (await sender(data)) ? 200 : 500;
     return _httpPost(data);
