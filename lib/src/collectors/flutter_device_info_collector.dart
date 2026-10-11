@@ -88,9 +88,8 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
   ) async {
     final deviceInfo = DeviceInfoPlugin();
 
-    if (kIsWeb) {
-      await _collectWebInfo(deviceInfo, attributes);
-    } else if (Platform.isAndroid) {
+    // Android and iOS only — on any other OS the facade never gets here (R16).
+    if (Platform.isAndroid) {
       await _collectAndroidInfo(deviceInfo, attributes);
     } else if (Platform.isIOS) {
       await _collectIOSInfo(deviceInfo, attributes);
@@ -152,25 +151,6 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
       });
     } catch (e) {
       attributes['device.ios_error'] = e.toString();
-    }
-  }
-
-  /// Collect web-specific information
-  Future<void> _collectWebInfo(
-    DeviceInfoPlugin deviceInfo,
-    Map<String, String> attributes,
-  ) async {
-    try {
-      final webInfo = await deviceInfo.webBrowserInfo;
-      attributes.addAll({
-        'device.browser': webInfo.browserName.toString().split('.').last,
-        'device.platform': webInfo.platform ?? 'web',
-        'device.user_agent': webInfo.userAgent ?? 'unknown',
-        'device.vendor': webInfo.vendor ?? 'unknown',
-        'device.language': webInfo.language ?? 'unknown',
-      });
-    } catch (e) {
-      attributes['device.web_error'] = e.toString();
     }
   }
 }

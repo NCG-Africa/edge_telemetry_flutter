@@ -82,6 +82,10 @@ class EdgeTelemetry {
   bool _initialized = false;
   TelemetryConfig? _config;
 
+  /// Set at init on any OS but android and ios (R16): nothing is wired, and
+  /// every public call is a no-op instead of a `StateError`.
+  bool _unsupportedOs = false;
+
   // Kept so the isolate error-listener can be detached on dispose/hot-restart.
   RawReceivePort? _isolateErrorPort;
 
@@ -158,6 +162,19 @@ class EdgeTelemetry {
   Future<void> _setup(TelemetryConfig config) async {
     if (_initialized) return;
     _config = config;
+
+    // Checked first (R16): the envelope's `app.platform` has no value for web
+    // or desktop, so the SDK switches itself off rather than send a batch the
+    // backend cannot file.
+    _unsupportedOs = mobileOs() == null;
+    if (_unsupportedOs) {
+      print(
+        '⚠️ EdgeTelemetry: ${kIsWeb ? 'web' : defaultTargetPlatform.name} is '
+        'not supported (android and ios only) — telemetry is disabled and '
+        'nothing will be sent.',
+      );
+      return;
+    }
 
     try {
       // Identity + session.
@@ -389,7 +406,7 @@ class EdgeTelemetry {
   /// outcome either — duration is a backend view over the action's children,
   /// and outcome belongs to a signal with a terminal moment.
   void trackAction(String name) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.trace.nameCurrent(name);
   }
 
@@ -439,7 +456,7 @@ class EdgeTelemetry {
   /// duplicated an automatically-captured signal, so its failure mode was
   /// double-counting. There is no automatic source for this one.
   void startTask(String name) {
-    _ensureInitialized();
+    if (!_ready()) return;
     final session = _wiring!.session;
     // Two statements, not one expression, because Dart would otherwise evaluate
     // the freeze as an argument — i.e. *before* `startTask` runs its own idle
@@ -457,7 +474,7 @@ class EdgeTelemetry {
   /// already-closed name: a no-op, by design — the calls are fire-and-forget, so
   /// there is no unclosed-call failure mode to leak.
   void completeTask(String name) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.session.endTask(name, TaskOutcome.completed);
   }
 
@@ -471,7 +488,7 @@ class EdgeTelemetry {
   /// 2 of the happy path). There is no task timeout of its own: the 30-minute
   /// session idle window is the cap.
   void failTask(String name) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.session.endTask(name, TaskOutcome.failed);
   }
 
@@ -507,7 +524,7 @@ class EdgeTelemetry {
 
   /// Track a custom event with flexible attribute support.
   void trackEvent(String eventName, {Map<String, Object?>? attributes}) {
-    _ensureInitialized();
+    if (!_ready()) return;
     final stringAttributes = _stringify(attributes);
 
     // Host names are arbitrary → wrap into the canon `custom_event` with the
@@ -542,7 +559,7 @@ class EdgeTelemetry {
     double value, {
     Map<String, Object?>? attributes,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     final stringAttributes = _stringify(attributes);
 
     _wiring!.collector.add(
@@ -586,7 +603,7 @@ class EdgeTelemetry {
     Map<String, String>? attributes,
     ErrorCategory? category,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _emitCrash(
       error,
       stackTrace: stackTrace,
@@ -604,7 +621,7 @@ class EdgeTelemetry {
     String? phone,
     Map<String, String>? customAttributes,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _userProfile.clear();
     if (name != null) _userProfile['user.name'] = name;
     if (email != null) _userProfile['user.email'] = email;
@@ -651,7 +668,7 @@ class EdgeTelemetry {
 
   /// Clear user profile (but keep auto-generated user ID).
   void clearUserProfile() {
-    _ensureInitialized();
+    if (!_ready()) return;
     _userProfile.clear();
     final profileVersion = _getNextProfileVersion();
 
@@ -698,7 +715,9 @@ class EdgeTelemetry {
 
   /// Get the navigation observer for MaterialApp.
   EdgeNavigationObserver get navigationObserver {
-    _ensureInitialized();
+    // An inert observer on an unsupported OS (R16): the consumer's
+    // `navigatorObservers` line must still build.
+    if (!_ready()) return EdgeNavigationObserver();
     final observer = _wiring!.navigationObserver;
     if (observer == null) {
       throw StateError(
@@ -731,7 +750,7 @@ class EdgeTelemetry {
     BreadcrumbLevel level = BreadcrumbLevel.info,
     Map<String, String>? data,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addBreadcrumb(
       message,
       category: category,
@@ -741,12 +760,12 @@ class EdgeTelemetry {
   }
 
   void addNavigationBreadcrumb(String route, {Map<String, String>? data}) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addNavigation(route, data: data);
   }
 
   void addUserActionBreadcrumb(String action, {Map<String, String>? data}) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addUserAction(action, data: data);
   }
 
@@ -755,7 +774,7 @@ class EdgeTelemetry {
     BreadcrumbLevel level = BreadcrumbLevel.info,
     Map<String, String>? data,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addSystemEvent(event, level: level, data: data);
   }
 
@@ -764,12 +783,12 @@ class EdgeTelemetry {
     BreadcrumbLevel level = BreadcrumbLevel.info,
     Map<String, String>? data,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addNetworkEvent(event, level: level, data: data);
   }
 
   void addUIBreadcrumb(String event, {Map<String, String>? data}) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addUIEvent(event, data: data);
   }
 
@@ -778,17 +797,17 @@ class EdgeTelemetry {
     BreadcrumbLevel level = BreadcrumbLevel.info,
     Map<String, String>? data,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addCustom(message, level: level, data: data);
   }
 
   List<Breadcrumb> getBreadcrumbs() {
-    _ensureInitialized();
+    if (!_ready()) return const [];
     return _wiring!.breadcrumbs.getBreadcrumbs();
   }
 
   void clearBreadcrumbs() {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.clear();
   }
 
@@ -904,6 +923,7 @@ class EdgeTelemetry {
     _reportStorage?.dispose();
 
     _wiring?.disposeAll();
+    _wiring = null;
     _initialized = false;
 
     if (_config?.debugMode == true) print('🧹 EdgeTelemetry disposed');
@@ -940,6 +960,14 @@ class EdgeTelemetry {
       'event_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1000)}';
   String _generateMetricId() =>
       'metric_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1000)}';
+
+  /// The guard every public call goes through: false on an unsupported OS
+  /// (R16) so the call is a no-op, a `StateError` before [initialize].
+  bool _ready() {
+    if (_unsupportedOs) return false;
+    _ensureInitialized();
+    return true;
+  }
 
   void _ensureInitialized() {
     if (!_initialized) {

@@ -9,6 +9,7 @@
 // path provider, connectivity, the native crash channel); everything between
 // the public API and the socket is the shipped code.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -227,4 +228,40 @@ void main() {
       expect(app['package_name'], 'com.client.app');
     },
   );
+
+  test('web/desktop: disabled at init, one warning, nothing sent, public '
+      'calls are no-ops (R16)', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final crashHandler = FlutterError.onError;
+
+    final logs = <String>[];
+    await runZoned(
+      () async {
+        await init();
+        final t = EdgeTelemetry.instance;
+        t.trackEvent('checkout');
+        t.trackMetric('latency', 1);
+        t.trackError(StateError('x'));
+        t.trackAction('tap');
+        t.startTask('t');
+        t.completeTask('t');
+        t.addBreadcrumb('crumb');
+        t.setUserProfile(name: 'n');
+        expect(t.getBreadcrumbs(), isEmpty);
+        expect(t.navigationObserver, isNotNull);
+        expect(t.isInitialized, isFalse);
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, __, ___, line) => logs.add(line),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    expect(collector.batches, isEmpty); // no HTTP at all
+    expect(logs.where((l) => l.contains('not supported')), hasLength(1));
+    // Nothing was wired: no capture override, no crash handler.
+    expect(HttpOverrides.current, isNull);
+    expect(FlutterError.onError, same(crashHandler));
+  });
 }
