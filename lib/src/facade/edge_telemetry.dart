@@ -282,7 +282,7 @@ class EdgeTelemetry {
     app: appIdentity(
       name: info['app.name'],
       packageName: info['app.package_name'] ?? '',
-      platform: platformTag(),
+      platform: mobileOs()!,
       version: info['app.version'],
       buildNumber: info['app.build_number'],
     ),

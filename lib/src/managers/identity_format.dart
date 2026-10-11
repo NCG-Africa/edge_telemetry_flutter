@@ -7,6 +7,8 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 const _hex = '0123456789abcdef';
 final _secureRandom = Random.secure();
 
@@ -48,6 +50,26 @@ String platformTag() {
   } catch (_) {
     return 'unknown';
   }
+}
+
+/// The envelope `app.platform` (contract 4.0.0 R2): `android` or `ios`, and
+/// `null` for any other OS — web and desktop, which the SDK does not support
+/// (R16).
+///
+/// Read from [defaultTargetPlatform] rather than `Platform.operatingSystem`:
+/// on a device they agree, and it is the seam Flutter already offers for
+/// overriding the OS — `debugDefaultTargetPlatformOverride` in a test, which
+/// defaults to android under `flutter_test` where `Platform` reports the host.
+// ponytail: the override also works in a consumer's *debug* build, so a debug
+// app faking iOS on Android would file as ios — debug only, and the collector
+// flags the mismatch against the key's App (C10). Release builds ignore it.
+String? mobileOs() {
+  if (kIsWeb) return null;
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.android => 'android',
+    TargetPlatform.iOS => 'ios',
+    _ => null,
+  };
 }
 
 /// Accepts BOTH the legacy 8-char alnum width and the new 16-hex width, so
