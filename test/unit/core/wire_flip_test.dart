@@ -8,7 +8,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:edge_telemetry_flutter/src/core/clock_skew.dart';
 import 'package:edge_telemetry_flutter/src/core/collector.dart';
 import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
 import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
@@ -47,6 +46,7 @@ Future<(Collector, _RecordingSender)> _wire({
   Map<String, String>? global,
   String endpoint = 'https://api.example.test',
   String? apiKey,
+  bool realHttp = false,
 }) async {
   final sender = _RecordingSender();
   final session = SessionManager();
@@ -59,7 +59,7 @@ Future<(Collector, _RecordingSender)> _wire({
     endpoint: endpoint,
     apiKey: apiKey,
     queue: _NoopQueue(),
-    sender: sender.call,
+    sender: realHttp ? null : sender.call,
   );
   final pipeline = Pipeline(transport: transport, batchSize: flushAt);
   final collector = Collector(
@@ -147,40 +147,46 @@ void main() {
     },
   );
 
-  test('clock skew rides the envelope, recorded and never applied', () async {
-    addTearDown(resetClockSkew);
-    final (collector, sender) = await _wire(flushAt: 1);
+  test('no clock_skew_ms and no context block, even after a POST whose Date '
+      'header is 30s ahead (R5, R6)', () async {
+    // The test binding answers every real HttpClient with a 400; this test
+    // needs the socket.
+    final bindingOverrides = HttpOverrides.current;
+    HttpOverrides.global = null;
+    addTearDown(() => HttpOverrides.global = bindingOverrides);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final bodies = <Map<String, dynamic>>[];
+    server.listen((req) async {
+      final raw = await req.fold<List<int>>([], (a, c) => a..addAll(c));
+      final plain =
+          req.headers.value('Content-Encoding') == 'gzip'
+              ? gzip.decode(raw)
+              : raw;
+      bodies.add(jsonDecode(utf8.decode(plain)) as Map<String, dynamic>);
+      req.response.headers.date = DateTime.now().add(
+        const Duration(seconds: 30),
+      );
+      await req.response.close();
+    });
 
-    // The collector's clock is 30s ahead of ours.
-    recordClockSkew(DateTime.now().add(const Duration(seconds: 30)));
-    collector.add(const EdgeEvent.event('navigation'));
-    await Future<void>(() {});
-
-    final batch = sender.sent.single;
-    expect(batch.keys.toList(), [
-      'type',
-      'timestamp',
-      'batch_size',
-      'clock_skew_ms',
-      'events',
-    ]);
-    expect(batch['clock_skew_ms'], closeTo(30000, 1000));
-    // Never corrected in place: the item's own timestamp is still ours, so an
-    // offline batch replayed days late still replays identically.
-    expect(
-      DateTime.parse(
-        batch['timestamp'] as String,
-      ).isBefore(DateTime.now().add(const Duration(seconds: 5))),
-      isTrue,
+    final (collector, _) = await _wire(
+      flushAt: 1,
+      endpoint: 'http://${server.address.host}:${server.port}',
+      realHttp: true,
     );
+    // Two sends: the second follows a successful POST whose Date header a
+    // skew estimate would have been taken from.
+    collector.add(const EdgeEvent.event('navigation'));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    collector.add(const EdgeEvent.event('navigation'));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
 
-    // A response with no Date leaves the last estimate standing; a reset drops
-    // the key entirely, which is the shape of every launch before its first
-    // successful POST.
-    recordClockSkew(null);
-    expect(recordedClockSkewMs, isNotNull);
-    resetClockSkew();
-    expect(recordedClockSkewMs, isNull);
+    expect(bodies, hasLength(2));
+    for (final b in bodies) {
+      expect(b.containsKey('clock_skew_ms'), isFalse);
+      expect(b.containsKey('context'), isFalse);
+    }
   });
 
   test(

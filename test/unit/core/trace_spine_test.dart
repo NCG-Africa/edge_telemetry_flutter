@@ -383,16 +383,5 @@ void main() {
       expect(rig.session.currentScreenId, isNull);
       expect(rig.context.snapshot().containsKey('screen.id'), isFalse);
     });
-
-    test('is per-item: the batch hoist must never lift it', () {
-      expect(isHoistedContextKey('screen.id'), isFalse);
-      for (final key in kAmbientTraceAttributes) {
-        expect(
-          isHoistedContextKey(key),
-          isFalse,
-          reason: '$key varies per item',
-        );
-      }
-    });
   });
 }

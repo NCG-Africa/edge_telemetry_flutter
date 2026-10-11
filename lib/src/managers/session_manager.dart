@@ -605,8 +605,7 @@ class SessionManager {
       'session.action_count': _actionCount.toString(),
       'session.screen_count': _visitedScreens.length.toString(),
       'session.visited_screens': _visitedScreens.join(','),
-      // Per-item, not batch-scoped: it changes within a batch, so the hoist
-      // must never lift it (`isHoistedContextKey` leaves it alone by design).
+      // Per-item, not batch-scoped: it changes within a batch.
       if (_currentScreenId != null) 'screen.id': _currentScreenId!,
       'session.is_first_session': _isFirstSession().toString(),
       'session.total_sessions': _getTotalSessions().toString(),
