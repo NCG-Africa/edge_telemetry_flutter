@@ -93,7 +93,7 @@ void main() {
 
     final queue = _RecordingQueue();
     final transport = RetryTransport(
-      endpoint: 'http://${server.address.host}:${server.port}',
+      endpoint: 'http://${server.address.host}:${server.port}/collector-go/telemetry',
       apiKey: 'secret-123',
       queue: queue,
     );
@@ -102,7 +102,7 @@ void main() {
 
     expect(ok, isTrue);
     expect(seenKey, 'secret-123');
-    expect(seenPath, '/collector/telemetry');
+    expect(seenPath, '/collector-go/telemetry'); // as given (R10)
     expect(queue.persisted, isEmpty); // success → nothing queued
   });
 }

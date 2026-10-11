@@ -388,26 +388,17 @@ void main() {
     expect(_normalize(sender.sent.single), golden);
   });
 
-  test(
-    'transport resolves <endpoint>/collector/telemetry (base or suffixed)',
-    () {
-      Uri url(String endpoint) =>
-          RetryTransport(endpoint: endpoint, queue: _NoopQueue()).resolvedUrl;
+  test('transport posts to the configured URL as given (R10)', () {
+    Uri url(String endpoint) =>
+        RetryTransport(endpoint: endpoint, queue: _NoopQueue()).resolvedUrl;
 
-      expect(
-        url('https://api.example.test').toString(),
-        'https://api.example.test/collector/telemetry',
-      );
-      // Trailing slash is not doubled.
-      expect(
-        url('https://api.example.test/').toString(),
-        'https://api.example.test/collector/telemetry',
-      );
-      // Already-canon path is left intact (not double-appended).
-      expect(
-        url('https://api.example.test/collector/telemetry').toString(),
-        'https://api.example.test/collector/telemetry',
-      );
-    },
-  );
+    for (final endpoint in [
+      'https://h/collector-go/telemetry',
+      'https://h/telemetry',
+      'https://h/telemetry/', // a trailing slash is left as configured
+      'https://h', // a bare base is NOT completed with a path any more
+    ]) {
+      expect(url(endpoint).toString(), endpoint);
+    }
+  });
 }

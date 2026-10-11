@@ -54,8 +54,8 @@ class RetryTransport {
   final HttpClient _httpClient;
   final Sender? _sender;
 
-  /// The resolved POST target: `<endpoint>/collector/telemetry` (family canon),
-  /// unless [endpoint] already ends with that path.
+  /// The POST target: [endpoint] exactly as configured (R10). Nothing is
+  /// appended — the consumer names the full collector route.
   final Uri _url;
 
   RetryTransport({
@@ -69,20 +69,11 @@ class RetryTransport {
     Sender? sender,
   }) : _httpClient = httpClient ?? HttpClient(),
        _sender = sender,
-       _url = _resolveUrl(endpoint);
+       _url = Uri.parse(endpoint);
 
-  /// The resolved POST target. Read by the HTTP capture hook to exclude the
-  /// SDK's own upload **explicitly** rather than by construction order.
+  /// The POST target. Read by the HTTP capture hook to exclude the SDK's own
+  /// upload **explicitly** rather than by construction order.
   Uri get resolvedUrl => _url;
-
-  static Uri _resolveUrl(String endpoint) {
-    final base =
-        endpoint.endsWith('/')
-            ? endpoint.substring(0, endpoint.length - 1)
-            : endpoint;
-    if (base.endsWith('/collector/telemetry')) return Uri.parse(base);
-    return Uri.parse('$base/collector/telemetry');
-  }
 
   /// Send a batch. Exhaust the [backoff] schedule before giving up; on the last
   /// failure persist the batch verbatim for a later drain. An offline result

@@ -50,7 +50,8 @@ first, or it never leaves the device. The drop is a hard drop and stays one; fro
 silent — a `debugMode` log naming the item, plus a dropped-item counter on `session.finalized`.
 Envelope is `telemetry_batch` and **both rails send it** — a crash is a one-item batch, not a
 bare item (a bare item is what the collector 400'd through all of v2). POST goes to
-`<endpoint>/collector/telemetry` with `X-API-Key`, gzipped; a 400 on a compressed body
+the configured `endpoint` **exactly as given** — the full collector URL; the SDK appends
+nothing (R10, #118) — with `X-API-Key`, gzipped; a 400 on a compressed body
 triggers one uncompressed re-POST per launch, and that probe is the only capability check.
 
 The envelope is **contract 4.0.0** (#116), closed at exactly eight keys in this order:

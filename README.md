@@ -101,7 +101,8 @@ in [`CHANGELOG.md`](CHANGELOG.md) under `[3.0.0]`.
 **The wire changed — your code mostly didn't.** Three steps: (1) set the iOS
 Podfile floor to `14.0` (MetricKit — the one guaranteed build break), (2) pass
 `apiKey:` to `initialize()` and treat `endpoint` as a base URL (`X-API-Key` auth;
-posts to `<endpoint>/collector/telemetry`), (3) delete the 4 removed OTel-leak /
+posts to `<endpoint>/collector/telemetry` in 2.x/3.x — 4.0 sends the URL as
+given, see below), (3) delete the 4 removed OTel-leak /
 long-deprecated symbols if you used them (`startSpan` / `endSpan` /
 `activeScreenSpans` / `initialize(runAppCallback:)`). Everything else compiles
 unchanged. **The full checklist — removals, deprecated no-ops, and what you
@@ -120,7 +121,7 @@ void main() async {
 
   // 🚀 ONE CALL - EVERYTHING IS AUTOMATIC!
   await EdgeTelemetry.initialize(
-    endpoint: 'https://your-backend.com', // base URL — SDK posts to /collector/telemetry
+    endpoint: 'https://your-backend.com/collector-go/telemetry', // full collector URL, sent as given
     serviceName: 'my-awesome-app',
     apiKey: 'edgekey_xxx_yyy', // sent as X-API-Key (required by the collector)
   );
@@ -485,7 +486,7 @@ both directions. There is no enable/disable pair to keep consistent.
 
 ```dart
 await EdgeTelemetry.initialize(
-  endpoint: 'https://your-backend.com',  // base URL — SDK posts to /collector/telemetry
+  endpoint: 'https://your-backend.com/collector-go/telemetry', // sent as given
   serviceName: 'my-app',
   apiKey: 'edgekey_xxx_yyy',             // sent as X-API-Key
 
@@ -874,7 +875,7 @@ Generate comprehensive reports from collected data:
 ```dart
 // Enable local reporting
 await EdgeTelemetry.initialize(
-  endpoint: 'https://your-backend.com',
+  endpoint: 'https://your-backend.com/collector-go/telemetry',
   serviceName: 'my-app',
   enableLocalReporting: true,
 );
@@ -988,7 +989,7 @@ Map<String, String> connectivity = EdgeTelemetry.instance.getConnectivityInfo();
 ```dart
 // Enable detailed logging
 await EdgeTelemetry.initialize(
-  endpoint: 'https://your-backend.com',
+  endpoint: 'https://your-backend.com/collector-go/telemetry',
   serviceName: 'my-app',
   debugMode: true,  // Shows all telemetry in console
 );

@@ -282,7 +282,7 @@ void main() {
     test('the SDK\'s own upload is neither reported nor traced', () async {
       final server = await serve();
       final self = Uri.parse(
-        'http://127.0.0.1:${server.port}/collector/telemetry',
+        'http://127.0.0.1:${server.port}/collector-go/telemetry',
       );
       final hook = startedHook(allowlist: const ['127.0.0.1'], selfUrl: self);
       final client = hook.capture(http.Client());

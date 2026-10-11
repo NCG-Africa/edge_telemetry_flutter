@@ -11,7 +11,8 @@ class TelemetryConfig {
   /// Name of the service/app for telemetry identification
   final String serviceName;
 
-  /// Base backend URL. The SDK POSTs to `<endpoint>/collector/telemetry`.
+  /// Full collector URL, sent as given — the SDK appends nothing
+  /// (e.g. `https://your-backend.com/collector-go/telemetry`).
   final String endpoint;
 
   /// API key sent as the `X-API-Key` header. Null = header omitted (the
