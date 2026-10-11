@@ -17,6 +17,7 @@ import 'package:edge_telemetry_flutter/src/managers/context_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 /// Every off-canon name v2.0.0 actually emitted. All seven were written,
 /// enriched, stringified and thrown away on every device for the whole of
@@ -90,6 +91,7 @@ void main() {
       global: {'device.id': 'd_1'},
     );
     final pipeline = Pipeline(
+      identity: kTestIdentity,
       transport: RetryTransport(
         endpoint: 'https://api.example.test',
         queue: _NoopQueue(),
@@ -330,6 +332,7 @@ void main() {
         global: {'device.id': 'd_1'},
       );
       final pipeline = Pipeline(
+        identity: kTestIdentity,
         transport: RetryTransport(
           endpoint: 'https://api.example.test',
           queue: _NoopQueue(),

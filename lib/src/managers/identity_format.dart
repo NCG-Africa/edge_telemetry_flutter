@@ -7,6 +7,8 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 const _hex = '0123456789abcdef';
 final _secureRandom = Random.secure();
 
@@ -48,6 +50,47 @@ String platformTag() {
   } catch (_) {
     return 'unknown';
   }
+}
+
+/// A random RFC 4122 version-4 UUID — the R9 `device_id` fallback.
+///
+/// Falls back from [Random.secure] to [Random]: the fallback runs *because*
+/// device-id generation failed, and the likeliest cause is a platform with no
+/// secure entropy source. A collision-resistant id beats no id — the
+/// collector 400s a batch without one (C6).
+String uuidV4() {
+  Random rng;
+  try {
+    rng = Random.secure();
+  } catch (_) {
+    rng = Random();
+  }
+  final b = List<int>.generate(16, (_) => rng.nextInt(256));
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // variant 1
+  final h = b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-'
+      '${h.substring(16, 20)}-${h.substring(20)}';
+}
+
+/// The envelope `app.platform` (contract 4.0.0 R2): `android` or `ios`, and
+/// `null` for any other OS — web and desktop, which the SDK does not support
+/// (R16).
+///
+/// Read from [defaultTargetPlatform] rather than `Platform.operatingSystem`:
+/// on a device they agree, and it is the seam Flutter already offers for
+/// overriding the OS — `debugDefaultTargetPlatformOverride` in a test, which
+/// defaults to android under `flutter_test` where `Platform` reports the host.
+// ponytail: the override also works in a consumer's *debug* build, so a debug
+// app faking iOS on Android would file as ios — debug only, and the collector
+// flags the mismatch against the key's App (C10). Release builds ignore it.
+String? mobileOs() {
+  if (kIsWeb) return null;
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.android => 'android',
+    TargetPlatform.iOS => 'ios',
+    _ => null,
+  };
 }
 
 /// Accepts BOTH the legacy 8-char alnum width and the new 16-hex width, so

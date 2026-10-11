@@ -17,6 +17,7 @@ import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/trace_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -536,9 +537,10 @@ void main() {
       );
       final context = ContextManager(
         sessionManager: session,
-        global: {'device.id': 'd_1'},
+        global: {'device.model': 'd_1'},
       );
       final pipeline = Pipeline(
+        identity: kTestIdentity,
         transport: RetryTransport(
           endpoint: 'https://api.example.test',
           queue: _NoopQueue(),
@@ -578,7 +580,7 @@ void main() {
         const Duration(minutes: 5).inMilliseconds.toString(),
       );
       // The SDK context still rides it, so the row is not an orphan.
-      expect(attrs['device.id'], 'd_1');
+      expect(attrs['device.model'], 'd_1');
 
       // The closing leg over the same seam: it takes its session id from the
       // snapshot, so it joins the session that is actually live.

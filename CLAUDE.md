@@ -53,15 +53,24 @@ bare item (a bare item is what the collector 400'd through all of v2). POST goes
 `<endpoint>/collector/telemetry` with `X-API-Key`, gzipped; a 400 on a compressed body
 triggers one uncompressed re-POST per launch, and that probe is the only capability check.
 
-The envelope also has an optional flat-dotted `context` block — the batch-level hoist, gated by
-`kHoistBatchContext` in `wire_canon.dart`, **default off and never a config field**. It fails
-*silently* against an unmerged processor (unknown block dropped → every session arrives with an
-empty `session.id`), so it flips only in the release after the server-side merge lands. When on,
-the Collector splits identity out of each batched item (classified by dotted prefix, so every
-live `device.*` value is batch-scoped, not just `platform_brightness`), mutable session counters
-leave the wire
-(they ride only the two bookends, on the never-hoisted immediate rail), and the Pipeline flushes
-whenever the block changes — one batch is structurally one session and one user.
+The envelope is **contract 4.0.0** (#116), closed at exactly eight keys in this order:
+`type`, `contract_version` (`kContractVersion`, shared by every SDK — not `kSdkVersion`),
+`timestamp`, `batch_size`, `device_id`, `sdk` (`{name: "flutter", version: kSdkVersion}`),
+`app` (`{name?, package_name, platform, version?, build_number?}`), `events`. **Identity lives
+in the envelope only**: captured once at init from `PackageInfo` + `mobileOs()` *before* the
+consumer's globals merge, and `Collector.add` strips `device.id`, `app.*` and `sdk.*` from every
+item after the policy pass — so an `sdk.`-prefixed per-item key is gone from the wire
+(`http_seam_state` and `native_capture_tier` dropped the prefix). An empty `version`,
+`build_number` or `name` is omitted, never `""`. There is **no `context` block and no
+`clock_skew_ms`**: context rides each item's `attributes`, and skew is derived server-side as
+`received_at − timestamp`. `timestamp` is UTC with `Z` and is re-stamped on **every POST
+attempt** (`stampForSend`), so a queued or retried 4.x batch carries its send time; a legacy
+envelope (3.x batch, or a v2 bare item `rewrapIfBare` wraps) drains as stored. A crash drained
+from the prior process goes alone under the **previous launch's** `app` block (native payloads
+carry no build — known approximation). `device_id` is never absent: a failed generation falls
+back to a persisted UUIDv4, then an in-memory one. On any OS but android/ios the SDK disables
+itself at init (one warning, nothing sent, public calls no-op). A 4.0 build is only valid against
+the 4.0 backend.
 
 Attribute spelling is deliberately mixed and must not be "normalized": dotted for identity/domain keys
 (`session.id`, `http.url`), **unprefixed** on `app.crash` (`message`, `stacktrace`, `exception_type`,
@@ -91,6 +100,11 @@ first (#53, amended by #61):
    SDK, a key shipping PII, and a memory figure that was the wrong number on **both** platforms and
    not comparable between them. Each bend that changes a value under an unchanged column carries an
    in-band flag: `http.url_redacted`, and `memory.source`. Record the errata; do not generalise this.
+   **Contract 4.0.0 (#116) is a wire major, not a bend of this rule**: `sdk.*` is envelope-only, so
+   the two per-item `sdk.` keys moved prefix-less — `sdk.native_capture_tier` (v2) →
+   `native_capture_tier`, `sdk.http_seam_state` (v3) → `http_seam_state` — same meaning, same
+   values, and the processor normalizes per contract major. A contract major is the only thing
+   that licenses a rename.
 3. **Attribute-first, by a *temporal* test**: a signal earns an event name only when no existing event
    fires at the instant that signal is known. Otherwise it is attributes on that event.
 4. **Ceiling: 6 new event names, 0 new metric names** — derived from the item budget, not picked.
@@ -257,7 +271,9 @@ never the SDK's own keys, which are unique per item by design and would be senti
 - Debug output is `print()` guarded by `config.debugMode`; the send/fail logs on `RetryTransport
   .sendImmediate` are **intentionally always printed** — leave those un-guarded. They now cover
   **fatals only**, because that is what the immediate rail carries; a non-fatal rides a batch and
-  reports through the ordinary guarded path.
+  reports through the ordinary guarded path. One more is unguarded on purpose: the single R16
+  warning when `initialize()` disables itself on web/desktop — a guarded one would be invisible
+  to exactly the consumer it is for.
 - Custom profile attributes are auto-prefixed with `user.`.
 - **iOS required-reason APIs — the standing rule.** One is adopted only if an approved
   reason **both** fits our use **and** permits off-device transmission, and the
@@ -265,7 +281,7 @@ never the SDK's own keys, which are unique per item by design and would be senti
   never inherited from a dependency's. The budget today is **zero**: the accessed-API
   array is empty, and it stays empty unless that two-part test passes. Collected data
   types are declared at the **capability ceiling** — nine, all linked to identity —
-  because `device.id` rides every item and `setUserProfile()` exists; unlinked is the
+  because `device_id` rides every batch and `setUserProfile()` exists; unlinked is the
   peer-conformant lie.
 - `sdk.version` is a constant in `lib/src/core/sdk_version.dart`, asserted against
   `pubspec.yaml` by a test. **A release bumps both.**

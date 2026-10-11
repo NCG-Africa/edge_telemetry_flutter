@@ -282,9 +282,13 @@ class EdgeEvent {
   ///
   /// The native plugin already built the unprefixed payload — `message`,
   /// `stacktrace`, `exception_type`, `cause` (`NativeCrash`/`ANR`/`Hang`),
-  /// `is_fatal:"true"`, `crash.source`, and the `sdk.native_capture_tier`
+  /// `is_fatal:"true"`, `crash.source`, and the `native_capture_tier`
   /// passthrough — so this factory carries the map verbatim onto the immediate
   /// rail (no `cause`/`is_fatal` synthesis; those come from the OS, not us).
+  ///
+  /// One rename: a payload a pre-4.0 Kotlin build wrote to disk still says
+  /// `sdk.native_capture_tier`, and `sdk.*` is envelope-only (R1), so the
+  /// Collector would strip it. It is carried over under the unprefixed name.
   ///
   /// `handled:"false"` and `error.category:"unknown"` are defaulted here rather
   /// than added to the channel payload: an OS-reported crash is unhandled by
@@ -299,11 +303,15 @@ class EdgeEvent {
   /// (`NativeCrash`/`ANR`/`Hang`), which discriminates it already.
   factory EdgeEvent.nativeCrash(Map<String, String> payload) =>
       EdgeEvent._crash(
-        Map<String, String>.unmodifiable({
-          'handled': 'false',
-          'error.category': ErrorCategory.unknown.wire,
-          ...payload,
-        }),
+        Map<String, String>.unmodifiable(
+          {
+            'handled': 'false',
+            'error.category': ErrorCategory.unknown.wire,
+            if (payload['sdk.native_capture_tier'] case final tier?)
+              'native_capture_tier': tier,
+            ...payload,
+          }..remove('sdk.native_capture_tier'),
+        ),
       );
 
   /// Whether the app kept running *because someone caught this*. The three

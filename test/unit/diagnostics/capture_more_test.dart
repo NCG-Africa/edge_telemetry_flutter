@@ -17,6 +17,7 @@ import 'package:edge_telemetry_flutter/src/widgets/edge_navigation_observer.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -62,7 +63,11 @@ Future<(Collector, _RecordingSender)> _wire({
     queue: _NoopQueue(),
     sender: sender.call,
   );
-  final pipeline = Pipeline(transport: transport, batchSize: 1);
+  final pipeline = Pipeline(
+    identity: kTestIdentity,
+    transport: transport,
+    batchSize: 1,
+  );
   final collector = Collector(
     context: context,
     session: session,

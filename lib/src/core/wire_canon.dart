@@ -10,7 +10,7 @@
 // `Collector.add`, which logs under `debugMode` and bumps a session-scoped
 // dropped-item counter that ships on `session.finalized`.
 
-import 'clock_skew.dart';
+import 'sdk_version.dart';
 
 /// The 16 canon event names (§2). `app.crash` takes **either** rail — a fatal
 /// goes immediate and skips this gate, a non-fatal batches and passes it (#90) —
@@ -88,109 +88,100 @@ const Set<String> kAmbientTraceAttributes = {
   'trace.root_type',
 };
 
+/// Whether [key] is a per-item copy of envelope identity (R1): `device.id`,
+/// any `app.*`, any `sdk.*`. The Collector strips these from every item —
+/// identity lives in the envelope only, so whatever set them (the device-info
+/// bag, a consumer global, an event attribute) never reaches the wire. Every
+/// other `device.*` key (model, `device.platform`, the fault bundle) stays.
+bool isEnvelopeIdentityKey(String key) =>
+    key == 'device.id' || key.startsWith('app.') || key.startsWith('sdk.');
+
 /// Whether a batched item of [type] (`event`/`metric`) named [name] is canon.
 bool isCanonWireItem(String type, String name) =>
     type == 'metric'
         ? kCanonMetrics.contains(name)
         : kCanonEvents.contains(name);
 
-/// The one wire envelope (`telemetry_batch`). Both rails send this shape — the
-/// batched flush and the one-item immediate crash — so a payload the queue
-/// stored verbatim and drained days later is still self-describing: the item
-/// carries its own context snapshot in `attributes`, and the envelope names it.
-///
-/// Field order is part of the canon
-/// (`type`/`timestamp`/`batch_size`/[`clock_skew_ms`]/[`context`]/`events`).
-/// [context] is the hoisted block (#82), omitted entirely while
-/// [kHoistBatchContext] is off; `clock_skew_ms` is omitted until the first
-/// successful POST of the launch has a `Date` header to measure against. With
-/// the hoist off and no skew recorded yet, the envelope is byte-identical to
-/// v2's.
-Map<String, dynamic> telemetryBatch(
-  List<Map<String, dynamic>> items, {
-  Map<String, String> context = const {},
+/// The batch contract version (R11): one semver shared by every SDK in the
+/// family, so it is **not** [kSdkVersion]. Minor = additive, major = breaking.
+const String kContractVersion = '4.0.0';
+
+/// Who sent a batch (R1, R9): the root `device_id` and the `app` block.
+/// Captured once at init — never read from the mutable global bag, so a
+/// consumer global cannot override it.
+typedef BatchIdentity = ({String deviceId, Map<String, String> app});
+
+/// The envelope `app` block (R3), in canon key order. An empty or null [name],
+/// [version] or [buildNumber] is **omitted**, never sent as `""` (R15) — the
+/// processor stores `'unknown'` for a missing one.
+Map<String, String> appIdentity({
+  String? name,
+  required String packageName,
+  required String platform,
+  String? version,
+  String? buildNumber,
 }) => {
+  if (name != null && name.isNotEmpty) 'name': name,
+  'package_name': packageName,
+  'platform': platform,
+  if (version != null && version.isNotEmpty) 'version': version,
+  if (buildNumber != null && buildNumber.isNotEmpty)
+    'build_number': buildNumber,
+};
+
+/// UTC RFC 3339 with a `Z` (R13). Local time with no offset — what v3 sent —
+/// skews the server's `received_at − timestamp` by the device's time zone.
+String utcNow() => DateTime.now().toUtc().toIso8601String();
+
+/// The one wire envelope, contract 4.0.0 (R3). Both rails send this shape —
+/// the batched flush and the one-item immediate crash.
+///
+/// Closed at exactly these eight keys, in this order. There is no `context`
+/// block and no `clock_skew_ms` (R5, R6): context rides each item's
+/// `attributes`, and skew is derived server-side as `received_at − timestamp`.
+/// Identity lives here and only here (R1); the Collector strips per-item
+/// copies.
+Map<String, dynamic> telemetryBatch(
+  List<Map<String, dynamic>> items,
+  BatchIdentity identity,
+) => {
   'type': 'telemetry_batch',
-  'timestamp': DateTime.now().toIso8601String(),
+  'contract_version': kContractVersion,
+  'timestamp': utcNow(),
   'batch_size': items.length,
-  if (recordedClockSkewMs != null) 'clock_skew_ms': recordedClockSkewMs,
-  if (context.isNotEmpty) 'context': context,
+  'device_id': identity.deviceId,
+  'sdk': const {'name': 'flutter', 'version': kSdkVersion},
+  'app': identity.app,
   'events': items,
 };
 
-// ==================== BATCH CONTEXT HOIST (#82) ====================
-
-/// The internal flip for the batch-level context hoist. **Default off, and
-/// never a config field** — a consumer must not be able to turn on a wire shape
-/// the server cannot read.
+/// Re-stamp a 4.x envelope's `timestamp` to now (R13) — called on every POST
+/// attempt, so a retried, queued or drained batch carries its *send* time,
+/// never the time it was built or stored. Everything else is sent verbatim,
+/// including a persisted crash batch's own build identity (R14).
 ///
-/// Unlike gzip, this fails *silently* if it ships before the processor-side
-/// merge: an unknown top-level block is dropped, every item arrives stripped of
-/// its identity, and every session lands with an empty `session.id` —
-/// corruption, not a dead letter. So it flips in the release *after* the merge
-/// lands, and only then.
-///
-/// If the merge never lands, v3 ships with this `false`: every item keeps its
-/// own full bag, the wire stays byte-identical to v2, and the only cost is that
-/// the un-hoisted byte ceilings in the budget go unmet (a typical session
-/// measures 358 KB against a 120 KB ceiling; an item is 1,467 B, not 308 B).
-const bool kHoistBatchContext = false;
-
-/// Session keys that *identify* the session rather than measure it — constant
-/// for the session's whole life, so they hoist.
-const Set<String> kHoistedSessionKeys = {
-  'session.id',
-  'session.start_time',
-  'session.is_first_session',
-  'session.total_sessions',
-  'session.sampled',
-};
-
-/// Mutable session counters. They re-measure on every snapshot, so they can be
-/// neither batch-scoped nor worth a copy per item: under the hoist they **leave
-/// the wire** on batched items. The two session bookends still carry them —
-/// those ride the immediate rail, which is never hoisted.
-const Set<String> kMutableSessionCounters = {
-  'session.duration_ms',
-  'session.event_count',
-  'session.metric_count',
-  'session.error_count',
-  'session.crash_count',
-  'session.http_request_count',
-  'session.action_count',
-  'session.screen_count',
-  'session.visited_screens',
-};
-
-/// Whether [key] belongs in the batch-level context block: static device / app
-/// / SDK identity, the user id, session identity, and the live-but-batch-scoped
-/// values — `network.type` plus the `device.` keys `ContextManager` re-reads
-/// per snapshot (`platform_brightness` always, `text_scale_factor` and
-/// `reduce_motion` when `captureAccessibilityContext` is on).
-///
-/// Flat dotted spelling is load-bearing: the server-side merge is a plain map
-/// merge, so each row's attribute bag comes out byte-identical to today's and
-/// no existing query, typed column or index changes. Consumer-supplied globals
-/// are deliberately *not* hoisted — their key names are arbitrary, so they
-/// cannot be classified, and leaving them per-item keeps the merge exact.
-///
-// ponytail: prefix match, not an explicit set — `device.*` is open-ended
-// (device_info_plus mints keys per platform), so no set could stay complete.
-// Ceiling: a *per-item* attribute minted under `device.`/`app.`/`sdk.` would be
-// silently batch-scoped. One now exists — the fatal-crash fault bundle's five
-// `device.*` keys (#91) — and it is safe only because a fatal rides the
-// immediate rail, which is never hoisted. Add an exception set here the day a
-// `device.`/`app.`/`sdk.` key is minted per item on something that *batches*.
-bool isHoistedContextKey(String key) =>
-    key.startsWith('device.') ||
-    key.startsWith('app.') ||
-    key.startsWith('sdk.') ||
-    key == 'user.id' ||
-    key == 'network.type' ||
-    kHoistedSessionKeys.contains(key);
+/// A legacy envelope (no `contract_version`: a 3.x batch, or a v2 bare item
+/// [rewrapIfBare] wrapped) is left as stored — the processor treats its
+/// offset-less local time as a known limit, and re-stamping it would mix two
+/// clocks in one legacy batch.
+Map<String, dynamic> stampForSend(Map<String, dynamic> batch) {
+  if (batch['contract_version'] != null) batch['timestamp'] = utcNow();
+  return batch;
+}
 
 /// A payload stored before the immediate rail was enveloped (v2.0.0 → v3) is a
 /// bare wire item. Re-wrap it at drain so the crash backlog becomes deliverable
 /// at the moment the envelope fix ships.
+///
+/// The bare item still carries its own per-event identity, so it is wrapped as
+/// a **legacy** envelope (no `contract_version`), which the processor
+/// normalizes from per-event attributes.
 Map<String, dynamic> rewrapIfBare(Map<String, dynamic> stored) =>
-    stored['type'] == 'telemetry_batch' ? stored : telemetryBatch([stored]);
+    stored['type'] == 'telemetry_batch'
+        ? stored
+        : {
+          'type': 'telemetry_batch',
+          'timestamp': stored['timestamp'] ?? utcNow(),
+          'batch_size': 1,
+          'events': [stored],
+        };

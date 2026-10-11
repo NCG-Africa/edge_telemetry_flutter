@@ -65,11 +65,6 @@ class Collector implements EventSink {
   /// Optional so a faked collector can skip it.
   final AttributePolicy? policy;
 
-  /// The batch-context hoist flip (#82). Injected so the wire seam is testable;
-  /// it defaults to the compile-time [kHoistBatchContext] and is **never** a
-  /// config field — see that constant for the silent-failure mode.
-  final bool hoistBatchContext;
-
   /// `ui.interaction` events admitted this session, against [kActionEventCap].
   /// Reset by [resetPerSessionCaps] on rotation — the cap is per session, like
   /// the governor's budget.
@@ -88,7 +83,6 @@ class Collector implements EventSink {
     this.debugMode = false,
     this.gate,
     this.policy,
-    this.hoistBatchContext = kHoistBatchContext,
   });
 
   /// Sample gate on the sampling axis (orthogonal to send-priority). Bypass
@@ -103,8 +97,10 @@ class Collector implements EventSink {
     return context.snapshot()['session.sampled'] != 'false';
   }
 
+  /// [app] is the R14 override for a crash replayed from a prior process; it
+  /// rides only the immediate rail, where that crash goes alone.
   @override
-  void add(EdgeEvent event) {
+  void add(EdgeEvent event, {Map<String, String>? app}) {
     // Lazy idle check on the "next event" (spec #15 §2.1): may rotate the
     // session (finalize old + start new) before this event is processed.
     // Guarded internally against the bookends it re-emits here.
@@ -228,6 +224,10 @@ class Collector implements EventSink {
       consumerSupplied: event.consumerAttributes,
     );
 
+    // Identity rides the envelope only (R1). After the policy pass, so a
+    // consumer's `app.*` cannot dodge the strip by being redacted into shape.
+    enriched.removeWhere((k, _) => isEnvelopeIdentityKey(k));
+
     // Crash-scoped breadcrumb attach (spec #15 §5.5): the ring rides only on
     // `app.crash`, JSON-encoded (attributes are String-valued on the wire).
     //
@@ -273,12 +273,9 @@ class Collector implements EventSink {
     // go immediate; everything else — a non-fatal crash included — buffers in
     // the Pipeline.
     if (event.priority == EventPriority.immediate) {
-      // The immediate rail is never hoisted — it is already its own one-item
-      // batch, and the `session.*` bookends riding it are exactly where the
-      // mutable session counters must still land.
-      pipeline.sendNow(wireItem);
+      pipeline.sendNow(wireItem, app: app);
     } else {
-      pipeline.enqueue(wireItem, context: _splitContextFrom(enriched));
+      pipeline.enqueue(wireItem);
     }
   }
 
@@ -307,31 +304,5 @@ class Collector implements EventSink {
     _errorsByKey[key] = seen + 1;
     _nonFatalErrors++;
     return true;
-  }
-
-  /// Split the batch-level context out of [enriched] **in place** — the same map
-  /// object the wire item already holds — and return the hoisted block. Mutable
-  /// session counters are removed outright: they re-measure per snapshot, so
-  /// they can be neither batch-scoped nor worth a copy per item.
-  ///
-  /// The two halves are disjoint by construction, so the server-side merge of
-  /// block + item bag is byte-identical to the bag this item would have carried
-  /// un-hoisted, minus those counters.
-  ///
-  /// Stripping the counters and building the block are one decision, not two:
-  /// both halves come from `SessionManager.getSessionAttributes()`, which is
-  /// all-or-nothing (empty until a session starts). So an empty block always
-  /// means there were no counters there to strip — the envelope can never ship
-  /// counters removed *and* no block to pay for it.
-  Map<String, String> _splitContextFrom(Map<String, String> enriched) {
-    if (!hoistBatchContext) return const {};
-    final hoisted = <String, String>{};
-    enriched.removeWhere((key, value) {
-      if (kMutableSessionCounters.contains(key)) return true;
-      if (!isHoistedContextKey(key)) return false;
-      hoisted[key] = value;
-      return true;
-    });
-    return hoisted;
   }
 }

@@ -1,11 +1,12 @@
 // lib/src/core/http_seam_state.dart
 //
-// `sdk.http_seam_state` — which HTTP capture seams are **live** (#87).
+// `http_seam_state` — which HTTP capture seams are **live** (#87). It shipped
+// as `sdk.http_seam_state` through v3; contract 4.0.0 (R1) moves it into the
+// item's attributes without the prefix, because `sdk.*` is envelope-only.
 //
-// Its own file in `core/`, for the reason `clock_skew.dart` is: the `dart:io`
-// seam is what installs one half and the wrapper seam is what sets the other,
-// so a holder in either would make that file change for a second, unrelated
-// reason. It also keeps the layer direction honest — `ContextManager` reads
+// Its own file in `core/`: the `dart:io` seam is what installs one half and the
+// wrapper seam is what sets the other, so a holder in either would make that
+// file change for a second, unrelated reason. It also keeps the layer direction honest — `ContextManager` reads
 // this, and a manager reaching into `capture/` for behaviour is the edge
 // CLAUDE.md's "five layers, one direction" forbids.
 //
@@ -73,9 +74,8 @@ bool get overridesSeamLive =>
 /// "session-constant". It is session-*level* rather than per-request, but it is
 /// not constant — the `dart:io` half can die mid-session, and a key that kept
 /// claiming a dead seam would be exactly the coverage claim the same acceptance
-/// criterion forbids. Under `kHoistBatchContext` a mid-session flip therefore
-/// costs one extra Pipeline flush and a session can report two values; that is
-/// the honest shape, and the flag is off.
+/// criterion forbids. A session can therefore report two values; that is the
+/// honest shape.
 String httpSeamState() {
   if (overridesSeamLive) {
     return _clientWrapped ? kSeamStateBoth : kSeamStateOverrides;

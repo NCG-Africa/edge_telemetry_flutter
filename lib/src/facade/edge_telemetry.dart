@@ -4,6 +4,7 @@
 // lives behind a private [TelemetryWiring]. This is the file consumers reach
 // through the exports-only barrel (package:edge_telemetry_flutter/edge_telemetry_flutter.dart).
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
@@ -23,6 +24,7 @@ import '../core/models/breadcrumb.dart';
 import '../core/models/generated_report.dart';
 import '../core/models/report_data.dart';
 import '../core/models/telemetry_session.dart';
+import '../core/wire_canon.dart';
 import '../crash/error_category.dart';
 import '../managers/breadcrumb_manager.dart';
 import '../managers/context_manager.dart';
@@ -68,6 +70,9 @@ class EdgeTelemetry {
   int _profileVersion = 0;
   static const String _profileVersionKey = 'edge_telemetry_profile_version';
 
+  /// The envelope `app` block of the last launch (R14).
+  static const String _lastAppKey = 'edge_telemetry_last_app';
+
   // Device info.
   DeviceInfoCollector? _deviceInfoCollector;
   Map<String, String> _globalAttributes = {};
@@ -80,6 +85,10 @@ class EdgeTelemetry {
 
   bool _initialized = false;
   TelemetryConfig? _config;
+
+  /// Set at init on any OS but android and ios (R16): nothing is wired, and
+  /// every public call is a no-op instead of a `StateError`.
+  bool _unsupportedOs = false;
 
   // Kept so the isolate error-listener can be detached on dispose/hot-restart.
   RawReceivePort? _isolateErrorPort;
@@ -158,6 +167,19 @@ class EdgeTelemetry {
     if (_initialized) return;
     _config = config;
 
+    // Checked first (R16): the envelope's `app.platform` has no value for web
+    // or desktop, so the SDK switches itself off rather than send a batch the
+    // backend cannot file.
+    _unsupportedOs = mobileOs() == null;
+    if (_unsupportedOs) {
+      print(
+        '⚠️ EdgeTelemetry: ${kIsWeb ? 'web' : defaultTargetPlatform.name} is '
+        'not supported (android and ios only) — telemetry is disabled and '
+        'nothing will be sent.',
+      );
+      return;
+    }
+
     try {
       // Identity + session.
       _userIdManager = UserIdManager();
@@ -181,6 +203,10 @@ class EdgeTelemetry {
       // Device + app info → global context bag.
       _deviceInfoCollector = FlutterDeviceInfoCollector();
       _globalAttributes = await _deviceInfoCollector!.collectDeviceInfo();
+      // The envelope identity (R1), taken *before* the consumer's globals merge
+      // so a global named `app.*` can never override it.
+      final identity = _batchIdentity(_globalAttributes);
+      final priorApp = await _swapLastApp(identity.app);
       _globalAttributes.addAll(config.globalAttributes);
       _globalAttributes['user.id'] = _currentUserId!;
 
@@ -209,6 +235,7 @@ class EdgeTelemetry {
         context: context,
         trace: trace,
         breadcrumbs: breadcrumbs,
+        identity: identity,
       );
 
       await _sessionManager!.recoverAndStart();
@@ -224,7 +251,7 @@ class EdgeTelemetry {
       // Unconditional in v3: there is no off-switch for crash capture, so an
       // SDK reporting no crashes can never be a configuration.
       _installGlobalCrashHandler();
-      await _drainNativeCrashes();
+      await _drainNativeCrashes(_crashedApp(identity.app, priorApp));
 
       if (config.enableLocalReporting) {
         await _setupLocalReporting();
@@ -269,19 +296,73 @@ class EdgeTelemetry {
     }
   }
 
+  /// The envelope identity from the collected device info. Read once at init;
+  /// the bag keeps its own `app.*` / `device.id` copies for local reporting,
+  /// and the Collector strips them from every wire item.
+  static BatchIdentity _batchIdentity(Map<String, String> info) => (
+    deviceId: info['device.id']!,
+    app: appIdentity(
+      name: info['app.name'],
+      packageName: info['app.package_name'] ?? '',
+      platform: mobileOs()!,
+      version: info['app.version'],
+      buildNumber: info['app.build_number'],
+    ),
+  );
+
+  /// Persist this launch's `app` block and return the previous launch's, or
+  /// null on a first launch (or a 3.x → 4.0 upgrade) or a storage failure.
+  static Future<Map<String, String>?> _swapLastApp(
+    Map<String, String> current,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_lastAppKey);
+      await prefs.setString(_lastAppKey, jsonEncode(current));
+      return raw == null
+          ? null
+          : (jsonDecode(raw) as Map).cast<String, String>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The envelope `app` for a crash drained from the prior process (R14):
+  /// name, version and build of the previous launch; package and platform are
+  /// the install's own. With no previous launch on record, version and build
+  /// are **omitted** (R15) — on a 3.x → 4.0 upgrade the crashed build is
+  /// certainly not this one, so the current build would be a wrong guess.
+  static Map<String, String> _crashedApp(
+    Map<String, String> current,
+    Map<String, String>? prior,
+  ) => appIdentity(
+    name: prior == null ? current['name'] : prior['name'],
+    packageName: current['package_name']!,
+    platform: current['platform']!,
+    version: prior?['version'],
+    buildNumber: prior?['build_number'],
+  );
+
   /// Pull native crashes surfaced by the OS since last launch, once on init,
   /// and route each into the immediate `app.crash` rail (spec #15 Phase 4, #29).
   ///
   /// Each payload arrives pre-shaped by the native plugin (unprefixed keys,
   /// `cause` ∈ NativeCrash/ANR/Hang, `is_fatal:true`, `crash.source`,
-  /// `sdk.native_capture_tier`); the Collector folds in identity context and
+  /// `native_capture_tier`); the Collector folds in context and
   /// sends immediately (bypass batch). Empty until the native plugin registers
   /// the channel — the drain returns `[]` and nothing is sent.
-  Future<void> _drainNativeCrashes() async {
+  ///
+  /// Each goes in its own batch under [crashedApp], the build that crashed
+  /// (R14). **Known approximation:** neither `ApplicationExitInfo` nor a
+  /// MetricKit payload carries the app build here, so that is the *previous
+  /// launch's* build. It is wrong when the app was updated more than once
+  /// since the crash, or the crash predates the previous launch.
+  Future<void> _drainNativeCrashes(Map<String, String> crashedApp) async {
     final crashes = await _wiring!.nativeCrash.drainNativeCrashes();
     for (final crash in crashes) {
       _wiring!.collector.add(
         _wiring!.crashReporting.buildNativeCrashEvent(crash),
+        app: crashedApp,
       );
     }
     if (_config?.debugMode == true && crashes.isNotEmpty) {
@@ -370,7 +451,7 @@ class EdgeTelemetry {
   /// outcome either — duration is a backend view over the action's children,
   /// and outcome belongs to a signal with a terminal moment.
   void trackAction(String name) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.trace.nameCurrent(name);
   }
 
@@ -420,7 +501,7 @@ class EdgeTelemetry {
   /// duplicated an automatically-captured signal, so its failure mode was
   /// double-counting. There is no automatic source for this one.
   void startTask(String name) {
-    _ensureInitialized();
+    if (!_ready()) return;
     final session = _wiring!.session;
     // Two statements, not one expression, because Dart would otherwise evaluate
     // the freeze as an argument — i.e. *before* `startTask` runs its own idle
@@ -438,7 +519,7 @@ class EdgeTelemetry {
   /// already-closed name: a no-op, by design — the calls are fire-and-forget, so
   /// there is no unclosed-call failure mode to leak.
   void completeTask(String name) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.session.endTask(name, TaskOutcome.completed);
   }
 
@@ -452,7 +533,7 @@ class EdgeTelemetry {
   /// 2 of the happy path). There is no task timeout of its own: the 30-minute
   /// session idle window is the cap.
   void failTask(String name) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.session.endTask(name, TaskOutcome.failed);
   }
 
@@ -481,14 +562,14 @@ class EdgeTelemetry {
   ///
   /// gRPC, HTTP/2 and `http2_adapter` are **out of scope** — they bypass
   /// `package:http` as well, which is a protocol gap rather than a wrapper gap.
-  /// `sdk.http_seam_state` says which seams are live so a dashboard never has
+  /// `http_seam_state` says which seams are live so a dashboard never has
   /// to infer coverage from silence.
   http.Client captureClient(http.Client client) =>
       _wiring?.httpHook?.capture(client) ?? client;
 
   /// Track a custom event with flexible attribute support.
   void trackEvent(String eventName, {Map<String, Object?>? attributes}) {
-    _ensureInitialized();
+    if (!_ready()) return;
     final stringAttributes = _stringify(attributes);
 
     // Host names are arbitrary → wrap into the canon `custom_event` with the
@@ -523,7 +604,7 @@ class EdgeTelemetry {
     double value, {
     Map<String, Object?>? attributes,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     final stringAttributes = _stringify(attributes);
 
     _wiring!.collector.add(
@@ -567,7 +648,7 @@ class EdgeTelemetry {
     Map<String, String>? attributes,
     ErrorCategory? category,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _emitCrash(
       error,
       stackTrace: stackTrace,
@@ -585,7 +666,7 @@ class EdgeTelemetry {
     String? phone,
     Map<String, String>? customAttributes,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _userProfile.clear();
     if (name != null) _userProfile['user.name'] = name;
     if (email != null) _userProfile['user.email'] = email;
@@ -632,7 +713,7 @@ class EdgeTelemetry {
 
   /// Clear user profile (but keep auto-generated user ID).
   void clearUserProfile() {
-    _ensureInitialized();
+    if (!_ready()) return;
     _userProfile.clear();
     final profileVersion = _getNextProfileVersion();
 
@@ -679,7 +760,9 @@ class EdgeTelemetry {
 
   /// Get the navigation observer for MaterialApp.
   EdgeNavigationObserver get navigationObserver {
-    _ensureInitialized();
+    // An inert observer on an unsupported OS (R16): the consumer's
+    // `navigatorObservers` line must still build.
+    if (!_ready()) return EdgeNavigationObserver();
     final observer = _wiring!.navigationObserver;
     if (observer == null) {
       throw StateError(
@@ -712,7 +795,7 @@ class EdgeTelemetry {
     BreadcrumbLevel level = BreadcrumbLevel.info,
     Map<String, String>? data,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addBreadcrumb(
       message,
       category: category,
@@ -722,12 +805,12 @@ class EdgeTelemetry {
   }
 
   void addNavigationBreadcrumb(String route, {Map<String, String>? data}) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addNavigation(route, data: data);
   }
 
   void addUserActionBreadcrumb(String action, {Map<String, String>? data}) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addUserAction(action, data: data);
   }
 
@@ -736,7 +819,7 @@ class EdgeTelemetry {
     BreadcrumbLevel level = BreadcrumbLevel.info,
     Map<String, String>? data,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addSystemEvent(event, level: level, data: data);
   }
 
@@ -745,12 +828,12 @@ class EdgeTelemetry {
     BreadcrumbLevel level = BreadcrumbLevel.info,
     Map<String, String>? data,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addNetworkEvent(event, level: level, data: data);
   }
 
   void addUIBreadcrumb(String event, {Map<String, String>? data}) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addUIEvent(event, data: data);
   }
 
@@ -759,17 +842,17 @@ class EdgeTelemetry {
     BreadcrumbLevel level = BreadcrumbLevel.info,
     Map<String, String>? data,
   }) {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.addCustom(message, level: level, data: data);
   }
 
   List<Breadcrumb> getBreadcrumbs() {
-    _ensureInitialized();
+    if (!_ready()) return const [];
     return _wiring!.breadcrumbs.getBreadcrumbs();
   }
 
   void clearBreadcrumbs() {
-    _ensureInitialized();
+    if (!_ready()) return;
     _wiring!.breadcrumbs.clear();
   }
 
@@ -885,6 +968,7 @@ class EdgeTelemetry {
     _reportStorage?.dispose();
 
     _wiring?.disposeAll();
+    _wiring = null;
     _initialized = false;
 
     if (_config?.debugMode == true) print('🧹 EdgeTelemetry disposed');
@@ -921,6 +1005,14 @@ class EdgeTelemetry {
       'event_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1000)}';
   String _generateMetricId() =>
       'metric_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1000)}';
+
+  /// The guard every public call goes through: false on an unsupported OS
+  /// (R16) so the call is a no-op, a `StateError` before [initialize].
+  bool _ready() {
+    if (_unsupportedOs) return false;
+    _ensureInitialized();
+    return true;
+  }
 
   void _ensureInitialized() {
     if (!_initialized) {

@@ -293,7 +293,10 @@ A deprecation-in-place is four things:
 Names are retained; emission stops or changes. **No v2 name is ever renamed**, and
 no v2 name has its meaning changed under the same backend columns except where
 the v2 meaning was *wrong* — four such carve-outs exist in v3, each recorded here
-and none of them a precedent. **Two of the four carry an in-band flag**
+and none of them a precedent. (Contract 4.0.0 is a wire major, not a fifth: it
+moves the per-item `sdk.native_capture_tier` and `sdk.http_seam_state` to
+`native_capture_tier` and `http_seam_state` because `sdk.*` became
+envelope-only, with meaning and values unchanged — see `CHANGELOG.md`.) **Two of the four carry an in-band flag**
 (`http.url_redacted`, `memory.source`); the `http.duration_ms` re-base and the
 `http.success` narrowing to 2xx carry none, because there is no honest per-row
 value to put one on — the change is in what the number measures, not in whether

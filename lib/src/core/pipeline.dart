@@ -2,8 +2,6 @@
 
 import 'dart:async' show Timer;
 
-import 'package:flutter/foundation.dart' show mapEquals;
-
 import 'retry_transport.dart';
 import 'wire_canon.dart';
 
@@ -15,6 +13,10 @@ import 'wire_canon.dart';
 /// transport.
 class Pipeline {
   final RetryTransport transport;
+
+  /// The envelope identity every batch carries (R1). Required: an envelope
+  /// without `device_id` is a collector 400 (C6).
+  final BatchIdentity identity;
   final int batchSize;
   final Duration flushInterval;
   final bool debugMode;
@@ -22,12 +24,9 @@ class Pipeline {
   final List<Map<String, dynamic>> _buffer = [];
   Timer? _timer;
 
-  /// The hoisted context block for whatever is currently buffered (#82). Empty
-  /// while the hoist is off, and then `telemetryBatch` omits the block entirely.
-  Map<String, String> _context = const {};
-
   Pipeline({
     required this.transport,
+    required this.identity,
     int batchSize = 30,
     this.flushInterval = const Duration(seconds: 5),
     this.debugMode = false,
@@ -36,30 +35,7 @@ class Pipeline {
   }) : batchSize = batchSize.clamp(1, 1000);
 
   /// Buffer a batched event; flush when the buffer hits [batchSize].
-  ///
-  /// [context] is the item's hoisted context block (#82), empty while the hoist
-  /// is off. A batch carries exactly one such block, so a change to it closes
-  /// the current batch before this event joins one.
-  void enqueue(
-    Map<String, dynamic> event, {
-    Map<String, String> context = const {},
-  }) {
-    // One batch is structurally one session and one user. Whole-map equality
-    // rather than a session.id/user.id check: it is the same one line, and it
-    // makes the server-side merge byte-exact by construction for *every*
-    // hoisted key, the live-but-batch-scoped ones included (network.type, and
-    // the `device.` keys re-read per snapshot). Deliberately stronger than
-    // "session or user change forces a flush" — the cost is an extra batch on
-    // a network or brightness flip, which is rare and self-announcing.
-    //
-    // Per-item override is deliberately declined here: an item does not keep
-    // its own copy of a hoisted key to win with at merge time. That precedence
-    // rule is for a value frozen at a different *instant* than the batch — a
-    // later reading of the same thing. A value belonging to a different
-    // *session* is not that; merging it in would put two sessions in one batch,
-    // which is the corruption this flush exists to prevent.
-    if (_buffer.isNotEmpty && !mapEquals(_context, context)) _flush();
-    _context = context;
+  void enqueue(Map<String, dynamic> event) {
     _buffer.add(event);
     if (debugMode) {
       print(
@@ -77,8 +53,16 @@ class Pipeline {
   /// Send a single wire item immediately, bypassing the batch (crash rail).
   /// Enveloped as a one-item `telemetry_batch` — the collector rejects a bare
   /// item with a 400, which is why no crash was ever delivered in v2.
-  void sendNow(Map<String, dynamic> item) {
-    transport.sendImmediate(telemetryBatch([item]));
+  ///
+  /// [app] replaces the envelope's `app` block for this one batch — a crash
+  /// drained from a prior process is filed under the build that crashed
+  /// (R14); `device_id`, `contract_version` and `sdk` stay current.
+  void sendNow(Map<String, dynamic> item, {Map<String, String>? app}) {
+    transport.sendImmediate(
+      telemetryBatch([
+        item,
+      ], app == null ? identity : (deviceId: identity.deviceId, app: app)),
+    );
   }
 
   /// Force-send any buffered events (call on shutdown).
@@ -89,14 +73,10 @@ class Pipeline {
   void _flush() {
     if (_buffer.isEmpty) return;
     transport.send(
-      telemetryBatch(
-        List<Map<String, dynamic>>.from(_buffer),
-        context: _context,
-      ),
+      telemetryBatch(List<Map<String, dynamic>>.from(_buffer), identity),
     );
     if (debugMode) print('📤 Sent batch of ${_buffer.length} events');
     _buffer.clear();
-    _context = const {};
     _timer?.cancel();
   }
 

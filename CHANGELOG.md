@@ -1,5 +1,49 @@
 # Changelog
 
+## [Unreleased]
+
+**Contract 4.0.0 batch envelope (#116).** A build with this change sends no
+per-event identity, so it is valid **only against the 4.0 backend** (collector
+and processor that read `contract_version`). The endpoint change, the failed-send
+policy and the 4.0.0 release itself are the next ticket.
+
+### Changed
+
+- **The envelope is closed at eight keys**: `type`, `contract_version: "4.0.0"`,
+  `timestamp`, `batch_size`, `device_id`, `sdk` (`{name: "flutter", version}`),
+  `app` (`{name?, package_name, platform, version?, build_number?}`), `events`.
+- **Identity rides the envelope only.** Items no longer carry `device.id`,
+  `app.*` or `sdk.*` — from any source, so a `globalAttributes` key named
+  `app.*`, `sdk.*` or `device.id` (including `app.environment`) no longer
+  reaches the wire. Every other `device.*` key, `device.platform` included,
+  still rides each item.
+- `sdk.http_seam_state` is now **`http_seam_state`**, and Android's
+  `sdk.native_capture_tier` is now **`native_capture_tier`** (a crash stored by
+  an older build is renamed on drain).
+- **`timestamp` is UTC with `Z`** and is stamped at send time, retries and
+  offline drains included. v3 sent local time with no offset, which skewed the
+  server's clock-skew figure by the device's time zone.
+- An empty `PackageInfo` version or build number is **omitted** from `app`,
+  never sent as `""`.
+- A native crash or hang drained from the previous process is sent in its own
+  batch under the **previous launch's** app name, version and build.
+  **Known limit:** `ApplicationExitInfo` and MetricKit payloads carry no build
+  here, so this is wrong when the app was updated more than once since the
+  crash, or the crash predates the previous launch. With no previous launch on
+  record (the first 4.0 launch), version and build are omitted.
+- **Web and desktop**: `initialize()` now logs one warning and disables the SDK
+  — nothing is wired or sent, and later public calls are no-ops instead of
+  throwing.
+- `device_id` is never absent: if generation fails, a random UUIDv4 is persisted
+  and used; if storage fails too, an in-memory UUID serves the process.
+
+### Removed
+
+- `clock_skew_ms` (skew is derived server-side as `received_at − timestamp`),
+  the never-enabled batch `context` hoist, `sdk.platform` (`flutter-android` /
+  `flutter-ios`) and the per-item `sdk.version` (now envelope `sdk.version`),
+  and `device.id_error`.
+
 ## [3.0.0] - 2026-09-30
 
 **The wire changed *and* your code changed.** No v2 name was renamed or removed

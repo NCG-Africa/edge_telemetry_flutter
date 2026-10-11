@@ -16,6 +16,7 @@ import 'package:edge_telemetry_flutter/src/managers/context_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -128,7 +129,7 @@ void main() {
         'cause': 'NativeCrash',
         'is_fatal': 'true',
         'crash.source': 'metrickit',
-        'sdk.native_capture_tier': 'full',
+        'native_capture_tier': 'full',
       });
 
       expect(event.name, 'app.crash');
@@ -139,10 +140,11 @@ void main() {
       expect(a['cause'], 'NativeCrash'); // native taxonomy, not 'Error'
       expect(a['is_fatal'], 'true'); // fatal, not the Dart 'false'
       expect(a['crash.source'], 'metrickit');
-      expect(a['sdk.native_capture_tier'], 'full');
+      expect(a['native_capture_tier'], 'full');
     });
 
-    test('ANR + jvm_only tier pass through unchanged', () {
+    test('ANR + jvm_only tier; a pre-4.0 stored sdk.-prefixed tier is renamed '
+        '(R1)', () {
       final a =
           reporting.buildNativeCrashEvent({
             'message': 'ANR in com.example',
@@ -152,7 +154,8 @@ void main() {
             'sdk.native_capture_tier': 'jvm_only',
           }).attributes;
       expect(a['cause'], 'ANR');
-      expect(a['sdk.native_capture_tier'], 'jvm_only');
+      expect(a['native_capture_tier'], 'jvm_only');
+      expect(a.containsKey('sdk.native_capture_tier'), isFalse);
     });
   });
 
@@ -163,7 +166,7 @@ void main() {
       await session.startSession('session_test');
       final context = ContextManager(
         sessionManager: session,
-        global: {'device.id': 'device_x'},
+        global: {'device.model': 'device_x'},
       );
       final transport = RetryTransport(
         endpoint: 'https://api.test',
@@ -172,7 +175,11 @@ void main() {
       );
       // batchSize huge → a batched event would NOT flush; only the immediate
       // rail can produce a send here.
-      final pipeline = Pipeline(transport: transport, batchSize: 999);
+      final pipeline = Pipeline(
+        identity: kTestIdentity,
+        transport: transport,
+        batchSize: 999,
+      );
       final collector = Collector(
         context: context,
         session: session,
@@ -206,7 +213,7 @@ void main() {
       expect(attrs['cause'], 'Error');
       expect(attrs['is_fatal'], 'false');
       expect(attrs['crash.source'], 'platform_dispatcher');
-      expect(attrs['device.id'], 'device_x'); // identity context folded in
+      expect(attrs['device.model'], 'device_x'); // context folded in
     });
 
     test(
@@ -220,7 +227,7 @@ void main() {
             'cause': 'NativeCrash',
             'is_fatal': 'true',
             'crash.source': 'metrickit',
-            'sdk.native_capture_tier': 'full',
+            'native_capture_tier': 'full',
           }),
         );
         await Future<void>(() {});
@@ -230,8 +237,8 @@ void main() {
         expect(sender.items.single['eventName'], 'app.crash');
         expect(attrs['cause'], 'NativeCrash');
         expect(attrs['is_fatal'], 'true');
-        expect(attrs['sdk.native_capture_tier'], 'full'); // tiering asserted
-        expect(attrs['device.id'], 'device_x'); // identity context folded in
+        expect(attrs['native_capture_tier'], 'full'); // tiering asserted
+        expect(attrs.containsKey('device.id'), isFalse); // envelope only (R1)
       },
     );
   });

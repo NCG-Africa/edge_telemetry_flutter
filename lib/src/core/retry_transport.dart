@@ -5,7 +5,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
-import 'clock_skew.dart';
 import 'offline_queue.dart';
 import 'wire_canon.dart';
 
@@ -178,6 +177,7 @@ class RetryTransport {
   /// `false`→500 (a reachable failure). Real HTTP returns the status, or 0 when
   /// the connection can't be made (offline).
   Future<int> _status(Map<String, dynamic> data) async {
+    stampForSend(data);
     final sender = _sender;
     if (sender != null) return (await sender(data)) ? 200 : 500;
     return _httpPost(data);
@@ -229,10 +229,6 @@ class RetryTransport {
       request.add(gzip ? GZipCodec().encode(body) : body);
       final response = await request.close();
       await response.drain<void>();
-      // Free server time on a response we already have. Recorded, not applied,
-      // and only from a POST the collector accepted — a 4xx can come from an
-      // edge that never reached it, so its `Date` is a different clock.
-      if (_ok(response.statusCode)) recordClockSkew(response.headers.date);
       return response.statusCode;
     } catch (e) {
       print('❌ Error: $e');

@@ -8,16 +8,19 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:edge_telemetry_flutter/src/core/clock_skew.dart';
 import 'package:edge_telemetry_flutter/src/core/collector.dart';
 import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
 import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
 import 'package:edge_telemetry_flutter/src/core/pipeline.dart';
 import 'package:edge_telemetry_flutter/src/core/retry_transport.dart';
+import 'package:edge_telemetry_flutter/src/core/sdk_version.dart';
+import 'package:edge_telemetry_flutter/src/core/wire_canon.dart';
 import 'package:edge_telemetry_flutter/src/managers/context_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../helpers/test_identity.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -47,6 +50,7 @@ Future<(Collector, _RecordingSender)> _wire({
   Map<String, String>? global,
   String endpoint = 'https://api.example.test',
   String? apiKey,
+  bool realHttp = false,
 }) async {
   final sender = _RecordingSender();
   final session = SessionManager();
@@ -59,9 +63,13 @@ Future<(Collector, _RecordingSender)> _wire({
     endpoint: endpoint,
     apiKey: apiKey,
     queue: _NoopQueue(),
-    sender: sender.call,
+    sender: realHttp ? null : sender.call,
   );
-  final pipeline = Pipeline(transport: transport, batchSize: flushAt);
+  final pipeline = Pipeline(
+    transport: transport,
+    identity: kTestIdentity,
+    batchSize: flushAt,
+  );
   final collector = Collector(
     context: context,
     session: session,
@@ -77,6 +85,7 @@ Future<(Collector, _RecordingSender)> _wire({
 Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
   ...batch,
   'timestamp': '<TS>',
+  'sdk': {...batch['sdk'] as Map, 'version': '<SDK>'},
   'events':
       (batch['events'] as List).map((e) {
         final ev = Map<String, dynamic>.from(e as Map);
@@ -95,7 +104,7 @@ Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
               // seams happen to be live in this process, so the fixture pins the
               // presence and not the environment.
               ..update(
-                'sdk.http_seam_state',
+                'http_seam_state',
                 (_) => '<SEAM>',
                 ifAbsent: () => '<MISSING>',
               );
@@ -123,23 +132,23 @@ void main() {
 
       expect(sender.sent, hasLength(1));
       final batch = sender.sent.single;
-      expect(batch.keys.toList(), [
-        'type',
-        'timestamp',
-        'batch_size',
-        'events',
-      ]);
+      // Exactly the R3 eight, in canon order.
+      expect(batch.keys.toList(), kR3EnvelopeKeys);
       expect(batch['type'], 'telemetry_batch');
+      expect(batch['contract_version'], '4.0.0');
       expect(batch['batch_size'], 2);
+      expect(batch['device_id'], kTestIdentity.deviceId);
+      expect(batch['sdk'], {'name': 'flutter', 'version': kSdkVersion});
+      expect(batch['app'], kTestIdentity.app);
 
       final events = (batch['events'] as List).cast<Map<String, dynamic>>();
       expect(events.map((e) => e['eventName'] ?? e['metricName']), [
         'navigation',
         'frame_render_time',
       ]);
-      // device.id rides in every event's attributes (Collector 400s without it).
+      // Identity rides the envelope only (R1): no per-item copy.
       for (final e in events) {
-        expect((e['attributes'] as Map)['device.id'], 'device_abc');
+        expect((e['attributes'] as Map).containsKey('device.id'), isFalse);
       }
       // The metric keeps metricName + value at root (shape unchanged).
       expect(events[1]['metricName'], 'frame_render_time');
@@ -147,40 +156,154 @@ void main() {
     },
   );
 
-  test('clock skew rides the envelope, recorded and never applied', () async {
-    addTearDown(resetClockSkew);
-    final (collector, sender) = await _wire(flushAt: 1);
+  test(
+    'items carry no device.id, app.* or sdk.* — whoever set them (R1)',
+    () async {
+      final (collector, sender) = await _wire(
+        flushAt: 1,
+        global: {
+          'device.id': 'device_abc',
+          'device.model': 'Pixel 9',
+          'device.platform': 'android',
+          'app.version': '9.9.9', // a consumer global must not reach the wire
+          'app.name': 'X',
+          'sdk.version': '0.0.1',
+          'user.id': 'user_abc',
+        },
+      );
+      collector.add(
+        const EdgeEvent.event(
+          'custom_event',
+          attributes: {'app.environment': 'prod', 'sdk.health': 'x'},
+        ),
+      );
+      collector.add(const EdgeEvent.session('session.started', {}));
+      await Future<void>(() {});
 
-    // The collector's clock is 30s ahead of ours.
-    recordClockSkew(DateTime.now().add(const Duration(seconds: 30)));
+      final batches = sender.sent;
+      expect(batches, hasLength(2)); // immediate + batched rails
+      for (final batch in batches) {
+        expect(batch['app'], kTestIdentity.app); // envelope wins
+        for (final e in batch['events'] as List) {
+          final attrs = (e as Map)['attributes'] as Map<String, dynamic>;
+          expect(
+            attrs.keys.where(
+              (k) =>
+                  k == 'device.id' ||
+                  k.startsWith('app.') ||
+                  k.startsWith('sdk.'),
+            ),
+            isEmpty,
+          );
+          // Other device.* keys stay per item.
+          expect(attrs['device.model'], 'Pixel 9');
+          expect(attrs['device.platform'], 'android');
+          // The seam state moves into the item without its sdk. prefix.
+          expect(attrs['http_seam_state'], isNotNull);
+        }
+      }
+    },
+  );
+
+  test('envelope timestamp is UTC RFC 3339 with a Z (R13)', () async {
+    final (collector, sender) = await _wire(flushAt: 1);
     collector.add(const EdgeEvent.event('navigation'));
     await Future<void>(() {});
 
-    final batch = sender.sent.single;
-    expect(batch.keys.toList(), [
-      'type',
-      'timestamp',
-      'batch_size',
-      'clock_skew_ms',
-      'events',
-    ]);
-    expect(batch['clock_skew_ms'], closeTo(30000, 1000));
-    // Never corrected in place: the item's own timestamp is still ours, so an
-    // offline batch replayed days late still replays identically.
+    final ts = sender.sent.single['timestamp'] as String;
+    expect(ts, endsWith('Z'));
+    expect(DateTime.parse(ts).isUtc, isTrue);
     expect(
-      DateTime.parse(
-        batch['timestamp'] as String,
-      ).isBefore(DateTime.now().add(const Duration(seconds: 5))),
-      isTrue,
+      DateTime.parse(ts).difference(DateTime.now().toUtc()).abs(),
+      lessThan(const Duration(seconds: 5)),
     );
+  });
 
-    // A response with no Date leaves the last estimate standing; a reset drops
-    // the key entirely, which is the shape of every launch before its first
-    // successful POST.
-    recordClockSkew(null);
-    expect(recordedClockSkewMs, isNotNull);
-    resetClockSkew();
-    expect(recordedClockSkewMs, isNull);
+  test('the immediate rail sends the same 4.0 envelope', () async {
+    final (collector, sender) = await _wire();
+    collector.add(const EdgeEvent.session('session.started', {}));
+    await Future<void>(() {});
+
+    final batch = sender.sent.single;
+    expect(batch['contract_version'], '4.0.0');
+    expect(batch['device_id'], kTestIdentity.deviceId);
+    expect(batch['app'], kTestIdentity.app);
+    expect(batch['batch_size'], 1);
+  });
+
+  test('app block: empty version, build_number or name is omitted (R15)', () {
+    expect(
+      appIdentity(
+        name: '',
+        packageName: 'com.x',
+        platform: 'ios',
+        version: '',
+        buildNumber: null,
+      ),
+      {'package_name': 'com.x', 'platform': 'ios'},
+    );
+    // The other two of R15's four cases: a null version, an empty build.
+    expect(
+      appIdentity(
+        packageName: 'com.x',
+        platform: 'ios',
+        version: null,
+        buildNumber: '',
+      ),
+      {'package_name': 'com.x', 'platform': 'ios'},
+    );
+    expect(
+      appIdentity(
+        name: 'X',
+        packageName: 'com.x',
+        platform: 'android',
+        version: '1.2',
+        buildNumber: '7',
+      ).keys.toList(),
+      ['name', 'package_name', 'platform', 'version', 'build_number'],
+    );
+  });
+
+  test('no clock_skew_ms and no context block, even after a POST whose Date '
+      'header is 30s ahead (R5, R6)', () async {
+    // The test binding answers every real HttpClient with a 400; this test
+    // needs the socket.
+    final bindingOverrides = HttpOverrides.current;
+    HttpOverrides.global = null;
+    addTearDown(() => HttpOverrides.global = bindingOverrides);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final bodies = <Map<String, dynamic>>[];
+    server.listen((req) async {
+      final raw = await req.fold<List<int>>([], (a, c) => a..addAll(c));
+      final plain =
+          req.headers.value('Content-Encoding') == 'gzip'
+              ? gzip.decode(raw)
+              : raw;
+      bodies.add(jsonDecode(utf8.decode(plain)) as Map<String, dynamic>);
+      req.response.headers.date = DateTime.now().add(
+        const Duration(seconds: 30),
+      );
+      await req.response.close();
+    });
+
+    final (collector, _) = await _wire(
+      flushAt: 1,
+      endpoint: 'http://${server.address.host}:${server.port}',
+      realHttp: true,
+    );
+    // Two sends: the second follows a successful POST whose Date header a
+    // skew estimate would have been taken from.
+    collector.add(const EdgeEvent.event('navigation'));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    collector.add(const EdgeEvent.event('navigation'));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    expect(bodies, hasLength(2));
+    for (final b in bodies) {
+      expect(b.containsKey('clock_skew_ms'), isFalse);
+      expect(b.containsKey('context'), isFalse);
+    }
   });
 
   test(
@@ -236,7 +359,6 @@ void main() {
 
       final attrs =
           (sender.sent.single['events'] as List).single['attributes'] as Map;
-      expect(attrs['device.id'], 'device_abc');
       expect(attrs.containsKey('location'), isFalse);
       expect(attrs.containsKey('tenant_id'), isFalse);
       expect(attrs.containsKey('geo'), isFalse);

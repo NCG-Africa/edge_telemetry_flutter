@@ -29,6 +29,7 @@ import 'package:edge_telemetry_flutter/src/managers/session_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/trace_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../helpers/test_identity.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -83,7 +84,11 @@ Future<(EdgeTelemetry, _RecordingSender, TelemetryWiring)> _facade({
     queue: _NoopQueue(),
     sender: sender.call,
   );
-  final pipeline = Pipeline(transport: transport, batchSize: batchSize);
+  final pipeline = Pipeline(
+    identity: kTestIdentity,
+    transport: transport,
+    batchSize: batchSize,
+  );
   final breadcrumbs = BreadcrumbManager();
   final collector = Collector(
     context: context,
@@ -113,6 +118,7 @@ Future<(EdgeTelemetry, _RecordingSender, TelemetryWiring)> _facade({
 Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
   ...batch,
   'timestamp': '<TS>',
+  'sdk': {...batch['sdk'] as Map, 'version': '<SDK>'},
   'events':
       (batch['events'] as List).map((e) {
         final ev = Map<String, dynamic>.from(e as Map);
@@ -131,7 +137,7 @@ Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
               // seams happen to be live in this process, so the fixture pins the
               // presence and not the environment.
               ..update(
-                'sdk.http_seam_state',
+                'http_seam_state',
                 (_) => '<SEAM>',
                 ifAbsent: () => '<MISSING>',
               );
@@ -153,19 +159,14 @@ void main() {
 
       expect(sender.sent, hasLength(1));
       final batch = sender.sent.single;
-      expect(batch.keys.toList(), [
-        'type',
-        'timestamp',
-        'batch_size',
-        'events',
-      ]);
+      expect(batch.keys.toList(), kR3EnvelopeKeys);
       expect(batch['type'], 'telemetry_batch');
       final event = (batch['events'] as List).single as Map;
       // Host name folds into the canon custom_event.
       expect(event['eventName'], 'custom_event');
       final attrs = event['attributes'] as Map;
       expect(attrs['event.name'], 'demo.click');
-      expect(attrs['device.id'], 'device_gate');
+      expect(attrs.containsKey('device.id'), isFalse); // envelope only (R1)
       wiring.disposeAll();
     },
   );

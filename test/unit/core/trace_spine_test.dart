@@ -21,6 +21,7 @@ import 'package:edge_telemetry_flutter/src/managers/trace_manager.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../helpers/test_identity.dart';
 
 class _RecordingSender {
   final List<Map<String, dynamic>> sent = [];
@@ -71,6 +72,7 @@ class _Rig {
       global: {'device.id': 'device_1', 'user.id': 'user_1'},
     );
     pipeline = Pipeline(
+      identity: kTestIdentity,
       transport: RetryTransport(
         endpoint: 'https://example.test',
         queue: _NoopQueue(),
@@ -277,7 +279,7 @@ void main() {
       expect(attrs['trace.id'], isNot(live['trace.id']));
       // Everything outside the three keys still spreads normally.
       expect(attrs['session.id'], 'session_1');
-      expect(attrs['device.id'], 'device_1');
+      expect(attrs['user.id'], 'user_1');
     });
 
     test('a frozen-empty item carries no trace keys — absence cannot lose to a '
@@ -382,17 +384,6 @@ void main() {
 
       expect(rig.session.currentScreenId, isNull);
       expect(rig.context.snapshot().containsKey('screen.id'), isFalse);
-    });
-
-    test('is per-item: the batch hoist must never lift it', () {
-      expect(isHoistedContextKey('screen.id'), isFalse);
-      for (final key in kAmbientTraceAttributes) {
-        expect(
-          isHoistedContextKey(key),
-          isFalse,
-          reason: '$key varies per item',
-        );
-      }
     });
   });
 }

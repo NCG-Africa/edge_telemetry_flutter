@@ -14,6 +14,7 @@ import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
 import 'package:edge_telemetry_flutter/src/core/pipeline.dart';
 import 'package:edge_telemetry_flutter/src/core/retry_transport.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../../helpers/test_identity.dart';
 
 /// One POST as the server saw it.
 class _Post {
@@ -109,11 +110,14 @@ void main() {
       addTearDown(collector.stop);
 
       final transport = RetryTransport(endpoint: endpoint, queue: _FakeQueue());
-      Pipeline(transport: transport).sendNow(Map.of(_crashItem));
+      Pipeline(
+        identity: kTestIdentity,
+        transport: transport,
+      ).sendNow(Map.of(_crashItem));
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
       final body = collector.posts.single.body;
-      expect(body.keys.toList(), ['type', 'timestamp', 'batch_size', 'events']);
+      expect(body.keys.toList(), kR3EnvelopeKeys);
       expect(body['type'], 'telemetry_batch');
       expect(body['batch_size'], 1);
       // Self-describing: the item carries its own context block, so a payload
@@ -137,10 +141,56 @@ void main() {
     expect(body['type'], 'telemetry_batch');
     expect(body['batch_size'], 1);
     expect((body['events'] as List).single, _crashItem);
+    // The item still carries its own per-event identity, so the wrap is a
+    // *legacy* envelope, not a 4.0 one.
+    expect(body.containsKey('contract_version'), isFalse);
+    expect(body.keys.toList(), ['type', 'timestamp', 'batch_size', 'events']);
     expect(queue.stored, isEmpty); // backlog cleared
   });
 
-  test('an already-enveloped stored payload drains verbatim', () async {
+  test('a persisted 4.0 envelope drains with its own identity, re-stamped '
+      'to send time (R13, R14)', () async {
+    final collector = _FakeCollector([200]);
+    final endpoint = await collector.start();
+    addTearDown(collector.stop);
+
+    // An hour-old crash batch, saved under an older build.
+    final hourAgo = DateTime.now().toUtc().subtract(const Duration(hours: 1));
+    final stored = {
+      'type': 'telemetry_batch',
+      'contract_version': '4.0.0',
+      'timestamp': hourAgo.toIso8601String(),
+      'batch_size': 1,
+      'device_id': 'device_abc',
+      'sdk': {'name': 'flutter', 'version': '4.0.0'},
+      'app': {
+        'package_name': 'com.example.test',
+        'platform': 'android',
+        'version': '0.9.0',
+        'build_number': '9',
+      },
+      'events': [Map.of(_crashItem)],
+    };
+    final expected = jsonDecode(jsonEncode(stored)) as Map<String, dynamic>;
+
+    await RetryTransport(
+      endpoint: endpoint,
+      queue: _FakeQueue(stored: [stored]),
+    ).drainQueue();
+
+    final body = collector.posts.single.body;
+    final ts = body['timestamp'] as String;
+    expect(ts, endsWith('Z'));
+    expect(
+      DateTime.parse(ts).difference(DateTime.now().toUtc()).abs(),
+      lessThan(const Duration(seconds: 10)),
+    );
+    // Everything but the timestamp goes out verbatim — the old build's app
+    // block and the events included.
+    expect({...body, 'timestamp': null}, {...expected, 'timestamp': null});
+  });
+
+  test('a legacy (3.x) stored envelope drains verbatim', () async {
     final collector = _FakeCollector([200]);
     final endpoint = await collector.start();
     addTearDown(collector.stop);
