@@ -1,14 +1,34 @@
 # Changelog
 
-## [Unreleased]
+## [4.0.0]
 
-**Contract 4.0.0 batch envelope (#116).** A build with this change sends no
-per-event identity, so it is valid **only against the 4.0 backend** (collector
-and processor that read `contract_version`). The endpoint change, the failed-send
-policy and the 4.0.0 release itself are the next ticket.
+> **Install the backend release (deployment, analytics, processor, collector)
+> before shipping any build with this SDK. Against an older backend, 4.0
+> batches lose app identity.**
+
+**Contract 4.0.0: the batch envelope, the endpoint and the failed-send policy
+(#116, #118).** A 4.0 build sends no per-event identity, so it is valid **only
+against the 4.0 backend** (collector and processor that read
+`contract_version`). Upgrade steps — including the endpoint change that breaks
+every base-URL config — are in **[`MIGRATION.md`](MIGRATION.md)** under
+"Migrating to v4.0.0".
 
 ### Changed
 
+- **`endpoint` is the full collector URL, sent as given** (R10). The SDK no
+  longer appends `/collector/telemetry`. A 3.x config holding a base URL
+  (`https://your-backend.com`) must now name the route itself, e.g.
+  `https://your-backend.com/collector-go/telemetry`; left unchanged, 4.0 POSTs
+  to the bare base URL. A trailing slash is sent as configured.
+- **A 429 is retried, then queued offline**, like a 5xx or a network error
+  (R12). v3 dropped it as a 4xx. Every other 4xx (400 after the gzip probe,
+  401, 403, 404, 413, …) is still dropped on the first answer, never queued,
+  and counted as `http_<code>` on `session.finalized`; a refused file at the
+  head of the offline queue never holds back the files behind it.
+- **`Retry-After` is honoured** on a retryable answer: the next attempt waits at
+  least that long (delta-seconds). Longer than 30 s and the batch is queued at
+  once instead of held; during an offline-queue drain it ends the cycle, so the
+  files behind it are not POSTed into the same refusal.
 - **The envelope is closed at eight keys**: `type`, `contract_version: "4.0.0"`,
   `timestamp`, `batch_size`, `device_id`, `sdk` (`{name: "flutter", version}`),
   `app` (`{name?, package_name, platform, version?, build_number?}`), `events`.
@@ -43,6 +63,15 @@ policy and the 4.0.0 release itself are the next ticket.
   the never-enabled batch `context` hoist, `sdk.platform` (`flutter-android` /
   `flutter-ios`) and the per-item `sdk.version` (now envelope `sdk.version`),
   and `device.id_error`.
+
+### Deprecated
+
+- **The v3 deprecations' removal moves to v5.0.0.** 4.0.0 is the contract major
+  and removes none of them: the five capture booleans (`enableHttpMonitoring`,
+  `enableNavigationTracking`, `enablePerformanceMonitoring`,
+  `enableNetworkMonitoring`, `captureAccessibilityContext`), `screen.duration`
+  and `frame_render_time`. Their annotations now name v5.0.0. The booleans are
+  still honoured as a fallback; `captureOverrides` still wins.
 
 ## [3.0.0] - 2026-09-30
 

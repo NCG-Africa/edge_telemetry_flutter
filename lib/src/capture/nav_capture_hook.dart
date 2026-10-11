@@ -14,7 +14,7 @@ import 'screen_load_hook.dart';
 /// `navigation` event direct (which does not bump session counters).
 ///
 /// The departing screen's dwell rides that same event — `screen.duration` is
-/// deprecated in place (removal in v4.0.0) — so a navigation is one item, not
+/// deprecated in place (removal in v5.0.0) — so a navigation is one item, not
 /// two.
 class NavCaptureHook implements CaptureHook {
   final SessionManager session;

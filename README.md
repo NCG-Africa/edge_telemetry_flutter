@@ -24,7 +24,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  edge_telemetry_flutter: ^3.0.0
+  edge_telemetry_flutter: ^4.0.0
   http: ^1.2.0  # If you're making HTTP requests
 ```
 
@@ -72,6 +72,16 @@ are captured on every level via `UncaughtExceptionHandler`. Each captured crash
 carries `native_capture_tier` so per-device coverage is visible on the
 dashboard. The API 21 floor is the one an existing dependency already demanded,
 not a bump made for crash capture.
+
+## 🧭 Migrating from 3.x to 4.0.0
+
+**Install the backend release (deployment, analytics, processor, collector)
+before shipping any build with this SDK. Against an older backend, 4.0 batches
+lose app identity.** Then one config change: `endpoint` is now the **full
+collector URL, sent as given** — 3.x appended `/collector/telemetry` to a base
+URL, 4.0 appends nothing (`https://your-backend.com` →
+`https://your-backend.com/collector-go/telemetry`). A 429 is now retried and
+queued. Everything else is wire-side; see [`MIGRATION.md`](MIGRATION.md).
 
 ## 🧭 Migrating from 2.0.0 to 3.0.0
 

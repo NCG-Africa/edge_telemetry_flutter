@@ -1,3 +1,76 @@
+# Migrating to v4.0.0
+
+*Companion to [`CHANGELOG.md`](CHANGELOG.md) `[4.0.0]`.*
+
+> **Install the backend release (deployment, analytics, processor, collector)
+> before shipping any build with this SDK. Against an older backend, 4.0
+> batches lose app identity.**
+
+4.0.0 is the **contract major**: the batch envelope every SDK in the family now
+shares. Your Dart code compiles unchanged; two things need your hands.
+
+## 4.1 The endpoint is sent as given — check your config first
+
+v3 treated `endpoint` as a **base URL** and appended `/collector/telemetry`.
+4.0 appends nothing (R10): `endpoint` is the full collector URL.
+
+```dart
+// 3.x — base URL, path appended by the SDK
+endpoint: 'https://your-backend.com',
+
+// 4.0 — the full route, sent as given
+endpoint: 'https://your-backend.com/collector-go/telemetry',
+```
+
+If you leave a 3.x base URL in place, 4.0 POSTs to the bare host. That is
+almost always a 404, and a 404 is **dropped, not queued** — the data is lost,
+not parked for later. Change the config in the same release as the upgrade.
+A trailing slash is sent as configured. The backend keeps `POST
+/collector/telemetry` as a permanent alias for 3.x builds already in the field,
+so you can also set the endpoint to that full URL.
+
+## 4.2 What changed on the wire
+
+- **Contract 4.0.0 envelope**, closed at eight keys: `type`,
+  `contract_version: "4.0.0"`, `timestamp`, `batch_size`, `device_id`, `sdk`
+  (`{name: "flutter", version}`), `app` (`{name?, package_name, platform,
+  version?, build_number?}`), `events`.
+- **Identity lives in the envelope only.** Items no longer carry `device.id`,
+  `app.*` or `sdk.*`; a global attribute with one of those names never reaches
+  the wire. `clock_skew_ms` (now derived server-side), `sdk.platform` and the
+  per-item `sdk.version` are gone.
+- **Envelope `timestamp` is UTC with `Z`**, stamped at send time — retries and
+  offline replays included (R13). v3 sent local time with no offset.
+- **`sdk.http_seam_state` is now `http_seam_state`** (and Android's
+  `sdk.native_capture_tier` is `native_capture_tier`), because `sdk.*` is
+  envelope-only (R1). Same meaning, same values.
+- **A 429 is now retried, then queued** like a 5xx or a network error (R12); v3
+  dropped it. Any other 4xx is still dropped on the first answer, never queued,
+  and never blocks the offline queue. `Retry-After` is honoured, up to 30 s.
+- **Web and desktop builds disable the SDK** at `initialize()` with one warning
+  and send nothing (R16); later public calls are no-ops.
+- **A native crash drained at launch is filed under the previous launch's
+  build** (R14), in its own one-item batch. Known limit: native crash payloads
+  carry no build, so this is wrong when the app was updated more than once
+  since the crash; with no previous launch on record, version and build are
+  omitted.
+
+## 4.3 Deprecations
+
+None removed. The v3 deprecations (the five capture booleans,
+`screen.duration`, `frame_render_time`) now name **v5.0.0** as their removal
+version; §7 of the v3 guide below is otherwise unchanged.
+
+## 4.4 The upgrade, in order
+
+1. Confirm the 4.0 backend release is installed (see the box above).
+2. `edge_telemetry_flutter: ^4.0.0`.
+3. Change `endpoint` to the full collector URL (§4.1).
+4. If a dashboard or extractor read `sdk.http_seam_state`, `clock_skew_ms` or a
+   per-item `app.*` / `device.id`, point it at the new location.
+
+---
+
 # Migrating to v3.0.0
 
 *Guide dated 2026-09-30. Companion to [`CHANGELOG.md`](CHANGELOG.md) `[3.0.0]`.*
@@ -34,7 +107,7 @@ built on it needs a second look.
 
 ### 1.1 Screen dwell stops arriving as its own event
 
-`screen.duration` is no longer emitted (deprecated in place, removal in v4.0.0).
+`screen.duration` is no longer emitted (deprecated in place, removal in v5.0.0 — was v4.0.0).
 The same measurement now rides the `navigation` event as
 `screen.previous_duration_ms` — one navigation, one item, instead of two.
 
@@ -238,7 +311,7 @@ Two signals replace them, and neither is a time series:
 frames over 16.67 ms, v3 rows are frozen frames over 700 ms, and it is
 `diagnostic`-only — so a default-config consumer now gets none.
 
-`frame_render_time` is deprecated in place (removal v4.0.0) and no longer
+`frame_render_time` is deprecated in place (removal v5.0.0 — was v4.0.0) and no longer
 emitted: a per-frame metric at 60–120 Hz became the windowed `frame.summary`
 event. Any dashboard averaging it goes flat; read `frame.slow_frame_rate` and the
 `frame.max_*` keys instead.
@@ -302,7 +375,7 @@ envelope-only, with meaning and values unchanged — see `CHANGELOG.md`.) **Two 
 value to put one on — the change is in what the number measures, not in whether
 this row was treated specially.
 
-**Every v3 deprecation names v4.0.0.** Currently deprecated in place:
+**Every v3 deprecation names v4.0.0** — retargeted to **v5.0.0** by 4.0.0, which removed none of them. Currently deprecated in place:
 
 | Name | Replacement |
 |---|---|
@@ -339,7 +412,7 @@ on-device report store), not a capture, and never touches the wire.
 4. If you were suppressing crash reporting, pick the knob from §3.1 that matches
    your actual reason.
 5. Move any capture booleans to `captureOverrides` (optional — they still work
-   until v4.0.0).
+   until v5.0.0).
 6. Optional and worth it: set `traceHostAllowlist` to link mobile taps to
    backend spans (**empty by default means dark — no `traceparent` header is
    injected anywhere**, because the header carries internal trace topology), and

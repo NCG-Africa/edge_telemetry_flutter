@@ -114,19 +114,19 @@ class EdgeTelemetry {
     Map<Capture, bool> captureOverrides = const {},
     String? Function(String key, String value)? redactAttribute,
     @Deprecated(
-      'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.',
+      'Use captureOverrides[Capture.connectivity]. Removed in v5.0.0.',
     )
     bool enableNetworkMonitoring = true,
     @Deprecated(
-      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.',
+      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v5.0.0.',
     )
     bool enablePerformanceMonitoring = true,
-    @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
+    @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v5.0.0.')
     bool enableNavigationTracking = true,
-    @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
+    @Deprecated('Use captureOverrides[Capture.http]. Removed in v5.0.0.')
     bool enableHttpMonitoring = true,
     @Deprecated(
-      'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.',
+      'Use captureOverrides[Capture.accessibilityContext]. Removed in v5.0.0.',
     )
     bool captureAccessibilityContext = false,
     bool enableLocalReporting = false,

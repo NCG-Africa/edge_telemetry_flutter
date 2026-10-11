@@ -79,29 +79,29 @@ class TelemetryConfig {
   final List<String> traceHostAllowlist;
 
   /// Enable automatic network monitoring (connectivity changes)
-  @Deprecated('Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.')
+  @Deprecated('Use captureOverrides[Capture.connectivity]. Removed in v5.0.0.')
   final bool enableNetworkMonitoring;
 
   /// Enable automatic performance monitoring (frame drops, memory)
   @Deprecated(
-    'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.',
+    'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v5.0.0.',
   )
   final bool enablePerformanceMonitoring;
 
   /// Enable automatic navigation tracking
-  @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
+  @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v5.0.0.')
   final bool enableNavigationTracking;
 
   /// Enable automatic HTTP request monitoring.
   /// This intercepts ALL HTTP requests made by the app.
-  @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
+  @Deprecated('Use captureOverrides[Capture.http]. Removed in v5.0.0.')
   final bool enableHttpMonitoring;
 
   /// Capture the accessibility-sensitive device keys (`device.text_scale_factor`,
   /// `device.reduce_motion`). `device.platform_brightness` is captured
   /// regardless — it carries no flag.
   @Deprecated(
-    'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.',
+    'Use captureOverrides[Capture.accessibilityContext]. Removed in v5.0.0.',
   )
   final bool captureAccessibilityContext;
 
@@ -134,19 +134,19 @@ class TelemetryConfig {
     this.redactAttribute,
     this.traceHostAllowlist = const [],
     @Deprecated(
-      'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.',
+      'Use captureOverrides[Capture.connectivity]. Removed in v5.0.0.',
     )
     this.enableNetworkMonitoring = true,
     @Deprecated(
-      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.',
+      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v5.0.0.',
     )
     this.enablePerformanceMonitoring = true,
-    @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
+    @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v5.0.0.')
     this.enableNavigationTracking = true,
-    @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
+    @Deprecated('Use captureOverrides[Capture.http]. Removed in v5.0.0.')
     this.enableHttpMonitoring = true,
     @Deprecated(
-      'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.',
+      'Use captureOverrides[Capture.accessibilityContext]. Removed in v5.0.0.',
     )
     this.captureAccessibilityContext = false,
     this.enableLocalReporting = false,
@@ -170,19 +170,19 @@ class TelemetryConfig {
     String? Function(String key, String value)? redactAttribute,
     List<String>? traceHostAllowlist,
     @Deprecated(
-      'Use captureOverrides[Capture.connectivity]. Removed in v4.0.0.',
+      'Use captureOverrides[Capture.connectivity]. Removed in v5.0.0.',
     )
     bool? enableNetworkMonitoring,
     @Deprecated(
-      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v4.0.0.',
+      'Use captureOverrides[Capture.frames] / [Capture.health]. Removed in v5.0.0.',
     )
     bool? enablePerformanceMonitoring,
-    @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v4.0.0.')
+    @Deprecated('Use captureOverrides[Capture.navigation]. Removed in v5.0.0.')
     bool? enableNavigationTracking,
-    @Deprecated('Use captureOverrides[Capture.http]. Removed in v4.0.0.')
+    @Deprecated('Use captureOverrides[Capture.http]. Removed in v5.0.0.')
     bool? enableHttpMonitoring,
     @Deprecated(
-      'Use captureOverrides[Capture.accessibilityContext]. Removed in v4.0.0.',
+      'Use captureOverrides[Capture.accessibilityContext]. Removed in v5.0.0.',
     )
     bool? captureAccessibilityContext,
     bool? enableLocalReporting,
