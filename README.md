@@ -44,6 +44,9 @@ and `shared_preferences_android` / `path_provider_android` already declared
 package advertised 19. Nothing that built on v2 loses support. The iOS floor is
 unchanged.
 
+**Android and iOS only.** On web or desktop, `initialize()` logs one warning and
+disables the SDK: nothing is wired or sent, and every later call is a no-op.
+
 ### iOS requirement (native crash capture)
 
 Native iOS crash/hang capture uses **MetricKit**, which requires a **minimum
@@ -515,10 +518,10 @@ await EdgeTelemetry.initialize(
   //    is sent anywhere until you list a host.
   traceHostAllowlist: ['api.myapp.com', '.internal.myapp.com'],
 
-  // 🏷️ Global attributes added to all telemetry
+  // 🏷️ Global attributes added to all telemetry. Keys named `app.*`, `sdk.*`
+  //    or `device.id` never reach the wire: app identity is read from your
+  //    build, and the environment is set by your API key.
   globalAttributes: {
-    'app.environment': 'production',
-    'app.version': '1.2.3',
     'user.tier': 'premium',
   },
 );
@@ -635,7 +638,8 @@ where the vendor id does not). Carrier was never built — no consumer, and on i
 permanently unreachable. `device.fingerprint` **stays**: despite the name it is
 Android OS build metadata, identical across every device on that build.
 
-**Added:** `sdk.version`, so a backend can tell a fixed defect from a live one.
+**Added:** `sdk.version`, so a backend can tell a fixed defect from a live one —
+since contract 4.0.0 it rides the batch envelope's `sdk` block, not each item.
 
 ### iOS privacy manifest
 
@@ -647,8 +651,8 @@ The package ships its own `PrivacyInfo.xcprivacy`:
   reports is **SDK-init to first frame**, not process-start to first frame.
   Storage headroom was dropped for the same reason.
 - **`NSPrivacyTracking` is false** and the tracking-domain list is empty.
-- **Nine collected data types, all declared linked to identity.** `device.id`
-  rides every item and `setUserProfile()` exists, so "unlinked" would be a lie —
+- **Nine collected data types, all declared linked to identity.** `device_id`
+  rides every batch and `setUserProfile()` exists, so "unlinked" would be a lie —
   one that two widely-used peers tell.
 
 **Standing rule for this package:** an iOS required-reason API is adopted only if
@@ -684,6 +688,14 @@ SDK key that is a label rather than a measurement. The SDK's ids, timestamps and
 durations are unique per item by design and are never capped.
 
 ### Delivery
+
+Every batch is a contract 4.0.0 envelope: `type`, `contract_version`, `timestamp`
+(UTC, stamped at send), `batch_size`, `device_id`, `sdk`, `app`, `events`. The
+`app` block — package name, OS, version, build number, display name — is read
+once at init from your build, so every event in the batch shares one identity
+and no event repeats it. A native crash replayed on the next launch is sent alone
+under the **previous launch's** version and build, because the OS crash report
+does not say which build crashed.
 
 Every POST is gzipped. If the collector rejects a compressed body with a 400, the SDK
 re-POSTs it once uncompressed and — only if that succeeds — stays uncompressed for the

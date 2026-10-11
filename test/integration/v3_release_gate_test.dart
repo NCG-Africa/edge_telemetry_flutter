@@ -11,10 +11,12 @@
 // where that trade becomes visible instead of theoretical: add an emitter and
 // the typical-session assertion fails with the new count in the message.
 //
-// As measured by this file on the shipped v3.0.0 graph:
+// As measured by this file on the contract 4.0.0 graph (#116 — identity left
+// the items for the envelope; v3.0.0 measured ~104,000 / ~7,300 and
+// ~548,000 / ~23,200):
 //
-//   typical  90 items · ~104,000 bytes ·  ~7,300 gzipped  (ceilings 250 / 120 KB / 15 KB)
-//   heavy   419 items · ~548,000 bytes · ~23,200 gzipped  (ceilings 1,200 / 600 KB / 75 KB)
+//   typical  90 items · ~102,500 bytes ·  ~7,900 gzipped  (ceilings 250 / 120 KB / 15 KB)
+//   heavy   419 items · ~537,000 bytes · ~23,700 gzipped  (ceilings 1,200 / 600 KB / 75 KB)
 //
 // Item counts are exact; byte counts move by a few across runs, because a
 // session id is a millisecond timestamp and its decimal width is not fixed.
@@ -27,7 +29,7 @@
 // `navigation`, 8 `screen.load`, 40 `http.request`, 25 `ui.interaction`, 2
 // `app_lifecycle`, 2 `memory_usage` bookends, 2 `frame.summary` (the reservoir's
 // cap, not a count of windows) and 1 `session.finalized`. **The heavy session's
-// uncompressed figure sits at ~89% of its ceiling** — that is what no slack
+// uncompressed figure sits at ~87% of its ceiling** — that is what no slack
 // means, and it is why the next default signal is a trade.
 //
 // The stack here is the real one: `TelemetryWiring.build` assembles it, not a
