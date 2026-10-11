@@ -50,7 +50,8 @@ first, or it never leaves the device. The drop is a hard drop and stays one; fro
 silent — a `debugMode` log naming the item, plus a dropped-item counter on `session.finalized`.
 Envelope is `telemetry_batch` and **both rails send it** — a crash is a one-item batch, not a
 bare item (a bare item is what the collector 400'd through all of v2). POST goes to
-`<endpoint>/collector/telemetry` with `X-API-Key`, gzipped; a 400 on a compressed body
+the configured `endpoint` **exactly as given** — the full collector URL; the SDK appends
+nothing (R10, #118) — with `X-API-Key`, gzipped; a 400 on a compressed body
 triggers one uncompressed re-POST per launch, and that probe is the only capability check.
 
 The envelope is **contract 4.0.0** (#116), closed at exactly eight keys in this order:
@@ -252,7 +253,8 @@ never the SDK's own keys, which are unique per item by design and would be senti
 - **Deprecate-in-place — names are retained, emission stops or changes.** The cycle is an annotation on
   **every** declaration naming the removal version (the clause that catches a missed field), a shipped
   release, a changelog line, and a runtime warning wherever behaviour *changes* rather than disappears.
-  Every v3 deprecation names v4.0.0. Currently deprecated-in-place: `frame_render_time`
+  Every v3 deprecation names v5.0.0 (retargeted from v4.0.0 when 4.0.0 shipped the contract
+  major without the removals, #118). Currently deprecated-in-place: `frame_render_time`
   and `screen.duration` — both stopped being emitted in v3. `user.interaction` and
   `resource_timing` are **not** deprecations: this SDK has never emitted either, so
   there is no emission to stop and no removal version to name. They are allowlist

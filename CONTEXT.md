@@ -98,7 +98,11 @@ _Avoid_: force-send, priority
 The on-disk backlog — one JSON file per undeliverable payload, drained FIFO on the next
 successful send or on startup, five files per cycle, fatal crashes first. Crash files have
 their own drop-oldest cap, not an exemption; every file has an attempt ceiling. A non-fatal
-error rides an ordinary batch file, because it rides an ordinary batch.
+error rides an ordinary batch file, because it rides an ordinary batch. Only a *retryable*
+failure lands here — a 5xx, a network error, or a 429 ("not now", R12); any other 4xx is
+dropped on the first answer and never queued. A `Retry-After` stretches the next in-memory
+wait up to 30 s (longer queues at once) and, on a queue drain, **defers** the rest of the
+cycle: the file spends an attempt and the files behind it wait for the next drain.
 _Avoid_: cache, outbox, spool
 
 **gzip downgrade probe**:
@@ -536,7 +540,8 @@ _Avoid_: os, runtime
 The no-renames rule made operational: a name is retained on the wire and in the API while its
 emission or meaning changes, with an annotation on **every** declaration naming the removal
 version, a shipped release, a changelog line, and a runtime warning wherever behaviour
-*changes* rather than disappears. Every v3 deprecation names v4.0.0.
+*changes* rather than disappears. Every v3 deprecation names v5.0.0 (retargeted from v4.0.0:
+4.0.0 was the contract major and removed none of them).
 _Avoid_: rename, alias, soft delete, sunset
 
 **Errata register**:

@@ -27,7 +27,7 @@ import 'sdk_version.dart';
 /// name is never removed. Whether either is still emitted — and the deprecation
 /// annotations, changelog line and removal version that go with stopping — is
 /// owned by their own tickets, not by this list. `screen.duration` stopped being
-/// emitted in v3 (#88, removal v4.0.0): the same measurement rides `navigation`
+/// emitted in v3 (#88, removal v5.0.0): the same measurement rides `navigation`
 /// as `screen.previous_duration_ms`, so a navigation is one item, not two.
 const Set<String> kCanonEvents = {
   'session.started',
@@ -53,7 +53,7 @@ const Set<String> kCanonEvents = {
 /// `frame_render_time` and `resource_timing` stay listed for the same reason as
 /// above: the name is kept, the emission is their own tickets' business.
 ///
-/// `frame_render_time` stopped being emitted in v3 (#89, removal v4.0.0): a
+/// `frame_render_time` stopped being emitted in v3 (#89, removal v5.0.0): a
 /// per-frame metric at 60–120 Hz became a windowed `frame.summary` event, and
 /// the build/raster split it carried rides there as two max-duration keys.
 /// `long_task` keeps its name and its slot but **changes population** — v2

@@ -13,6 +13,11 @@ enum DrainResult {
   /// The collector was reachable and did not take it. Counts as an attempt.
   failed,
 
+  /// The collector asked us to wait (`Retry-After`). Counts as an attempt and,
+  /// like [offline], ends the cycle — the files behind it would only be
+  /// POSTed into the same refusal.
+  deferred,
+
   /// Unreachable. Nothing was learned about this payload, so it must not burn
   /// an attempt — five offline launches would otherwise delete a crash the
   /// collector never saw.
@@ -112,7 +117,8 @@ class OfflineQueue {
   /// Drain the queue FIFO, at most [drainBatchSize] files per call. For each
   /// stored payload, call [send]: [DrainResult.done] deletes the file,
   /// [DrainResult.failed] bumps its attempt counter (dropping it at
-  /// [maxAttempts]), and [DrainResult.offline] abandons the cycle untouched.
+  /// [maxAttempts]), [DrainResult.deferred] bumps it and ends the cycle, and
+  /// [DrainResult.offline] abandons the cycle untouched.
   /// Returns the number of payloads the cycle finished.
   Future<int> drain(
     Future<DrainResult> Function(Map<String, dynamic>) send,
@@ -143,6 +149,9 @@ class OfflineQueue {
           sent++;
         case DrainResult.failed:
           await _bumpAttempt(file);
+        case DrainResult.deferred:
+          await _bumpAttempt(file);
+          return sent;
         case DrainResult.offline:
           return sent; // nothing learned — leave the rest of the cycle alone
       }

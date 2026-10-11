@@ -128,7 +128,7 @@ class EdgeNavigationObserver extends NavigatorObserver {
     // `previous`-prefixed on purpose: `screen.id` on this event is the screen
     // being entered, so an unprefixed `screen.duration_ms` beside it would
     // read as that screen's. The canon `screen.duration` event keeps its old
-    // spelling and is deprecated in place (removal in v4.0.0).
+    // spelling and is deprecated in place (removal in v5.0.0).
     return {
       'screen.previous_duration_ms': duration.inMilliseconds.toString(),
       'screen.previous_exit_method': exitMethod,

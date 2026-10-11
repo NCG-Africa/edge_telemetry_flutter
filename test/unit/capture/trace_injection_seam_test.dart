@@ -290,7 +290,7 @@ void main() {
       final server = await serve();
       addTearDown(() => server.close(force: true));
       final self = Uri.parse(
-        'http://127.0.0.1:${server.port}/collector/telemetry',
+        'http://127.0.0.1:${server.port}/collector-go/telemetry',
       );
       install(allowlist: const ['127.0.0.1'], selfUrl: self);
       trace.mint(TraceRootType.interaction);
