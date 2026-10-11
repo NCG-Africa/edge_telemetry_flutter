@@ -264,4 +264,82 @@ void main() {
     expect(HttpOverrides.current, isNull);
     expect(FlutterError.onError, same(crashHandler));
   });
+
+  group('a crash drained from the prior process (R14)', () {
+    const crash = {
+      'message': 'SIGSEGV',
+      'stacktrace': '',
+      'exception_type': 'SIGSEGV',
+      'cause': 'NativeCrash',
+      'is_fatal': 'true',
+      'crash.source': 'uncaught_handler',
+      'native_capture_tier': 'full',
+    };
+
+    Map<String, dynamic> crashBatch() => collector.batches.singleWhere(
+      (b) => (b['events'] as List).any(
+        (e) =>
+            ((e as Map)['attributes'] as Map)['crash.source'] ==
+            'uncaught_handler',
+      ),
+    );
+
+    test('goes alone, under the previous launch\'s build', () async {
+      SharedPreferences.setMockInitialValues({
+        'edge_telemetry_last_app': jsonEncode({
+          'name': 'Client App Old',
+          'package_name': 'com.client.app',
+          'platform': 'android',
+          'version': '1.0',
+          'build_number': '10',
+        }),
+      });
+      mockPackageInfo(version: '2.0', build: '20');
+      nativeCrashes = [crash];
+
+      await init();
+      EdgeTelemetry.instance.trackError(StateError('live'));
+      await collector.waitFor('app.crash');
+      await collector.waitFor('session.started');
+
+      final batch = crashBatch();
+      expect(batch['batch_size'], 1); // its own batch, nothing else in it
+      expect(batch['contract_version'], '4.0.0');
+      expect(batch['sdk'], {'name': 'flutter', 'version': kSdkVersion});
+      expect(batch['app'], {
+        'name': 'Client App Old',
+        'package_name': 'com.client.app',
+        'platform': 'android',
+        'version': '1.0',
+        'build_number': '10',
+      });
+
+      // Everything from the live process carries the current build.
+      for (final b in collector.batches.where((b) => b != batch)) {
+        expect((b['app'] as Map)['version'], '2.0');
+        expect((b['app'] as Map)['build_number'], '20');
+      }
+
+      // This launch's build is now the one a later drain will use.
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        jsonDecode(prefs.getString('edge_telemetry_last_app')!),
+        containsPair('version', '2.0'),
+      );
+    });
+
+    test('with no previous launch on record, version and build are omitted '
+        '(unknown, R15) rather than guessed as the current build', () async {
+      mockPackageInfo(version: '2.0', build: '20');
+      nativeCrashes = [crash];
+
+      await init();
+      await collector.waitFor('app.crash');
+
+      final app = crashBatch()['app'] as Map;
+      expect(app.containsKey('version'), isFalse);
+      expect(app.containsKey('build_number'), isFalse);
+      expect(app['package_name'], 'com.client.app');
+    });
+  });
 }

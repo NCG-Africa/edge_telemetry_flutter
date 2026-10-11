@@ -53,8 +53,16 @@ class Pipeline {
   /// Send a single wire item immediately, bypassing the batch (crash rail).
   /// Enveloped as a one-item `telemetry_batch` — the collector rejects a bare
   /// item with a 400, which is why no crash was ever delivered in v2.
-  void sendNow(Map<String, dynamic> item) {
-    transport.sendImmediate(telemetryBatch([item], identity));
+  ///
+  /// [app] replaces the envelope's `app` block for this one batch — a crash
+  /// drained from a prior process is filed under the build that crashed
+  /// (R14); `device_id`, `contract_version` and `sdk` stay current.
+  void sendNow(Map<String, dynamic> item, {Map<String, String>? app}) {
+    transport.sendImmediate(
+      telemetryBatch([
+        item,
+      ], app == null ? identity : (deviceId: identity.deviceId, app: app)),
+    );
   }
 
   /// Force-send any buffered events (call on shutdown).

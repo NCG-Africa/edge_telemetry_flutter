@@ -97,8 +97,10 @@ class Collector implements EventSink {
     return context.snapshot()['session.sampled'] != 'false';
   }
 
+  /// [app] is the R14 override for a crash replayed from a prior process; it
+  /// rides only the immediate rail, where that crash goes alone.
   @override
-  void add(EdgeEvent event) {
+  void add(EdgeEvent event, {Map<String, String>? app}) {
     // Lazy idle check on the "next event" (spec #15 §2.1): may rotate the
     // session (finalize old + start new) before this event is processed.
     // Guarded internally against the bookends it re-emits here.
@@ -271,7 +273,7 @@ class Collector implements EventSink {
     // go immediate; everything else — a non-fatal crash included — buffers in
     // the Pipeline.
     if (event.priority == EventPriority.immediate) {
-      pipeline.sendNow(wireItem);
+      pipeline.sendNow(wireItem, app: app);
     } else {
       pipeline.enqueue(wireItem);
     }

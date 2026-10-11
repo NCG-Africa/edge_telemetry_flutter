@@ -4,6 +4,7 @@
 // lives behind a private [TelemetryWiring]. This is the file consumers reach
 // through the exports-only barrel (package:edge_telemetry_flutter/edge_telemetry_flutter.dart).
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
@@ -68,6 +69,9 @@ class EdgeTelemetry {
   final Map<String, String> _userProfile = {};
   int _profileVersion = 0;
   static const String _profileVersionKey = 'edge_telemetry_profile_version';
+
+  /// The envelope `app` block of the last launch (R14).
+  static const String _lastAppKey = 'edge_telemetry_last_app';
 
   // Device info.
   DeviceInfoCollector? _deviceInfoCollector;
@@ -202,6 +206,7 @@ class EdgeTelemetry {
       // The envelope identity (R1), taken *before* the consumer's globals merge
       // so a global named `app.*` can never override it.
       final identity = _batchIdentity(_globalAttributes);
+      final priorApp = await _swapLastApp(identity.app);
       _globalAttributes.addAll(config.globalAttributes);
       _globalAttributes['user.id'] = _currentUserId!;
 
@@ -246,7 +251,7 @@ class EdgeTelemetry {
       // Unconditional in v3: there is no off-switch for crash capture, so an
       // SDK reporting no crashes can never be a configuration.
       _installGlobalCrashHandler();
-      await _drainNativeCrashes();
+      await _drainNativeCrashes(_crashedApp(identity.app, priorApp));
 
       if (config.enableLocalReporting) {
         await _setupLocalReporting();
@@ -305,6 +310,39 @@ class EdgeTelemetry {
     ),
   );
 
+  /// Persist this launch's `app` block and return the previous launch's, or
+  /// null on a first launch (or a 3.x → 4.0 upgrade) or a storage failure.
+  static Future<Map<String, String>?> _swapLastApp(
+    Map<String, String> current,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_lastAppKey);
+      await prefs.setString(_lastAppKey, jsonEncode(current));
+      return raw == null
+          ? null
+          : (jsonDecode(raw) as Map).cast<String, String>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The envelope `app` for a crash drained from the prior process (R14):
+  /// name, version and build of the previous launch; package and platform are
+  /// the install's own. With no previous launch on record, version and build
+  /// are **omitted** (R15) — on a 3.x → 4.0 upgrade the crashed build is
+  /// certainly not this one, so the current build would be a wrong guess.
+  static Map<String, String> _crashedApp(
+    Map<String, String> current,
+    Map<String, String>? prior,
+  ) => appIdentity(
+    name: prior == null ? current['name'] : prior['name'],
+    packageName: current['package_name']!,
+    platform: current['platform']!,
+    version: prior?['version'],
+    buildNumber: prior?['build_number'],
+  );
+
   /// Pull native crashes surfaced by the OS since last launch, once on init,
   /// and route each into the immediate `app.crash` rail (spec #15 Phase 4, #29).
   ///
@@ -313,11 +351,18 @@ class EdgeTelemetry {
   /// `native_capture_tier`); the Collector folds in context and
   /// sends immediately (bypass batch). Empty until the native plugin registers
   /// the channel — the drain returns `[]` and nothing is sent.
-  Future<void> _drainNativeCrashes() async {
+  ///
+  /// Each goes in its own batch under [crashedApp], the build that crashed
+  /// (R14). **Known approximation:** neither `ApplicationExitInfo` nor a
+  /// MetricKit payload carries the app build here, so that is the *previous
+  /// launch's* build. It is wrong when the app was updated more than once
+  /// since the crash, or the crash predates the previous launch.
+  Future<void> _drainNativeCrashes(Map<String, String> crashedApp) async {
     final crashes = await _wiring!.nativeCrash.drainNativeCrashes();
     for (final crash in crashes) {
       _wiring!.collector.add(
         _wiring!.crashReporting.buildNativeCrashEvent(crash),
+        app: crashedApp,
       );
     }
     if (_config?.debugMode == true && crashes.isNotEmpty) {
