@@ -359,4 +359,122 @@ void main() {
       expect(queued().first, endsWith('_a1.json')); // a spent an attempt
     });
   });
+
+  /// The stored envelope behind a queued custom event.
+  Map<String, dynamic> storedBatch(String name) {
+    for (final f in queued()) {
+      final b =
+          jsonDecode(File('${queueDir.path}/$f').readAsStringSync())
+              as Map<String, dynamic>;
+      if (customName(b) == name) return b;
+    }
+    throw StateError('$name not queued');
+  }
+
+  test('replay after an outage drains the queue in order, each batch '
+      're-stamped with its send time (R13)', () async {
+    stub.script = (b) => customName(b) == null ? ok : hangUp;
+    await init();
+    final stored = <String, String>{};
+    for (final name in ['a', 'b', 'c']) {
+      EdgeTelemetry.instance.trackEvent(name);
+      await until(() => queuedNames().contains(name), '$name queued');
+      stored[name] = storedBatch(name)['timestamp'] as String;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
+
+    stub.script = (_) => ok; // the outage ends
+    final sentAfter = DateTime.now().toUtc();
+    EdgeTelemetry.instance.trackEvent('d');
+    await until(() => queued().isEmpty, 'queue drained');
+
+    final replayed = [
+      for (final b in stub.delivered)
+        if (['a', 'b', 'c'].contains(customName(b))) b,
+    ];
+    expect(replayed.map(customName), ['a', 'b', 'c']);
+    for (final b in replayed) {
+      final ts = b['timestamp'] as String;
+      expect(ts, endsWith('Z'));
+      expect(ts, isNot(stored[customName(b)]));
+      expect(DateTime.parse(ts).isBefore(sentAfter), isFalse);
+    }
+  });
+
+  group(
+    'a native crash drained at launch follows the same policy (R12, R14)',
+    () {
+      const crash = {
+        'message': 'SIGSEGV',
+        'stacktrace': '',
+        'exception_type': 'SIGSEGV',
+        'cause': 'NativeCrash',
+        'is_fatal': 'true',
+        'crash.source': 'uncaught_handler',
+        'native_capture_tier': 'full',
+      };
+      const priorApp = {
+        'name': 'Client App',
+        'package_name': 'com.client.app',
+        'platform': 'android',
+        'version': '3.9',
+        'build_number': '39',
+      };
+
+      bool isNativeCrash(Map<String, dynamic> b) => (b['events'] as List).any(
+        (e) =>
+            ((e as Map)['attributes'] as Map)['crash.source'] ==
+            'uncaught_handler',
+      );
+
+      setUp(() {
+        SharedPreferences.setMockInitialValues({
+          'edge_telemetry_last_app': jsonEncode(priorApp),
+        });
+        nativeCrashes = [crash];
+      });
+
+      for (final reply in [status(503), status(429), hangUp]) {
+        test(
+          '${reply.status == -1 ? 'network error' : reply.status}: stored, '
+          'then delivered on replay under its own build, re-stamped',
+          () async {
+            stub.script = (b) => isNativeCrash(b) ? reply : ok;
+            await init();
+            expect(queued().where((f) => f.startsWith('crash_')), hasLength(1));
+            final storedTs =
+                (jsonDecode(
+                      File(
+                        '${queueDir.path}/${queued().first}',
+                      ).readAsStringSync(),
+                    )
+                    as Map)['timestamp'];
+            await Future<void>.delayed(const Duration(milliseconds: 1100));
+
+            stub.script = (_) => ok;
+            EdgeTelemetry.instance.trackEvent('d');
+            await until(() => queued().isEmpty, 'crash drained');
+
+            final b = stub.delivered.singleWhere(isNativeCrash);
+            expect(b['batch_size'], 1); // alone
+            expect(b['app'], priorApp); // its own identity, not this launch's
+            expect(b['timestamp'], isNot(storedTs)); // re-stamped at send
+            expect(b['timestamp'] as String, endsWith('Z'));
+          },
+        );
+      }
+
+      for (final code in [401, 404]) {
+        test('$code: dropped, never stored', () async {
+          stub.script = (b) => isNativeCrash(b) ? status(code) : ok;
+          await init();
+          expect(
+            stub.attempts.where((a) => isNativeCrash(a.batch)),
+            hasLength(1),
+          );
+          expect(queued(), isEmpty);
+        });
+      }
+    },
+  );
 }
