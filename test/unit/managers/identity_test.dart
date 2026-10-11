@@ -4,12 +4,22 @@
 // a both-width validator for in-place upgrade, and user.id stability across
 // `identify()` (persisted → same ID on every getUserId, even a fresh manager).
 
+import 'package:edge_telemetry_flutter/src/collectors/flutter_device_info_collector.dart';
 import 'package:edge_telemetry_flutter/src/managers/device_id_manager.dart';
 import 'package:edge_telemetry_flutter/src/managers/identity_format.dart';
 import 'package:edge_telemetry_flutter/src/managers/user_id_manager.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// A device-id manager whose generation fails outright — the R9 trigger.
+class _ThrowingDeviceIds extends DeviceIdManager {
+  @override
+  Future<String> getDeviceId() async => throw StateError('no secure RNG');
+}
+
+const _uuidV4 =
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -99,5 +109,54 @@ void main() {
         expect(afterIdentify, original);
       },
     );
+  });
+
+  group('device_id fallback (contract 4.0.0 R9)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      resetInMemoryDeviceId();
+    });
+
+    test('uuidV4 is a version-4, variant-1 UUID', () {
+      for (var i = 0; i < 100; i++) {
+        expect(uuidV4(), matches(_uuidV4));
+      }
+    });
+
+    test('generation throws → a UUIDv4, persisted, the same next launch; '
+        'device.id_error is gone', () async {
+      final first =
+          await FlutterDeviceInfoCollector(
+            deviceIds: _ThrowingDeviceIds(),
+          ).collectDeviceInfo();
+      expect(first['device.id'], matches(_uuidV4));
+      expect(first.containsKey('device.id_error'), isFalse);
+
+      // A second launch: new collector, same storage, same id.
+      resetInMemoryDeviceId();
+      final second =
+          await FlutterDeviceInfoCollector(
+            deviceIds: _ThrowingDeviceIds(),
+          ).collectDeviceInfo();
+      expect(second['device.id'], first['device.id']);
+    });
+
+    test('generation throws and storage fails → one in-memory UUID for the '
+        'process', () async {
+      Future<SharedPreferences> broken() async => throw StateError('disk');
+      final a =
+          await FlutterDeviceInfoCollector(
+            deviceIds: _ThrowingDeviceIds(),
+            prefs: broken,
+          ).collectDeviceInfo();
+      final b =
+          await FlutterDeviceInfoCollector(
+            deviceIds: _ThrowingDeviceIds(),
+            prefs: broken,
+          ).collectDeviceInfo();
+      expect(a['device.id'], matches(_uuidV4));
+      expect(b['device.id'], a['device.id']);
+    });
   });
 }

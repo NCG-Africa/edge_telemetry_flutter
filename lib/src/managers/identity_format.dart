@@ -52,6 +52,27 @@ String platformTag() {
   }
 }
 
+/// A random RFC 4122 version-4 UUID — the R9 `device_id` fallback.
+///
+/// Falls back from [Random.secure] to [Random]: the fallback runs *because*
+/// device-id generation failed, and the likeliest cause is a platform with no
+/// secure entropy source. A collision-resistant id beats no id — the
+/// collector 400s a batch without one (C6).
+String uuidV4() {
+  Random rng;
+  try {
+    rng = Random.secure();
+  } catch (_) {
+    rng = Random();
+  }
+  final b = List<int>.generate(16, (_) => rng.nextInt(256));
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // variant 1
+  final h = b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-'
+      '${h.substring(16, 20)}-${h.substring(20)}';
+}
+
 /// The envelope `app.platform` (contract 4.0.0 R2): `android` or `ios`, and
 /// `null` for any other OS — web and desktop, which the SDK does not support
 /// (R16).

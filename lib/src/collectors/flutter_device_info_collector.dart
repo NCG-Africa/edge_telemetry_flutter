@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/interfaces/device_info_collector.dart';
 import '../managers/device_id_manager.dart';
@@ -14,21 +15,32 @@ import '../managers/identity_format.dart';
 ///
 /// Collects device, platform, and app information using Flutter plugins
 class FlutterDeviceInfoCollector implements DeviceInfoCollector {
-  final DeviceIdManager _deviceIdManager = DeviceIdManager();
+  /// Where the R9 fallback id is persisted — its own key, beside (not inside)
+  /// the secure-storage device id it stands in for.
+  static const String _fallbackKey = 'edge_telemetry_fallback_device_id';
+
+  final DeviceIdManager _deviceIdManager;
+  final Future<SharedPreferences> Function() _prefs;
+
+  FlutterDeviceInfoCollector({
+    DeviceIdManager? deviceIds,
+    @visibleForTesting Future<SharedPreferences> Function()? prefs,
+  }) : _deviceIdManager = deviceIds ?? DeviceIdManager(),
+       _prefs = prefs ?? SharedPreferences.getInstance;
 
   @override
   Future<Map<String, String>> collectDeviceInfo() async {
     final attributes = <String, String>{};
 
-    // Step 1: Get persistent device ID first
+    // Step 1: the device id, which is never absent (R9) — the envelope root
+    // requires it and the collector 400s a batch without one (C6).
     try {
-      final deviceId = await _deviceIdManager.getDeviceId();
-      attributes['device.id'] = deviceId;
-      print('✅ Device ID: $deviceId');
+      attributes['device.id'] = await _deviceIdManager.getDeviceId();
     } catch (e) {
-      print('⚠️ Device ID generation failed: $e');
-      attributes['device.id_error'] = e.toString();
+      print('⚠️ Device ID generation failed, using a fallback UUID: $e');
+      attributes['device.id'] = await _fallbackDeviceId();
     }
+    print('✅ Device ID: ${attributes['device.id']}');
 
     try {
       // Collect app information
@@ -53,6 +65,21 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
     }
 
     return attributes;
+  }
+
+  /// A random UUIDv4 generated once and persisted under its own key; if
+  /// storage fails too, one in-memory UUID for the rest of the process.
+  Future<String> _fallbackDeviceId() async {
+    try {
+      final prefs = await _prefs();
+      final stored = prefs.getString(_fallbackKey);
+      if (stored != null) return stored;
+      final id = uuidV4();
+      if (await prefs.setString(_fallbackKey, id)) return id;
+    } catch (e) {
+      print('⚠️ Fallback device ID not persisted: $e');
+    }
+    return _inMemoryDeviceId ??= uuidV4();
   }
 
   /// Collect platform-specific device information
@@ -147,3 +174,10 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
     }
   }
 }
+
+/// The process-lifetime id used when neither generation nor storage works.
+String? _inMemoryDeviceId;
+
+/// Forget the in-memory fallback id. Tests only — it is process-wide.
+@visibleForTesting
+void resetInMemoryDeviceId() => _inMemoryDeviceId = null;
