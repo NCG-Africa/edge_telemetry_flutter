@@ -6,7 +6,6 @@
 // answers with scripted statuses. "Queued" is read off the offline queue's
 // directory on disk, so nothing here asserts on a seam the SDK doesn't ship.
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -140,6 +139,15 @@ void main() {
     queueDir = Directory('${docs.path}/edge_telemetry_queue');
     PathProviderPlatform.instance = _FakePathProvider(docs.path);
     RetryTransport.resetGzipProbe();
+    // The real schedule is 40 s of waiting; the shape (4 attempts) is what's
+    // under test, not the seconds.
+    RetryTransport.defaultBackoff = const [
+      Duration.zero,
+      Duration(milliseconds: 10),
+      Duration(milliseconds: 10),
+      Duration(milliseconds: 10),
+    ];
+    addTearDown(() => RetryTransport.defaultBackoff = kDefaultBackoff);
     nativeCrashes = [];
 
     messenger.setMockMethodCallHandler(
@@ -172,12 +180,18 @@ void main() {
     addTearDown(stub.stop);
   });
 
-  Future<void> init() => EdgeTelemetry.initialize(
-    endpoint: endpoint,
-    serviceName: 'failed-send-test',
-    apiKey: 'edge_test_key',
-    batchSize: 1,
-  );
+  /// Initialize, then let the launch's own batches land: every success
+  /// drains the queue, so a probe tracked before they settle would be
+  /// re-POSTed by a drain and its attempt count would mean nothing.
+  Future<void> init() async {
+    await EdgeTelemetry.initialize(
+      endpoint: endpoint,
+      serviceName: 'failed-send-test',
+      apiKey: 'edge_test_key',
+      batchSize: 1,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
 
   test('posts to the configured URL exactly as given, appending nothing, '
       'and never reports its own upload (R10)', () async {
@@ -194,5 +208,89 @@ void main() {
     // The capture hook excludes the configured URL: no item describes the
     // SDK's own POST.
     expect(stub.delivered.expand(names), isNot(contains('http.request')));
+  });
+
+  /// The custom-event names held in the queue files on disk, oldest first. A
+  /// file still being written is skipped; the next poll sees it whole.
+  List<String?> queuedNames() => [
+    for (final f in queued())
+      ...() {
+        try {
+          return [
+            customName(
+              jsonDecode(File('${queueDir.path}/$f').readAsStringSync())
+                  as Map<String, dynamic>,
+            ),
+          ];
+        } on FormatException {
+          return const <String?>[];
+        }
+      }(),
+  ];
+
+  List<String?> attemptsAt(String name) => [
+    for (final a in stub.attempts)
+      if (customName(a.batch) == name) name,
+  ];
+
+  group('R12: retryable — retried, then queued offline', () {
+    for (final (label, reply, tries) in [
+      ('429', status(429), 4),
+      ('500', status(500), 4),
+      ('503', status(503), 4),
+      // A network error learns nothing from more attempts: queued at once.
+      ('a dropped connection', hangUp, 1),
+    ]) {
+      test(label, () async {
+        stub.script = (b) => customName(b) == 'probe' ? reply : ok;
+        await init();
+        EdgeTelemetry.instance.trackEvent('probe');
+        await until(() => queuedNames().contains('probe'), 'probe queued');
+
+        expect(attemptsAt('probe'), hasLength(tries));
+        expect(stub.delivered.map(customName), isNot(contains('probe')));
+      });
+    }
+  });
+
+  for (final code in [401, 404]) {
+    test(
+      'R12: a $code is dropped after one attempt and never queued',
+      () async {
+        stub.script = (b) => customName(b) == 'probe' ? status(code) : ok;
+        await init();
+        EdgeTelemetry.instance.trackEvent('probe');
+        EdgeTelemetry.instance.trackEvent('after');
+        await until(
+          () => stub.delivered.any((b) => customName(b) == 'after'),
+          'after',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+
+        expect(attemptsAt('probe'), hasLength(1));
+        expect(queued(), isEmpty);
+      },
+    );
+  }
+
+  test('R12: a 401 at the head of the queue never blocks the batches behind '
+      'it', () async {
+    // An outage queues a, b, c; when it ends, the collector refuses a.
+    stub.script = (b) => customName(b) == null ? ok : status(503);
+    await init();
+    for (final name in ['a', 'b', 'c']) {
+      EdgeTelemetry.instance.trackEvent(name);
+      await until(() => queuedNames().contains(name), '$name queued');
+    }
+
+    stub.script = (b) => customName(b) == 'a' ? status(401) : ok;
+    EdgeTelemetry.instance.trackEvent('d'); // a success triggers the drain
+    await until(() => queued().isEmpty, 'queue drained');
+
+    expect(stub.delivered.map(customName).whereType<String>().toList(), [
+      'd',
+      'b',
+      'c',
+    ]);
   });
 }

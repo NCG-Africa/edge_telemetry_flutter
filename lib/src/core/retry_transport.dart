@@ -34,6 +34,11 @@ class RetryTransport {
   static bool _compress = true;
   static bool _probeSpent = false;
 
+  /// The schedule a transport gets when none is passed. Mutable for tests that
+  /// drive the real `initialize()` and can't wait 40 s per failed batch.
+  @visibleForTesting
+  static List<Duration> defaultBackoff = kDefaultBackoff;
+
   /// Reset the launch-scoped gzip probe (tests only).
   @visibleForTesting
   static void resetGzipProbe() {
@@ -63,11 +68,12 @@ class RetryTransport {
     required this.queue,
     this.apiKey,
     this.debugMode = false,
-    this.backoff = kDefaultBackoff,
+    List<Duration>? backoff,
     this.onDrop,
     HttpClient? httpClient,
     Sender? sender,
-  }) : _httpClient = httpClient ?? HttpClient(),
+  }) : backoff = backoff ?? defaultBackoff,
+       _httpClient = httpClient ?? HttpClient(),
        _sender = sender,
        _url = Uri.parse(endpoint);
 
@@ -87,7 +93,7 @@ class RetryTransport {
         await drainQueue();
         return true;
       }
-      // 4xx: never retried, never queued.
+      // 4xx (not 429): never retried, never queued.
       if (_clientError(status)) return _countDrop(status);
       if (status == 0) break; // offline — don't burn backoff, queue now
     }
@@ -137,7 +143,7 @@ class RetryTransport {
   /// before the immediate rail was enveloped is re-wrapped on the way out, which
   /// is what makes the crash backlog accumulated since v2.0.0 deliverable.
   ///
-  /// A 4xx counts as *done with this file*: it is dropped, not retried. An
+  /// A 4xx other than 429 counts as *done with this file*: it is dropped, not retried. An
   /// offline result teaches nothing about the payload, so it abandons the cycle
   /// rather than spending every queued file's attempt allowance on the weather.
   Future<void> drainQueue() => queue.drain((stored) async {
@@ -154,7 +160,9 @@ class RetryTransport {
 
   /// 4xx: the collector understood the request and refuses it. Retrying or
   /// queueing it re-POSTs the same rejection forever (the v2 amplification).
-  bool _clientError(int status) => status >= 400 && status < 500;
+  /// Except 429, which is "not now", not "never": retried like a 5xx (R12).
+  bool _clientError(int status) =>
+      status >= 400 && status < 500 && status != 429;
 
   /// Record a payload the transport refused to retry. Returns false so the
   /// batch path can `return _countDrop(status)` — a drop is always a failed send.

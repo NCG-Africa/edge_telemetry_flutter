@@ -63,6 +63,7 @@ class _FakeQueue extends OfflineQueue {
   final List<Map<String, dynamic>> stored;
   final List<Map<String, dynamic>> persisted = [];
   final List<String> drops = [];
+  final List<DrainResult> results = [];
 
   @override
   Future<void> initialize() async {}
@@ -82,7 +83,9 @@ class _FakeQueue extends OfflineQueue {
   ) async {
     var sent = 0;
     for (final p in List.of(stored)) {
-      if (await send(p) == DrainResult.done) {
+      final result = await send(p);
+      results.add(result);
+      if (result == DrainResult.done) {
         stored.remove(p);
         sent++;
       }
@@ -339,4 +342,100 @@ void main() {
       expect(collector.posts.last.gzipped, isTrue); // still compressing
     },
   );
+
+  group('R12: 429 is retryable like a 5xx (#118)', () {
+    Map<String, dynamic> crashBatch() => {
+      'type': 'telemetry_batch',
+      'batch_size': 1,
+      'events': [Map.of(_crashItem)],
+    };
+
+    test('send() runs the backoff, then queues', () async {
+      final collector = _FakeCollector([429]);
+      final endpoint = await collector.start();
+      addTearDown(collector.stop);
+      final queue = _FakeQueue();
+      final drops = <String>[];
+
+      final ok = await RetryTransport(
+        endpoint: endpoint,
+        queue: queue,
+        backoff: const [Duration.zero, Duration.zero, Duration.zero],
+        onDrop: drops.add,
+      ).send({'type': 'telemetry_batch', 'events': []});
+
+      expect(ok, isFalse);
+      expect(collector.posts, hasLength(3)); // every backoff slot
+      expect(queue.persisted, hasLength(1));
+      expect(drops, isEmpty);
+    });
+
+    test('sendImmediate() stores the crash offline', () async {
+      final collector = _FakeCollector([429]);
+      final endpoint = await collector.start();
+      addTearDown(collector.stop);
+      final queue = _FakeQueue();
+      final drops = <String>[];
+
+      await RetryTransport(
+        endpoint: endpoint,
+        queue: queue,
+        onDrop: drops.add,
+      ).sendImmediate(crashBatch());
+
+      expect(queue.persisted, hasLength(1));
+      expect(drops, isEmpty);
+    });
+
+    test(
+      'drainQueue() reports failed — the file stays, an attempt is spent',
+      () async {
+        final collector = _FakeCollector([429]);
+        final endpoint = await collector.start();
+        addTearDown(collector.stop);
+        final queue = _FakeQueue(stored: [crashBatch()]);
+
+        await RetryTransport(endpoint: endpoint, queue: queue).drainQueue();
+
+        expect(queue.results, [DrainResult.failed]);
+        expect(queue.stored, hasLength(1));
+      },
+    );
+  });
+
+  for (final code in [401, 404]) {
+    test(
+      'R12: a $code is dropped and counted on every rail, never queued',
+      () async {
+        final collector = _FakeCollector([code]);
+        final endpoint = await collector.start();
+        addTearDown(collector.stop);
+        final queue = _FakeQueue(
+          stored: [
+            {'type': 'telemetry_batch', 'events': []},
+          ],
+        );
+        final drops = <String>[];
+        final transport = RetryTransport(
+          endpoint: endpoint,
+          queue: queue,
+          backoff: const [Duration.zero, Duration.zero],
+          onDrop: drops.add,
+        );
+
+        await transport.send({'type': 'telemetry_batch', 'events': []});
+        await transport.sendImmediate({
+          'type': 'telemetry_batch',
+          'events': [Map.of(_crashItem)],
+        });
+        await transport.drainQueue();
+
+        expect(collector.posts, hasLength(3)); // one each, no retry
+        expect(queue.persisted, isEmpty);
+        expect(queue.results, [DrainResult.done]);
+        expect(queue.stored, isEmpty);
+        expect(drops, ['http_$code', 'http_$code', 'http_$code']);
+      },
+    );
+  }
 }
