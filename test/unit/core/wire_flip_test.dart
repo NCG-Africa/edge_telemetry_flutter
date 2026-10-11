@@ -242,6 +242,16 @@ void main() {
       ),
       {'package_name': 'com.x', 'platform': 'ios'},
     );
+    // The other two of R15's four cases: a null version, an empty build.
+    expect(
+      appIdentity(
+        packageName: 'com.x',
+        platform: 'ios',
+        version: null,
+        buildNumber: '',
+      ),
+      {'package_name': 'com.x', 'platform': 'ios'},
+    );
     expect(
       appIdentity(
         name: 'X',

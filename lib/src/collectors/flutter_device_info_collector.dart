@@ -40,7 +40,6 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
       print('⚠️ Device ID generation failed, using a fallback UUID: $e');
       attributes['device.id'] = await _fallbackDeviceId();
     }
-    print('✅ Device ID: ${attributes['device.id']}');
 
     try {
       // Collect app information

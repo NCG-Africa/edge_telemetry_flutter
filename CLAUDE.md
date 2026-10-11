@@ -100,6 +100,11 @@ first (#53, amended by #61):
    SDK, a key shipping PII, and a memory figure that was the wrong number on **both** platforms and
    not comparable between them. Each bend that changes a value under an unchanged column carries an
    in-band flag: `http.url_redacted`, and `memory.source`. Record the errata; do not generalise this.
+   **Contract 4.0.0 (#116) is a wire major, not a bend of this rule**: `sdk.*` is envelope-only, so
+   the two per-item `sdk.` keys moved prefix-less — `sdk.native_capture_tier` (v2) →
+   `native_capture_tier`, `sdk.http_seam_state` (v3) → `http_seam_state` — same meaning, same
+   values, and the processor normalizes per contract major. A contract major is the only thing
+   that licenses a rename.
 3. **Attribute-first, by a *temporal* test**: a signal earns an event name only when no existing event
    fires at the instant that signal is known. Otherwise it is attributes on that event.
 4. **Ceiling: 6 new event names, 0 new metric names** — derived from the item budget, not picked.
@@ -266,7 +271,9 @@ never the SDK's own keys, which are unique per item by design and would be senti
 - Debug output is `print()` guarded by `config.debugMode`; the send/fail logs on `RetryTransport
   .sendImmediate` are **intentionally always printed** — leave those un-guarded. They now cover
   **fatals only**, because that is what the immediate rail carries; a non-fatal rides a batch and
-  reports through the ordinary guarded path.
+  reports through the ordinary guarded path. One more is unguarded on purpose: the single R16
+  warning when `initialize()` disables itself on web/desktop — a guarded one would be invisible
+  to exactly the consumer it is for.
 - Custom profile attributes are auto-prefixed with `user.`.
 - **iOS required-reason APIs — the standing rule.** One is adopted only if an approved
   reason **both** fits our use **and** permits off-device transmission, and the
