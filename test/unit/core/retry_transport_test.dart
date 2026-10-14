@@ -108,14 +108,30 @@ void main() {
     expect(queue.persisted, isEmpty); // success → nothing queued
   });
 
-  // SDK-003 (#120): release builds print no identifier and no error content.
-  for (final delivered in [true, false]) {
-    test('debugMode=false: crash send (delivered=$delivered) prints no id '
-        'or error content', () async {
+  // SDK-003 (#120): release builds print no identifier and no error content —
+  // over the real POST, so the network-error print is exercised too. Exactly
+  // one line per outcome: the crash rail's own, not the batch rail's as well.
+  for (final (status, expected) in [
+    (200, '✅ Error report sent successfully'),
+    (404, '❌ Error report rejected (HTTP 404), dropped'),
+    (0, '❌ Failed to send error report, storing offline'),
+  ]) {
+    test('debugMode=false: crash send (HTTP $status) prints one line, '
+        'no id or error content', () async {
+      var endpoint = 'http://localhost:1'; // refused → offline (status 0)
+      if (status != 0) {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        server.listen((req) async {
+          await req.drain<void>();
+          req.response.statusCode = status;
+          await req.response.close();
+        });
+        addTearDown(() => server.close(force: true));
+        endpoint = 'http://${server.address.host}:${server.port}/t';
+      }
       final transport = RetryTransport(
-        endpoint: 'https://example.test',
+        endpoint: endpoint,
         queue: _RecordingQueue(),
-        sender: (_) async => delivered,
       );
       final logged = <String>[];
       await runZoned(
@@ -138,9 +154,7 @@ void main() {
         ),
       );
 
-      expect(logged, isNotEmpty); // the one non-identifying line stays
-      expect(logged.join('\n'), isNot(contains('secret')));
-      expect(logged.join('\n'), isNot(contains('rec_'))); // queue filename
+      expect(logged, [expected]);
     });
   }
 }

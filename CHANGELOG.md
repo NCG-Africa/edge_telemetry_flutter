@@ -10,7 +10,10 @@
   source, `user.id`, `session.id`, timestamp and queue filename now print only
   under `debugMode: true`, as do the network-error text and the local report
   storage's session logs. Device-id storage failures print the exception type,
-  not its text. The telemetry payload is unchanged.
+  not its text. A crash send prints only its own outcome line, no longer the
+  batch rail's `Sent telemetry data` / `Failed: HTTP` line before it; offline-
+  queue replay no longer prints that line per file. The telemetry payload is
+  unchanged.
 
 ## [4.0.0]
 

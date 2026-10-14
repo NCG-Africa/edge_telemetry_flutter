@@ -102,6 +102,12 @@ class RetryTransport {
       final wait = backoff[i] > asked ? backoff[i] : asked;
       if (wait > Duration.zero) await Future.delayed(wait);
       final (:status, :retryAfter) = await _attempt(batch);
+      // The batch rail's outcome line; the crash rail prints its own (#120).
+      print(
+        _ok(status)
+            ? '✅ Sent telemetry data successfully'
+            : '❌ Failed: HTTP $status',
+      );
       if (_ok(status)) {
         await drainQueue();
         return true;
@@ -231,11 +237,6 @@ class RetryTransport {
       }
     }
 
-    if (_ok(reply.status)) {
-      print('✅ Sent telemetry data successfully');
-    } else {
-      print('❌ Failed: HTTP ${reply.status}');
-    }
     return reply;
   }
 
