@@ -4,6 +4,7 @@
 // reachable failure, immediate queue when offline (status==0), and the
 // X-API-Key header on the real POST.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
@@ -106,4 +107,54 @@ void main() {
     expect(seenPath, '/collector-go/telemetry'); // as given (R10)
     expect(queue.persisted, isEmpty); // success → nothing queued
   });
+
+  // SDK-003 (#120): release builds print no identifier and no error content —
+  // over the real POST, so the network-error print is exercised too. Exactly
+  // one line per outcome: the crash rail's own, not the batch rail's as well.
+  for (final (status, expected) in [
+    (200, '✅ Error report sent successfully'),
+    (404, '❌ Error report rejected (HTTP 404), dropped'),
+    (0, '❌ Failed to send error report, storing offline'),
+  ]) {
+    test('debugMode=false: crash send (HTTP $status) prints one line, '
+        'no id or error content', () async {
+      var endpoint = 'http://localhost:1'; // refused → offline (status 0)
+      if (status != 0) {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        server.listen((req) async {
+          await req.drain<void>();
+          req.response.statusCode = status;
+          await req.response.close();
+        });
+        addTearDown(() => server.close(force: true));
+        endpoint = 'http://${server.address.host}:${server.port}/t';
+      }
+      final transport = RetryTransport(
+        endpoint: endpoint,
+        queue: _RecordingQueue(),
+      );
+      final logged = <String>[];
+      await runZoned(
+        () => transport.sendImmediate({
+          'type': 'telemetry_batch',
+          'timestamp': '2026-10-14T00:00:00Z',
+          'events': [
+            {
+              'attributes': {
+                'message': 'secret-message',
+                'crash.source': 'secret-source',
+                'user.id': 'secret-user',
+                'session.id': 'secret-session',
+              },
+            },
+          ],
+        }),
+        zoneSpecification: ZoneSpecification(
+          print: (_, __, ___, line) => logged.add(line),
+        ),
+      );
+
+      expect(logged, [expected]);
+    });
+  }
 }

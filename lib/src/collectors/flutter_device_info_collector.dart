@@ -37,7 +37,9 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
     try {
       attributes['device.id'] = await _deviceIdManager.getDeviceId();
     } catch (e) {
-      print('⚠️ Device ID generation failed, using a fallback UUID: $e');
+      print(
+        '⚠️ Device ID generation failed, using a fallback UUID: ${e.runtimeType}',
+      );
       attributes['device.id'] = await _fallbackDeviceId();
     }
 
@@ -76,7 +78,7 @@ class FlutterDeviceInfoCollector implements DeviceInfoCollector {
       final id = uuidV4();
       if (await prefs.setString(_fallbackKey, id)) return id;
     } catch (e) {
-      print('⚠️ Fallback device ID not persisted: $e');
+      print('⚠️ Fallback device ID not persisted: ${e.runtimeType}');
     }
     return _inMemoryDeviceId ??= uuidV4();
   }

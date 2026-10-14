@@ -1,5 +1,7 @@
 // test/unit/storage/memory_report_storage_test.dart
 
+import 'dart:async';
+
 import 'package:edge_telemetry_flutter/src/core/models/report_data.dart';
 import 'package:edge_telemetry_flutter/src/core/models/telemetry_session.dart';
 import 'package:edge_telemetry_flutter/src/storage/memory_report_storage.dart';
@@ -179,5 +181,27 @@ void main() {
       expect(events.length, 1);
       expect(events.first.eventName, 'recent_event');
     });
+  });
+  // SDK-003 (#120): session ids are not printed outside debugMode.
+  test('debugMode=false prints nothing', () async {
+    final logged = <String>[];
+    await runZoned(
+      () async {
+        final storage = MemoryReportStorage();
+        await storage.initialize();
+        await storage.startSession(
+          TelemetrySession(
+            sessionId: 'secret-session',
+            startTime: DateTime.now(),
+          ),
+        );
+        await storage.endSession('secret-session');
+        await storage.dispose();
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, __, ___, line) => logged.add(line),
+      ),
+    );
+    expect(logged, isEmpty);
   });
 }

@@ -15,31 +15,40 @@ class MemoryReportStorage implements ReportStorage {
 
   bool _initialized = false;
 
+  /// Logs are debugMode only: they carry session ids (SDK-003, #120).
+  final bool debugMode;
+
+  MemoryReportStorage({this.debugMode = false});
+
+  void _log(String line) {
+    if (debugMode) print(line);
+  }
+
   @override
   Future<void> initialize() async {
     _initialized = true;
-    print('📦 Memory storage initialized');
+    _log('📦 Memory storage initialized');
   }
 
   @override
   Future<void> storeEvent(TelemetryEvent event) async {
     _ensureInitialized();
     _events.add(event);
-    print('📝 Stored event: ${event.eventName}');
+    _log('📝 Stored event: ${event.eventName}');
   }
 
   @override
   Future<void> storeMetric(TelemetryMetric metric) async {
     _ensureInitialized();
     _metrics.add(metric);
-    print('📊 Stored metric: ${metric.metricName} = ${metric.value}');
+    _log('📊 Stored metric: ${metric.metricName} = ${metric.value}');
   }
 
   @override
   Future<void> startSession(TelemetrySession session) async {
     _ensureInitialized();
     _sessions[session.sessionId] = session;
-    print('🚀 Started session: ${session.sessionId}');
+    _log('🚀 Started session: ${session.sessionId}');
   }
 
   @override
@@ -48,7 +57,7 @@ class MemoryReportStorage implements ReportStorage {
     final session = _sessions[sessionId];
     if (session != null) {
       _sessions[sessionId] = session.copyWith(endTime: DateTime.now());
-      print('🏁 Ended session: $sessionId');
+      _log('🏁 Ended session: $sessionId');
     }
   }
 
@@ -87,7 +96,7 @@ class MemoryReportStorage implements ReportStorage {
       filtered = filtered.take(limit).toList();
     }
 
-    print('🔍 Retrieved ${filtered.length} events');
+    _log('🔍 Retrieved ${filtered.length} events');
     return filtered;
   }
 
@@ -126,7 +135,7 @@ class MemoryReportStorage implements ReportStorage {
       filtered = filtered.take(limit).toList();
     }
 
-    print('🔍 Retrieved ${filtered.length} metrics');
+    _log('🔍 Retrieved ${filtered.length} metrics');
     return filtered;
   }
 
@@ -151,10 +160,10 @@ class MemoryReportStorage implements ReportStorage {
       (key, session) => session.startTime.isBefore(cutoffDate),
     );
 
-    print('🧹 Cleanup complete:');
-    print('  Events: $oldEventCount → ${_events.length}');
-    print('  Metrics: $oldMetricCount → ${_metrics.length}');
-    print('  Sessions: $oldSessionCount → ${_sessions.length}');
+    _log('🧹 Cleanup complete:');
+    _log('  Events: $oldEventCount → ${_events.length}');
+    _log('  Metrics: $oldMetricCount → ${_metrics.length}');
+    _log('  Sessions: $oldSessionCount → ${_sessions.length}');
   }
 
   @override
@@ -163,7 +172,7 @@ class MemoryReportStorage implements ReportStorage {
     _metrics.clear();
     _sessions.clear();
     _initialized = false;
-    print('🗑️ Memory storage disposed');
+    _log('🗑️ Memory storage disposed');
   }
 
   // Helper methods for debugging and testing

@@ -102,6 +102,12 @@ class RetryTransport {
       final wait = backoff[i] > asked ? backoff[i] : asked;
       if (wait > Duration.zero) await Future.delayed(wait);
       final (:status, :retryAfter) = await _attempt(batch);
+      // The batch rail's outcome line; the crash rail prints its own (#120).
+      print(
+        _ok(status)
+            ? '✅ Sent telemetry data successfully'
+            : '❌ Failed: HTTP $status',
+      );
       if (_ok(status)) {
         await drainQueue();
         return true;
@@ -125,10 +131,11 @@ class RetryTransport {
     final (:status, retryAfter: _) = await _attempt(crashBatch);
     final item = (crashBatch['events'] as List?)?.firstOrNull;
     if (_ok(status)) {
-      // Error-report send logs are intentionally always printed (see CLAUDE.md).
-      final attrs = item is Map ? item['attributes'] : null;
+      // The one-line outcome is intentionally always printed; anything naming
+      // the error, the user or the session is debugMode only (SDK-003, #120).
       print('✅ Error report sent successfully');
-      if (attrs is Map) {
+      final attrs = item is Map ? item['attributes'] : null;
+      if (debugMode && attrs is Map) {
         print('   📊 Error: ${attrs['message']}');
         if (attrs['crash.source'] != null) {
           print('   🎯 Source: ${attrs['crash.source']}');
@@ -138,7 +145,7 @@ class RetryTransport {
           print('   🔄 Session: ${attrs['session.id']}');
         }
       }
-      print('   ⏰ Timestamp: ${crashBatch['timestamp']}');
+      if (debugMode) print('   ⏰ Timestamp: ${crashBatch['timestamp']}');
       await drainQueue();
     } else if (_clientError(status)) {
       // A payload the collector rejects outright will never be accepted; storing
@@ -148,7 +155,7 @@ class RetryTransport {
     } else {
       print('❌ Failed to send error report, storing offline');
       final filename = await queue.persist(crashBatch, isCrash: true);
-      if (filename != null) {
+      if (debugMode && filename != null) {
         print('💾 Error report stored for retry: $filename');
       }
     }
@@ -230,11 +237,6 @@ class RetryTransport {
       }
     }
 
-    if (_ok(reply.status)) {
-      print('✅ Sent telemetry data successfully');
-    } else {
-      print('❌ Failed: HTTP ${reply.status}');
-    }
     return reply;
   }
 
@@ -258,7 +260,7 @@ class RetryTransport {
             seconds == null || seconds <= 0 ? null : Duration(seconds: seconds),
       );
     } catch (e) {
-      print('❌ Error: $e');
+      if (debugMode) print('❌ Error: $e');
       return (status: 0, retryAfter: null); // offline / no connection
     }
   }
