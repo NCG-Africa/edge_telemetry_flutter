@@ -270,12 +270,15 @@ never the SDK's own keys, which are unique per item by design and would be senti
   `session`, `error` or `profile` member, because an SDK reporting no crashes must never be
   indistinguishable from one configured not to. **Do not complete it for symmetry.** Adding a member
   is a decision about what a consumer may switch off, not a gap in an enumeration.
-- Debug output is `print()` guarded by `config.debugMode`; the send/fail logs on `RetryTransport
-  .sendImmediate` are **intentionally always printed** — leave those un-guarded. They now cover
-  **fatals only**, because that is what the immediate rail carries; a non-fatal rides a batch and
-  reports through the ordinary guarded path. One more is unguarded on purpose: the single R16
-  warning when `initialize()` disables itself on web/desktop — a guarded one would be invisible
-  to exactly the consumer it is for.
+- Debug output is `print()` guarded by `config.debugMode`. **Nothing outside `debugMode` may print
+  an identifier or user data** — no `user.id`, `session.id`, `device.id`, error message, stack,
+  crash source or URL (SDK-003, #120: logcat and the iOS console are readable in release).
+  A few lines stay unguarded on purpose because they carry none of that: the one-line outcome
+  of `RetryTransport.sendImmediate` (sent / rejected with status / stored offline) — fatals
+  only, because that is what the immediate rail carries; its detail lines are guarded — and the
+  single R16 warning when `initialize()` disables itself on web/desktop — a guarded one would be
+  invisible to exactly the consumer it is for. The batch rail's sent / `HTTP <status>` line and
+  the device-id failure lines (exception *type* only, never its text) are likewise unguarded.
 - Custom profile attributes are auto-prefixed with `user.`.
 - **iOS required-reason APIs — the standing rule.** One is adopted only if an approved
   reason **both** fits our use **and** permits off-device transmission, and the

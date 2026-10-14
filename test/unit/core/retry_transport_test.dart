@@ -4,6 +4,7 @@
 // reachable failure, immediate queue when offline (status==0), and the
 // X-API-Key header on the real POST.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
@@ -106,4 +107,40 @@ void main() {
     expect(seenPath, '/collector-go/telemetry'); // as given (R10)
     expect(queue.persisted, isEmpty); // success → nothing queued
   });
+
+  // SDK-003 (#120): release builds print no identifier and no error content.
+  for (final delivered in [true, false]) {
+    test('debugMode=false: crash send (delivered=$delivered) prints no id '
+        'or error content', () async {
+      final transport = RetryTransport(
+        endpoint: 'https://example.test',
+        queue: _RecordingQueue(),
+        sender: (_) async => delivered,
+      );
+      final logged = <String>[];
+      await runZoned(
+        () => transport.sendImmediate({
+          'type': 'telemetry_batch',
+          'timestamp': '2026-10-14T00:00:00Z',
+          'events': [
+            {
+              'attributes': {
+                'message': 'secret-message',
+                'crash.source': 'secret-source',
+                'user.id': 'secret-user',
+                'session.id': 'secret-session',
+              },
+            },
+          ],
+        }),
+        zoneSpecification: ZoneSpecification(
+          print: (_, __, ___, line) => logged.add(line),
+        ),
+      );
+
+      expect(logged, isNotEmpty); // the one non-identifying line stays
+      expect(logged.join('\n'), isNot(contains('secret')));
+      expect(logged.join('\n'), isNot(contains('rec_'))); // queue filename
+    });
+  }
 }

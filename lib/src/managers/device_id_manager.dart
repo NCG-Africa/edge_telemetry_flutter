@@ -32,7 +32,9 @@ class DeviceIdManager {
         return stored;
       }
     } catch (e) {
-      print('[DeviceIdManager] Failed to read from secure storage: $e');
+      print(
+        '[DeviceIdManager] Failed to read from secure storage: ${e.runtimeType}',
+      );
     }
 
     _cachedDeviceId = _generateDeviceId();
@@ -40,7 +42,7 @@ class DeviceIdManager {
       await _storage.write(key: _deviceIdKey, value: _cachedDeviceId);
     } catch (e) {
       // Keep the in-memory ID; retry persistence next session.
-      print('[DeviceIdManager] Failed to persist device ID: $e');
+      print('[DeviceIdManager] Failed to persist device ID: ${e.runtimeType}');
     }
     return _cachedDeviceId!;
   }
@@ -68,7 +70,7 @@ class DeviceIdManager {
     try {
       await _storage.delete(key: _deviceIdKey);
     } catch (e) {
-      print('[DeviceIdManager] Failed to clear device ID: $e');
+      print('[DeviceIdManager] Failed to clear device ID: ${e.runtimeType}');
     }
     _cachedDeviceId = null;
   }
@@ -79,7 +81,9 @@ class DeviceIdManager {
       final stored = await _storage.read(key: _deviceIdKey);
       return stored != null && _isValidDeviceIdFormat(stored);
     } catch (e) {
-      print('[DeviceIdManager] Failed to check stored device ID: $e');
+      print(
+        '[DeviceIdManager] Failed to check stored device ID: ${e.runtimeType}',
+      );
       return false;
     }
   }

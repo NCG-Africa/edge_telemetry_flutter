@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- **Release builds no longer log identifiers or error content** (SDK-003, #120).
+  A crash send still prints one line (`✅ Error report sent successfully` /
+  `❌ Failed to send error report, storing offline`); the error message, crash
+  source, `user.id`, `session.id`, timestamp and queue filename now print only
+  under `debugMode: true`, as do the network-error text and the local report
+  storage's session logs. Device-id storage failures print the exception type,
+  not its text. The telemetry payload is unchanged.
+
 ## [4.0.0]
 
 > **Install the backend release (deployment, analytics, processor, collector)

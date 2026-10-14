@@ -860,7 +860,7 @@ class EdgeTelemetry {
 
   Future<void> _setupLocalReporting() async {
     try {
-      _reportStorage = MemoryReportStorage();
+      _reportStorage = MemoryReportStorage(debugMode: _config!.debugMode);
       await _reportStorage!.initialize();
       _reportGenerator = SimpleReportGenerator(_reportStorage!);
       await _startNewSession();
