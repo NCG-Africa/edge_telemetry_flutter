@@ -24,7 +24,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  edge_telemetry_flutter: ^4.0.0
+  edge_telemetry_flutter: ^4.0.1
   http: ^1.2.0  # If you're making HTTP requests
 ```
 
