@@ -11,3 +11,22 @@ jobs:
     permissions:
       id-token: write # required for OIDC auth to pub.dev (no secret token needed)
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+
+  # The GitHub Release, from this version's CHANGELOG section — only after pub.dev accepts it.
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # ponytail: relative .md links rewritten to the tag's blob; other relative links stay as-is
+          awk -v v="${TAG#v}" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md \
+            | sed -E "s#\]\(([A-Za-z0-9_./-]+\.md)\)#](${{ github.server_url }}/${{ github.repository }}/blob/${TAG}/\1)#g" > notes.md
+          [ -s notes.md ] || { echo "No CHANGELOG section for ${TAG#v}"; exit 1; }
+          gh release create "$TAG" --verify-tag --title "$TAG" -F notes.md
