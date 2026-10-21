@@ -923,14 +923,27 @@ class EdgeTelemetry {
     );
   }
 
+  /// Writes [report] to [filePath] unchecked and unencrypted. Use
+  /// [GeneratedReport.toJsonString] and write the file yourself, to a path
+  /// and with the protection your app chooses.
+  @Deprecated(
+    'Use report.toJsonString() and write the file yourself. '
+    'Removed in v5.0.0.',
+  )
   Future<String> exportReportToFile(
     GeneratedReport report,
     String filePath,
   ) async {
     _ensureReportingEnabled();
+    if (_config!.debugMode) {
+      print(
+        '⚠️ exportReportToFile is deprecated (removed in v5.0.0); '
+        'use report.toJsonString() and write the file yourself.',
+      );
+    }
     final content =
         report.format == 'json'
-            ? report.toJson().toString()
+            ? report.toJsonString()
             : report.data.toString();
     await File(filePath).writeAsString(content);
     return filePath;
