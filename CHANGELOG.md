@@ -1,5 +1,21 @@
 # Changelog
 
+## [4.1.0]
+
+### Security
+
+- **`exportReportToFile` is deprecated (removed in v5.0.0).** It wrote the
+  report — which can carry `session.id`, `user.id` and profile attributes — to
+  any path it was given, unencrypted. Use the new `GeneratedReport.toJsonString()`
+  and write the file yourself, to your app's private storage and with the
+  protection you choose.
+
+### Fixed
+
+- **JSON report output is now JSON.** `exportReportToFile` wrote a `json`
+  report as a Dart map literal (`{key: value}`) that no JSON parser could read;
+  it now writes `toJsonString()`.
+
 ## [4.0.1]
 
 ### Security

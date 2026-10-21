@@ -1,5 +1,7 @@
 // lib/src/core/models/generated_report.dart
 
+import 'dart:convert';
+
 /// Represents a generated report with metadata and data
 class GeneratedReport {
   final String reportId;
@@ -33,6 +35,11 @@ class GeneratedReport {
     'metadata': metadata.toJson(),
     'data': data,
   };
+
+  /// The report as a JSON string, for the app to store wherever it chooses.
+  /// A value JSON cannot encode is written as its `toString()`.
+  String toJsonString() =>
+      jsonEncode(toJson(), toEncodable: (o) => o.toString());
 
   /// Get human-readable summary
   String getSummary() {

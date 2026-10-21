@@ -24,7 +24,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  edge_telemetry_flutter: ^4.0.1
+  edge_telemetry_flutter: ^4.1.0
   http: ^1.2.0  # If you're making HTTP requests
 ```
 
@@ -901,11 +901,9 @@ final summaryReport = await EdgeTelemetry.instance.generateSummaryReport(
 final performanceReport = await EdgeTelemetry.instance.generatePerformanceReport();
 final behaviorReport = await EdgeTelemetry.instance.generateUserBehaviorReport();
 
-// Export to file
-await EdgeTelemetry.instance.exportReportToFile(
-  summaryReport,
-  '/path/to/report.json'
-);
+// Export: the SDK hands you JSON; you choose where it goes and how it is protected
+final dir = await getApplicationDocumentsDirectory(); // path_provider
+await File('${dir.path}/report.json').writeAsString(summaryReport.toJsonString());
 ```
 
 ## 🚀 Advanced Features
