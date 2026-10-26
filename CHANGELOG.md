@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.1.1]
+
+### Changed
+
+- **Path templating follows the family rule (RN contract §4.4.1, #125).** A
+  path segment becomes `{id}` if it contains any digit or is 32+ characters,
+  unless it is a version (`v2`, `V10`). Empty segments (trailing or doubled
+  slashes) drop, depth caps at 6 segments then `/…`, and an empty path is `/`.
+  Previously only all-digit, UUID and 20+ hex segments were templated, so ids
+  like `ord-7` or `abc123` left the device raw. Applies to `http.url` and the
+  network breadcrumb path; the processor applies the same rule at ingest.
+
 ## [4.1.0]
 
 ### Security

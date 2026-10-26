@@ -679,8 +679,8 @@ PII partitions by **who chose the value**.
 
 - **The SDK redacts what it collected.** `http.url` defaults to scheme, host and path
   — no query string, no fragment, no userinfo — and every request says so in
-  `http.url_redacted`. Path segments that are all digits, a UUID, or 20+ hex characters
-  become `{id}`. Turn `Capture.httpQueryString` on to get the full URL back at the
+  `http.url_redacted`. Path segments that contain a digit or are 32+ characters become
+  `{id}` — except versions like `v2`; depth caps at 6 segments then `/…`. Turn `Capture.httpQueryString` on to get the full URL back at the
   `diagnostic` tier.
 - **The SDK caps what the developer named.** Any one attribute key may carry 50 distinct
   values per session; the 51st and everything after it becomes `__over_cardinality__`,

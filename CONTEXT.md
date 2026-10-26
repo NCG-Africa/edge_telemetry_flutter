@@ -306,9 +306,9 @@ every address the platform would try. Split only at `diagnostic`, and only as fa
 _Avoid_: handshake time, setup time, TTFB
 
 **Templated path**:
-A URL path whose id segments — all-digits, a UUID, or 20+ hex characters — have become
-`{id}`. An **exact enumerable rule**, not a heuristic, so a backend reading the rows can
-reproduce it. Its real job is keeping a REST app under the cardinality cap.
+A URL path whose id segments — any digit or 32+ characters, except a `vN` version — have
+become `{id}`, capped at 6 segments then `/…`. The family rule (RN contract §4.4.1, #125),
+and the processor re-applies it at ingest — an **exact enumerable rule**, not a heuristic. Its real job is keeping a REST app under the cardinality cap.
 _Avoid_: normalised URL, sanitised URL, route pattern
 
 **Cardinality cap**:
