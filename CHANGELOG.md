@@ -10,7 +10,8 @@
   slashes) drop, depth caps at 6 segments then `/…`, and an empty path is `/`.
   Previously only all-digit, UUID and 20+ hex segments were templated, so ids
   like `ord-7` or `abc123` left the device raw. Applies to `http.url` and the
-  network breadcrumb path; the processor applies the same rule at ingest.
+  network breadcrumb path, and now also to a URL `Uri` cannot parse, which
+  previously had its query cut but its path sent raw.
 
 ## [4.1.0]
 

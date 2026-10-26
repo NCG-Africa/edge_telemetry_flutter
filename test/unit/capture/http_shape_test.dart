@@ -84,6 +84,16 @@ void main() {
         redactUrl(Uri.parse('https://a.test/users/42')),
         'https://a.test/users/{id}',
       );
+      expect(redactUrl(Uri.parse('https://a.test')), 'https://a.test/');
+    });
+
+    test('an unparseable URL is still templated, query and fragment cut', () {
+      expect(Uri.tryParse('https://a.test:x/u/42?t=s#f'), isNull);
+      expect(
+        redactUnparsedUrl('https://a.test:x/u/42?t=s#f'),
+        'https://a.test:x/u/{id}',
+      );
+      expect(redactUnparsedUrl('u/42'), '/u/{id}');
     });
   });
 

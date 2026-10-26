@@ -308,7 +308,8 @@ _Avoid_: handshake time, setup time, TTFB
 **Templated path**:
 A URL path whose id segments — any digit or 32+ characters, except a `vN` version — have
 become `{id}`, capped at 6 segments then `/…`. The family rule (RN contract §4.4.1, #125),
-and the processor re-applies it at ingest — an **exact enumerable rule**, not a heuristic. Its real job is keeping a REST app under the cardinality cap.
+to be re-applied at ingest (not shipped yet) — an **exact enumerable rule**, not a
+heuristic. Its real job is keeping a REST app under the cardinality cap.
 _Avoid_: normalised URL, sanitised URL, route pattern
 
 **Cardinality cap**:

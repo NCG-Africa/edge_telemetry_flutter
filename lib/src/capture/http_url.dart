@@ -17,8 +17,8 @@ const String kPathIdToken = '{id}';
 /// version (`vN`, any case), and either contains a digit or is 32+ chars.
 ///
 /// Verbatim from the sibling, not an illustration — do not "improve" it. The
-/// processor re-applies the same rule at ingest, so a divergent rule here would
-/// not change a row; it would only let raw ids leave the device.
+/// processor stores `http.url` verbatim today (ingest enforcement is decided,
+/// not shipped), so this rule *is* the row.
 bool isPathId(String segment) {
   if (_version.hasMatch(segment)) return false;
   if (_digit.hasMatch(segment)) return true;
@@ -47,6 +47,14 @@ String templatePath(String path) {
       .map((s) => isPathId(s) ? kPathIdToken : s);
   final route = '/${kept.join('/')}';
   return segments.length > _maxDepth ? '$route/…' : route;
+}
+
+/// [redactUrl] for a URL `Uri` will not parse: query and fragment cut by hand,
+/// the path after `scheme://authority` still templated.
+String redactUnparsedUrl(String url) {
+  final bare = url.split('#').first.split('?').first;
+  final m = RegExp(r'^([^/]*//[^/]*)(.*)$').firstMatch(bare);
+  return m == null ? templatePath(bare) : '${m[1]}${templatePath(m[2]!)}';
 }
 
 /// The default-tier URL: scheme, host, explicit port, templated path. No query,
