@@ -8,33 +8,31 @@
 // eleven lines from the breadcrumb path that strips the query *because* no PII
 // should ride the crash ring. The precedent was not missing; it was inverted.
 
-/// The sentinel a templated path segment collapses to. One token for all three
-/// id shapes — the backend groups on the templated path, and which *kind* of id
+/// The sentinel a templated path segment collapses to. One token for every
+/// id shape — the backend groups on the templated path, and which *kind* of id
 /// it was is not a question anyone asks of a route.
 const String kPathIdToken = '{id}';
 
-/// Whether [segment] is an id by the **exact enumerable rule** (#59): all
-/// digits, a canonical UUID, or 20+ characters of hex.
+/// Whether [segment] is an id by the RN v4 contract §4.4.1 rule (#125): not a
+/// version (`vN`, any case), and either contains a digit or is 32+ chars.
 ///
-/// Enumerable is the point. A heuristic ("looks random", entropy over a
-/// threshold) cannot be reproduced by a backend reading the rows, so two
-/// readers would disagree about what a templated path means. These three
-/// shapes cover REST path ids without touching a word like `settings` or a
-/// slug like `v2` — and 20 is above every hex-looking short word.
+/// Verbatim from the sibling, not an illustration — do not "improve" it. The
+/// processor stores `http.url` verbatim today (ingest enforcement is decided,
+/// not shipped), so this rule *is* the row.
 bool isPathId(String segment) {
-  if (segment.isEmpty) return false;
-  if (_allDigits.hasMatch(segment)) return true;
-  if (_uuid.hasMatch(segment)) return true;
-  return segment.length >= 20 && _hex.hasMatch(segment);
+  if (_version.hasMatch(segment)) return false;
+  if (_digit.hasMatch(segment)) return true;
+  return segment.length >= 32;
 }
 
-final RegExp _allDigits = RegExp(r'^\d+$');
-final RegExp _uuid = RegExp(
-  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
-);
-final RegExp _hex = RegExp(r'^[0-9a-fA-F]+$');
+final RegExp _version = RegExp(r'^v\d+$', caseSensitive: false);
+final RegExp _digit = RegExp(r'\d');
 
-/// Replace every id-shaped segment of [path] with [kPathIdToken].
+const int _maxDepth = 6;
+
+/// [path] → route template: id segments become [kPathIdToken], empty segments
+/// (trailing or doubled slashes) drop, depth caps at 6 then `/…`, an empty
+/// path is `/`. No case folding.
 ///
 /// Its headline job is not PII — an order number is rarely a secret. It is
 /// **making the cardinality cap survivable on a REST app**: untemplated, a
@@ -42,8 +40,21 @@ final RegExp _hex = RegExp(r'^[0-9a-fA-F]+$');
 /// sentinel *after* the real ids already shipped on the first 50 rows, which is
 /// the worst of both outcomes.
 String templatePath(String path) {
-  if (path.isEmpty) return path;
-  return path.split('/').map((s) => isPathId(s) ? kPathIdToken : s).join('/');
+  final segments = path.split('/').where((s) => s.isNotEmpty).toList();
+  if (segments.isEmpty) return '/';
+  final kept = segments
+      .take(_maxDepth)
+      .map((s) => isPathId(s) ? kPathIdToken : s);
+  final route = '/${kept.join('/')}';
+  return segments.length > _maxDepth ? '$route/…' : route;
+}
+
+/// [redactUrl] for a URL `Uri` will not parse: query and fragment cut by hand,
+/// the path after `scheme://authority` still templated.
+String redactUnparsedUrl(String url) {
+  final bare = url.split('#').first.split('?').first;
+  final m = RegExp(r'^([^/]*//[^/]*)(.*)$').firstMatch(bare);
+  return m == null ? templatePath(bare) : '${m[1]}${templatePath(m[2]!)}';
 }
 
 /// The default-tier URL: scheme, host, explicit port, templated path. No query,

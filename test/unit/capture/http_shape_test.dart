@@ -39,20 +39,19 @@ HttpRequestTelemetry _record({
 );
 
 void main() {
-  group('path templating — the exact enumerable rule', () {
-    test('all-digits, UUID and 20+ hex are ids; words and slugs are not', () {
+  group('path templating — RN contract §4.4.1 (#125)', () {
+    test('any digit or 32+ chars is an id; vN is not', () {
       expect(isPathId('42'), isTrue);
-      expect(isPathId('0'), isTrue);
       expect(isPathId('3f2504e0-4f89-11d3-9a0c-0305e82c3301'), isTrue);
-      expect(isPathId('a' * 20), isTrue);
-      expect(isPathId('deadbeefdeadbeefdead'), isTrue);
+      expect(isPathId('abc1'), isTrue, reason: 'any digit');
+      expect(isPathId('order-7'), isTrue);
+      expect(isPathId('a' * 32), isTrue, reason: 'opaque all-alpha token');
 
-      expect(isPathId('users'), isFalse);
       expect(isPathId('v2'), isFalse);
-      expect(isPathId('beef'), isFalse, reason: 'hex but under 20 chars');
-      expect(isPathId('a' * 19), isFalse);
-      expect(isPathId('not-a-uuid-at-all-xx'), isFalse);
-      expect(isPathId(''), isFalse);
+      expect(isPathId('V10'), isFalse, reason: 'carve-out ignores case');
+      expect(isPathId('users'), isFalse);
+      expect(isPathId('a' * 31), isFalse);
+      expect(isPathId('deadbeef'), isFalse, reason: 'no digit, under 32');
     });
 
     test('templates each id segment and leaves the rest alone', () {
@@ -63,7 +62,21 @@ void main() {
         '/v1/users/{id}/orders/{id}',
       );
       expect(templatePath('/health'), '/health');
-      expect(templatePath(''), '');
+    });
+
+    test(
+      'empty → /, trailing and doubled slashes dropped, no case folding',
+      () {
+        expect(templatePath(''), '/');
+        expect(templatePath('/'), '/');
+        expect(templatePath('/Users/42/'), '/Users/{id}');
+        expect(templatePath('//a//b'), '/a/b');
+      },
+    );
+
+    test('depth caps at 6 segments, then /…', () {
+      expect(templatePath('/a/b/c/d/e/f'), '/a/b/c/d/e/f');
+      expect(templatePath('/a/b/c/d/e/f/g/1'), '/a/b/c/d/e/f/…');
     });
 
     test('the braces survive — no percent-encoding on the wire', () {
@@ -71,6 +84,16 @@ void main() {
         redactUrl(Uri.parse('https://a.test/users/42')),
         'https://a.test/users/{id}',
       );
+      expect(redactUrl(Uri.parse('https://a.test')), 'https://a.test/');
+    });
+
+    test('an unparseable URL is still templated, query and fragment cut', () {
+      expect(Uri.tryParse('https://a.test:x/u/42?t=s#f'), isNull);
+      expect(
+        redactUnparsedUrl('https://a.test:x/u/42?t=s#f'),
+        'https://a.test:x/u/{id}',
+      );
+      expect(redactUnparsedUrl('u/42'), '/u/{id}');
     });
   });
 

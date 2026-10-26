@@ -1185,7 +1185,7 @@ class HttpRequestTelemetry {
         fullUrl
             ? url
             : uri == null
-            ? url.split('#').first.split('?').first
+            ? redactUnparsedUrl(url)
             : redactUrl(uri);
 
     return {
