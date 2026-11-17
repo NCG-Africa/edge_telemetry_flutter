@@ -24,7 +24,7 @@
         "app.start.duration_ms": 1,
         "app.start.sdk_init_ms": 1,
         "app.start.type": "cold",
-        "device.platform": "macos",
+        "device.platform": "android",
         "device.platform_brightness": "light",
         "device.platform_version": "<device.platform_version>",
         "device.reduce_motion": false,
