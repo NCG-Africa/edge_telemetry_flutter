@@ -225,21 +225,19 @@ void main() {
     });
   });
 
-  group('#88 — dwell folds onto navigation', () {
-    testWidgets('no screen.duration event; the navigation carries it', (
-      tester,
-    ) async {
+  group('the dwell is its own screen.duration (#127)', () {
+    testWidgets('leaving a painted screen sends its visit', (tester) async {
       observer.didPush(_route('/a'), null);
       await tester.pump();
       observer.didPush(_route('/b'), _route('/a'));
 
-      expect(sink.named('screen.duration'), isEmpty);
+      final visit = sink.named('screen.duration').single.attributes;
+      expect(visit['screen.name'], '/a');
+      expect(visit['screen.duration_ms'], isNotNull);
+      expect(visit['screen.exit_method'], 'push');
       final navs = sink.named('navigation');
       expect(navs, hasLength(2));
-      final second = navs.last.attributes;
-      expect(second['navigation.from'], '/a');
-      expect(second['screen.previous_duration_ms'], isNotNull);
-      expect(second['screen.previous_exit_method'], 'push');
+      expect(navs.last.attributes['navigation.from_screen'], '/a');
 
       await settleOpen(tester);
     });
@@ -249,8 +247,7 @@ void main() {
       observer.didPush(_route('/a'), null);
       observer.didPush(_route('/b'), _route('/a'));
 
-      final second = sink.named('navigation').last.attributes;
-      expect(second.containsKey('screen.previous_duration_ms'), isFalse);
+      expect(sink.named('screen.duration'), isEmpty);
 
       await settleOpen(tester);
     });

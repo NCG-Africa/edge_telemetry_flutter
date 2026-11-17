@@ -98,11 +98,11 @@ class MemoryBookendHook implements CaptureHook {
     // memory signal, and a false 0 is the one reading a chart cannot ignore.
     if (bytes == null) return false;
     _sink?.add(
-      EdgeEvent.metric(
-        'memory_usage',
-        bytes,
+      EdgeEvent.event(
+        'memory.usage',
         attributes: {
-          'memory.unit': 'bytes',
+          // MB, binary (1 MB = 1048576 bytes), as the catalogue rules.
+          'memory.usage_mb': (bytes / 1048576).toStringAsFixed(2),
           // `footprint` (iOS) | `pss` (Android). v2's `process_info` value named
           // the *reader*; this names the **quantity**, which is the break that
           // needs to be legible. v2's companion `memory.type: rss` is gone with the

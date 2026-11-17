@@ -106,9 +106,9 @@ void main() {
         // A non-fatal batches since #90, and `_wire` uses batchSize 1, so the
         // one item flushes on its own.
         final crashAttrs = sender.items.single['attributes'] as Map;
-        expect(crashAttrs.containsKey('crash.breadcrumbs'), isTrue);
+        expect(crashAttrs.containsKey('error.breadcrumbs'), isTrue);
         final decoded =
-            jsonDecode(crashAttrs['crash.breadcrumbs'] as String) as List;
+            jsonDecode(crashAttrs['error.breadcrumbs'] as String) as List;
         expect((decoded.single as Map)['category'], 'navigation');
 
         // A non-crash event never carries the ring.
@@ -116,7 +116,7 @@ void main() {
         await Future<void>(() {});
         final navAttrs =
             (sender.sent[1]['events'] as List).single['attributes'] as Map;
-        expect(navAttrs.containsKey('crash.breadcrumbs'), isFalse);
+        expect(navAttrs.containsKey('error.breadcrumbs'), isFalse);
       },
     );
 
@@ -125,7 +125,7 @@ void main() {
       collector.add(EdgeEvent.error(StateError('boom')));
       await Future<void>(() {});
       final attrs = sender.items.single['attributes'] as Map;
-      expect(attrs.containsKey('crash.breadcrumbs'), isFalse);
+      expect(attrs.containsKey('error.breadcrumbs'), isFalse);
     });
   });
 
@@ -157,8 +157,8 @@ void main() {
   });
 
   group('Navigation route context', () {
-    testWidgets('route.has_arguments is a boolean, and dwell folds onto '
-        'navigation', (tester) async {
+    testWidgets('navigation.has_arguments is a boolean, and the dwell is its '
+        'own screen.duration', (tester) async {
       final events = <(String, Map<String, String>?)>[];
       final observer = EdgeNavigationObserver(
         onEvent: (name, {attributes}) => events.add((name, attributes)),
@@ -175,20 +175,45 @@ void main() {
 
       observer.didPush(withArgs, null);
       await tester.pump(); // /a is now on screen
-      observer.didPush(next, withArgs); // closes /a → dwell on this navigation
+      observer.didPush(next, withArgs); // closes /a
 
       final nav = events.first.$2!;
-      expect(nav['route.has_arguments'], 'true');
-      expect(nav['route.type'], 'MaterialPageRoute<void>');
+      expect(nav['navigation.method'], 'initial'); // the first screen
+      expect(nav['navigation.has_arguments'], 'true');
+      expect(nav['navigation.route_type'], 'MaterialPageRoute<void>');
       // Never the values.
       expect(nav.keys.any((k) => k.contains('arguments_type')), isFalse);
 
-      // #88: one item per navigation — no second `screen.duration` event.
-      expect(events.map((e) => e.$1), everyElement('navigation'));
+      // The visit to /a, then the navigation away from it.
+      expect(events.map((e) => e.$1), [
+        'navigation',
+        'screen.duration',
+        'navigation',
+      ]);
+      final visit = events[1].$2!;
+      expect(visit['screen.name'], '/a');
+      expect(visit['screen.duration_ms'], isNotNull);
+      expect(visit['screen.exit_method'], 'push');
+      expect(visit['span.start_time'], endsWith('Z'));
       final second = events.last.$2!;
-      expect(second['navigation.from'], '/a');
-      expect(second['screen.previous_duration_ms'], isNotNull);
-      expect(second['screen.previous_exit_method'], 'push');
+      expect(second['navigation.from_screen'], '/a');
+      expect(second['navigation.method'], 'push');
+      expect(second.keys.where((k) => k.startsWith('screen.')), isEmpty);
+    });
+
+    testWidgets('a path-shaped route name is a template', (tester) async {
+      final events = <Map<String, String>?>[];
+      final observer = EdgeNavigationObserver(
+        onEvent: (name, {attributes}) => events.add(attributes),
+      );
+      observer.didPush(
+        MaterialPageRoute<void>(
+          builder: (_) => const SizedBox(),
+          settings: const RouteSettings(name: '/orders/42'),
+        ),
+        null,
+      );
+      expect(events.single!['navigation.to_screen'], '/orders/{id}');
     });
   });
 }

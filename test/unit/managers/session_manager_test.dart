@@ -61,10 +61,11 @@ void main() {
 
         final fin = named('session.finalized').single;
         expect(attrsOf(fin)['session.id'], 'session_1');
+        expect(attrsOf(fin)['session.reason'], 'timeout');
         // Backdated end == last activity (09:05), not now (09:40).
         expect(
           attrsOf(fin)['session.end_time'],
-          DateTime(2026, 1, 1, 9, 5).toIso8601String(),
+          DateTime(2026, 1, 1, 9, 5).toUtc().toIso8601String(),
         );
         expect(
           attrsOf(fin)['session.duration_ms'],
@@ -77,6 +78,29 @@ void main() {
         ]);
       },
     );
+
+    test('a session past 4 h rotates on its next event, ended now', () async {
+      final sm = build();
+      await sm.recoverAndStart(); // session_1 @ 09:00
+
+      // Busy all along: never idle, so only the cap can end it.
+      for (var i = 0; i < 239; i++) {
+        clock = clock.add(const Duration(minutes: 1));
+        sm.beforeEvent();
+      }
+      expect(named('session.finalized'), isEmpty); // 12:59
+
+      clock = clock.add(const Duration(minutes: 1)); // 13:00, 4 h
+      sm.beforeEvent();
+
+      final fin = named('session.finalized').single;
+      expect(attrsOf(fin)['session.reason'], 'max_duration');
+      expect(
+        attrsOf(fin)['session.end_time'],
+        DateTime(2026, 1, 1, 13).toUtc().toIso8601String(),
+      );
+      expect(sm.currentSessionId, 'session_2');
+    });
 
     test('beforeEvent within the window does not rotate', () async {
       final sm = build();
@@ -123,7 +147,7 @@ void main() {
       expect(attrsOf(fin)['session.id'], 'session_1');
       expect(
         attrsOf(fin)['session.end_time'],
-        DateTime(2026, 1, 1, 9, 2).toIso8601String(),
+        DateTime(2026, 1, 1, 9, 2).toUtc().toIso8601String(),
       );
       expect(sm.currentSessionId, 'session_2');
     });
@@ -152,9 +176,10 @@ void main() {
         final fin = named('session.finalized').single;
         expect(attrsOf(fin)['session.id'], 'session_1');
         expect(attrsOf(fin)['session.recovered'], 'true');
+        expect(attrsOf(fin)['session.reason'], 'app_terminated');
         expect(
           attrsOf(fin)['session.end_time'],
-          DateTime(2026, 1, 1, 9, 3).toIso8601String(),
+          DateTime(2026, 1, 1, 9, 3).toUtc().toIso8601String(),
         );
         expect(attrsOf(fin)['session.http_request_count'], '1');
         expect(attrsOf(fin)['session.screen_count'], '1');

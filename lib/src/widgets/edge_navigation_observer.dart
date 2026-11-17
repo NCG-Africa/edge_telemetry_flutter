@@ -2,6 +2,9 @@
 
 import 'package:flutter/material.dart';
 
+import '../capture/http_url.dart' show templatePath;
+import '../core/wire_canon.dart' show utc;
+
 /// Navigation observer that automatically tracks screen changes
 ///
 /// Integrates with Flutter's Navigator to provide automatic
@@ -10,8 +13,8 @@ class EdgeNavigationObserver extends NavigatorObserver {
   String? _currentRoute;
 
   // One record per open screen: when it started, and whether it was ever
-  // painted. The screen being left is named by `navigation.from`, so its
-  // dwell needs no route context of its own.
+  // painted. The screen being left is named by `navigation.from_screen`, so
+  // its dwell needs no route context of its own.
   final Map<String, _ScreenVisit> _screens = {};
 
   final Function(String, {Map<String, String>? attributes})? _onEvent;
@@ -45,9 +48,9 @@ class EdgeNavigationObserver extends NavigatorObserver {
   @override
   void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
     super.didRemove(route, previousRoute);
-    // State only, no event. Dwell now rides the `navigation` event, and a
-    // route plucked out of the middle of the stack is not a navigation — it
-    // was not the visible screen, and the user did not leave it.
+    // State only, no event. A route plucked out of the middle of the stack is
+    // not a navigation — it was not the visible screen, and the user did not
+    // leave it.
     _screens.remove(_extractRouteName(route));
   }
 
@@ -63,18 +66,19 @@ class EdgeNavigationObserver extends NavigatorObserver {
             ? _extractRouteName(previousRoute)
             : _currentRoute;
 
-    // Close out the previous screen — its dwell folds onto the one
-    // `navigation` event below rather than emitting a second item.
-    final dwell =
-        previousRouteName == null
-            ? const <String, String>{}
-            : _endScreen(previousRouteName, method);
+    // Close out the previous screen with its own `screen.duration`.
+    if (previousRouteName != null) _endScreen(previousRouteName, method);
 
     // Start timing the new screen.
     _startScreen(routeName);
 
-    // Track navigation event
-    _trackNavigationEvent(routeName, previousRouteName, method, route, dwell);
+    // The first screen has nothing to come from: its method is `initial`.
+    _trackNavigationEvent(
+      routeName,
+      previousRouteName,
+      previousRouteName == null ? 'initial' : method,
+      route,
+    );
 
     _currentRoute = routeName;
   }
@@ -87,10 +91,14 @@ class EdgeNavigationObserver extends NavigatorObserver {
   /// navigations across all users. Visit identity is what `screen.id` is for;
   /// this is the grouping key, and a grouping key that never repeats groups
   /// nothing.
+  ///
+  /// A path-shaped name (`/orders/123`) is templated with the HTTP path rule
+  /// (`/orders/{id}`): `screen.name` is a route template, never a concrete
+  /// URL (catalogue `attributes.yaml`).
   String _extractRouteName(Route<dynamic> route) {
     final name = route.settings.name;
-    if (name != null && name.isNotEmpty) return name;
-    return 'unnamed_${route.runtimeType}';
+    if (name == null || name.isEmpty) return 'unnamed_${route.runtimeType}';
+    return name.startsWith('/') ? templatePath(name) : name;
   }
 
   /// Begin timing a screen.
@@ -111,28 +119,30 @@ class EdgeNavigationObserver extends NavigatorObserver {
   /// The two sanctioned route attrs (glossary §3): the runtime `Route` type and
   /// a boolean args-present flag — never the argument values (PII).
   Map<String, String> _routeContext(Route<dynamic> route) => {
-    'route.type': route.runtimeType.toString(),
-    'route.has_arguments': (route.settings.arguments != null).toString(),
+    'navigation.route_type': route.runtimeType.toString(),
+    'navigation.has_arguments': (route.settings.arguments != null).toString(),
   };
 
-  /// End a screen and return the dwell attributes for the `navigation` event.
+  /// End a screen: one `screen.duration` for the visit.
   ///
-  /// Empty when the screen was never visible, which is the whole of the
-  /// never-painted rule: no keys rather than a zero, because a zero is a
+  /// Nothing when the screen was never visible, which is the whole of the
+  /// never-painted rule: no event rather than a zero, because a zero is a
   /// measurement.
-  Map<String, String> _endScreen(String routeName, String exitMethod) {
+  void _endScreen(String routeName, String exitMethod) {
     final visit = _screens.remove(routeName);
-    if (visit == null || !visit.wasVisible) return const {};
+    if (visit == null || !visit.wasVisible) return;
 
-    final duration = DateTime.now().difference(visit.start);
-    // `previous`-prefixed on purpose: `screen.id` on this event is the screen
-    // being entered, so an unprefixed `screen.duration_ms` beside it would
-    // read as that screen's. The canon `screen.duration` event keeps its old
-    // spelling and is deprecated in place (removal in v5.0.0).
-    return {
-      'screen.previous_duration_ms': duration.inMilliseconds.toString(),
-      'screen.previous_exit_method': exitMethod,
-    };
+    _onEvent?.call(
+      'screen.duration',
+      attributes: {
+        'screen.name': routeName,
+        'screen.duration_ms':
+            DateTime.now().difference(visit.start).inMilliseconds.toString(),
+        'screen.exit_method': exitMethod,
+        // The visit's entry, which is the row's time (catalogue #31).
+        'span.start_time': utc(visit.start),
+      },
+    );
   }
 
   /// Track navigation event
@@ -141,23 +151,19 @@ class EdgeNavigationObserver extends NavigatorObserver {
     String? previousRouteName,
     String method,
     Route<dynamic> route,
-    Map<String, String> dwell,
   ) {
-    final navigationAttributes = <String, String>{
-      'navigation.to': routeName,
-      'navigation.method': method,
-      'navigation.type': 'route_change',
-      'navigation.timestamp': DateTime.now().toIso8601String(),
-      // route.type + boolean route.has_arguments — never the argument values.
-      ..._routeContext(route),
-      ...dwell,
-    };
-
-    if (previousRouteName != null) {
-      navigationAttributes['navigation.from'] = previousRouteName;
-    }
-
-    _onEvent?.call('navigation', attributes: navigationAttributes);
+    _onEvent?.call(
+      'navigation',
+      attributes: {
+        'navigation.to_screen': routeName,
+        if (previousRouteName != null)
+          'navigation.from_screen': previousRouteName,
+        'navigation.method': method,
+        // navigation.route_type + boolean navigation.has_arguments — never
+        // the argument values.
+        ..._routeContext(route),
+      },
+    );
   }
 
   /// Get current route name

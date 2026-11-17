@@ -36,7 +36,7 @@ const String kCardinalitySentinel = '__over_cardinality__';
 /// documented rather than sanitized, because the SDK cannot tell a path
 /// segment the developer meant as a name from one they meant as an id, and
 /// guessing would silently rename screens.
-/// `navigation.to` / `navigation.from` carry the same route string as
+/// `navigation.to_screen` / `navigation.from_screen` carry the same route string as
 /// `screen.name`, so the guard has to sit on all three or it guards one row
 /// type out of two. `session.screen_journey` is deliberately *not* on the list:
 /// it is a joined composite, so nearly every value is distinct and a cap would
@@ -49,8 +49,8 @@ const String kCardinalitySentinel = '__over_cardinality__';
 const Set<String> kCappedSdkKeys = {
   'http.url',
   'screen.name',
-  'navigation.to',
-  'navigation.from',
+  'navigation.to_screen',
+  'navigation.from_screen',
   'task.name',
 };
 

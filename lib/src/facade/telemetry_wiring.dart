@@ -231,7 +231,7 @@ class TelemetryWiring {
     // `Capture.health` now switches two unrelated things, because #89 and #91
     // between them emptied this hook down to startup: frames left for
     // [FrameCaptureHook] and the polled health emitters were deleted outright.
-    // What is left under the switch is the `page_load` launch pair and the two
+    // What is left under the switch is `app.start` and the two
     // native memory reads. The fault bundle is health's third half and needs
     // nothing here — it is read off the dying thread natively and rides the
     // fatal crash payload.
@@ -239,7 +239,7 @@ class TelemetryWiring {
     // and adding one is a decision about what a consumer may switch off — not a
     // thing to settle inside a merge.
     if (gate.allows(Capture.health)) {
-      disposers.add(PerfCaptureHook().start(collector));
+      disposers.add(PerfCaptureHook(channel: nativeCrash).start(collector));
       memoryBookend = MemoryBookendHook(
         channel: nativeCrash,
         flush: pipeline.flush,

@@ -11,11 +11,10 @@
 //
 // Three things about it are easy to "fix" wrongly:
 //
-// - **The thresholds are fixed absolutes and must not adapt to refresh rate.**
-//   The rate is *recorded, not applied*. A refresh-adaptive threshold would
-//   make `frame.slow_frames` mean "over this device's budget" while the
-//   sibling's identical column means "over 16 ms" — the same column carrying
-//   two quantities, which is the disease the whole canon exists to avoid.
+// - **Slow is over the display's own frame budget** (`1000 / refresh rate`,
+//   60 Hz when no view reports one) and frozen is `>= 700 ms` — the
+//   catalogue's rule for every SDK (`frames_memory.yaml`, #127), so a 120 Hz
+//   device's 12 ms frame counts as slow here as it does in the sibling.
 // - **Total duration is `FrameTiming.totalSpan`, never build + raster.** Build
 //   runs on the UI thread and raster on the raster thread, *pipelined*: their
 //   sum is not a wall-clock span and it omits vsync overhead. v2 summed them
@@ -34,11 +33,18 @@ import '../core/edge_event.dart';
 import '../managers/session_manager.dart';
 import 'capture_hook.dart';
 
-/// A frame slower than one frame budget. Absolute, never refresh-derived.
-const double kSlowFrameMs = 16;
+/// The refresh rate assumed when no view reports one.
+const double kDefaultRefreshRate = 60;
 
-/// A frozen frame — the same threshold `long_task` now fires on, so the SDK
-/// stops holding two different opinions about what a bad frame is.
+/// A slow frame is over this budget: one refresh interval at [refreshRate].
+double slowFrameBudgetMs(double? refreshRate) =>
+    1000 /
+    (refreshRate == null || refreshRate <= 0
+        ? kDefaultRefreshRate
+        : refreshRate);
+
+/// A frozen frame (`>=`) — the same threshold `perf.long_task` fires on, so the
+/// SDK holds one opinion about what a bad frame is.
 const double kFrozenFrameMs = 700;
 
 /// The window's upper bound. A window normally ends at a screen change; this
@@ -49,7 +55,7 @@ const Duration kFrameWindowCap = Duration(seconds: 10);
 /// item allowance for frames.
 const int kFrameReservoirSize = 2;
 
-/// Per-session `long_task` backstop. At `> 700 ms` a typical session produces
+/// Per-session `perf.long_task` backstop. At `> 700 ms` a typical session produces
 /// none; the cap exists for the runaway, not as a budget line.
 const int kLongTaskCap = 100;
 
@@ -132,7 +138,7 @@ class FrameCaptureHook implements CaptureHook {
     final buildMs = timing.buildDuration.inMicroseconds / 1000;
     final rasterMs = timing.rasterDuration.inMicroseconds / 1000;
 
-    final frozen = totalMs > kFrozenFrameMs;
+    final frozen = totalMs >= kFrozenFrameMs;
     // Ahead of the window, and outside `aggregate`: this predicate is nobody's
     // window product.
     if (frozen) _emitLongTask(totalMs, buildMs, rasterMs);
@@ -149,7 +155,7 @@ class FrameCaptureHook implements CaptureHook {
         );
 
     window.totalFrames++;
-    if (totalMs > kSlowFrameMs) {
+    if (totalMs > slowFrameBudgetMs(window.refreshRate)) {
       window.slowFrames++;
       if (frozen) window.frozenFrames++;
     }
@@ -259,9 +265,10 @@ class FrameCaptureHook implements CaptureHook {
           'frame.max_total_duration_ms': window.maxTotalMs.toStringAsFixed(2),
           'frame.max_build_duration_ms': window.maxBuildMs.toStringAsFixed(2),
           'frame.max_raster_duration_ms': window.maxRasterMs.toStringAsFixed(2),
-          'frame.window_duration_ms': ((window.endMicros - window.startMicros) /
-                  1000)
-              .toStringAsFixed(2),
+          'frame.window_duration_ms':
+              ((window.endMicros - window.startMicros) / 1000)
+                  .round()
+                  .toString(),
           // Omitted, never zeroed, when no view has reported one: a 0 Hz row is
           // indistinguishable from a real reading.
           if (window.refreshRate != null)
@@ -304,19 +311,19 @@ class FrameCaptureHook implements CaptureHook {
     if (++_longTasks > kLongTaskCap) return;
     _sink?.add(
       EdgeEvent.metric(
-        'long_task',
+        'perf.long_task',
         totalMs,
         attributes: {
+          'metric.unit': 'ms',
           'frame.build_duration_ms': buildMs.toStringAsFixed(2),
           'frame.raster_duration_ms': rasterMs.toStringAsFixed(2),
-          'frame.total_duration_ms': totalMs.toStringAsFixed(2),
         },
       ),
     );
   }
 
-  /// The display's *actual* rate, not a target — the budget above stays at
-  /// 16 ms whatever this reads. Defensive because a view is not guaranteed:
+  /// The display's *actual* rate, not a target — it sets the slow budget
+  /// ([slowFrameBudgetMs]). Defensive because a view is not guaranteed:
   /// `views` is empty before the first frame and in a headless test.
   static double? _platformRefreshRate() {
     final views = PlatformDispatcher.instance.views;

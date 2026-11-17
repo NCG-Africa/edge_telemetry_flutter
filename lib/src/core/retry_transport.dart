@@ -136,9 +136,9 @@ class RetryTransport {
       print('✅ Error report sent successfully');
       final attrs = item is Map ? item['attributes'] : null;
       if (debugMode && attrs is Map) {
-        print('   📊 Error: ${attrs['message']}');
-        if (attrs['crash.source'] != null) {
-          print('   🎯 Source: ${attrs['crash.source']}');
+        print('   📊 Error: ${attrs['error.message']}');
+        if (attrs['error.source'] != null) {
+          print('   🎯 Source: ${attrs['error.source']}');
         }
         if (attrs['user.id'] != null) print('   👤 User: ${attrs['user.id']}');
         if (attrs['session.id'] != null) {

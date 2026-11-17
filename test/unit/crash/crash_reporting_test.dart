@@ -54,7 +54,7 @@ void main() {
   const reporting = CrashReporting();
 
   group('buildCrashEvent — shape', () {
-    test('unprefixed keys, cause=Error, is_fatal=false, batched app.crash', () {
+    test('error.* keys, an unhandled Dart error is a batched app.crash', () {
       final event = reporting.buildCrashEvent(
         StateError('boom'),
         stackTrace: StackTrace.fromString('#0 main'),
@@ -70,15 +70,16 @@ void main() {
       expect(event.countsToSession, isFalse);
 
       final a = event.attributes;
-      expect(a['message'], 'Bad state: boom');
-      expect(a['exception_type'], 'StateError');
-      expect(a['stacktrace'], '#0 main');
-      expect(a['cause'], 'Error');
-      expect(a['is_fatal'], 'false');
-      expect(a['crash.source'], 'flutter_error');
+      expect(a['error.message'], 'Bad state: boom');
+      expect(a['error.type'], 'StateError');
+      expect(a['error.stacktrace'], '#0 main');
+      expect(a['error.cause'], 'unhandled_exception');
+      expect(a.containsKey('is_fatal'), isFalse);
+      expect(a.containsKey('handled'), isFalse);
+      expect(a['error.source'], 'flutter_error');
     });
 
-    test('records each handler in crash.source', () {
+    test('records each handler in error.source', () {
       for (final source in [
         'flutter_error',
         'platform_dispatcher',
@@ -86,8 +87,9 @@ void main() {
         'isolate',
       ]) {
         final e = reporting.buildCrashEvent(Exception('x'), source: source);
-        expect(e.attributes['crash.source'], source);
-        expect(e.attributes['cause'], 'Error'); // source never leaks into cause
+        expect(e.attributes['error.source'], source);
+        // `zone` is not an auto handler: a live catch, so app.error.
+        expect(e.name, source == 'zone' ? 'app.error' : 'app.crash');
       }
     });
 
@@ -99,29 +101,26 @@ void main() {
       expect(a.containsKey('breadcrumbs'), isFalse);
     });
 
-    test(
-      'host trackError (no source) omits crash.source; caller attrs merge',
-      () {
-        final a =
-            reporting
-                .buildCrashEvent(
-                  Exception('x'),
-                  attributes: {'error.context': 'demo'},
-                )
-                .attributes;
-        expect(a.containsKey('crash.source'), isFalse);
-        expect(a['error.context'], 'demo');
-      },
-    );
+    test('host trackError (no source) is app.error without error.source', () {
+      final event = reporting.buildCrashEvent(
+        Exception('x'),
+        attributes: {'error.context': 'demo'},
+      );
+      final a = event.attributes;
+      expect(event.name, 'app.error');
+      expect(a['error.cause'], 'handled');
+      expect(a.containsKey('error.source'), isFalse);
+      expect(a['error.context'], 'demo');
+    });
 
     test('null stackTrace omits the stacktrace key', () {
       final a = reporting.buildCrashEvent(Exception('x')).attributes;
-      expect(a.containsKey('stacktrace'), isFalse);
+      expect(a.containsKey('error.stacktrace'), isFalse);
     });
   });
 
   group('buildNativeCrashEvent — native taxonomy carried verbatim', () {
-    test('cause/is_fatal/tier are the OS values, not synthesized', () {
+    test('plugin keys become the catalogue keys; cause picks the event', () {
       final event = reporting.buildNativeCrashEvent({
         'message': 'SIGSEGV',
         'stacktrace': 'frame0\nframe1',
@@ -137,23 +136,27 @@ void main() {
       expect(event.bypassSampling, isTrue);
 
       final a = event.attributes;
-      expect(a['cause'], 'NativeCrash'); // native taxonomy, not 'Error'
-      expect(a['is_fatal'], 'true'); // fatal, not the Dart 'false'
-      expect(a['crash.source'], 'metrickit');
+      expect(a['error.cause'], 'native_crash');
+      expect(a['error.message'], 'SIGSEGV');
+      expect(a['error.type'], 'EXC_BAD_ACCESS');
+      expect(a['error.stacktrace'], 'frame0\nframe1');
+      expect(a.containsKey('is_fatal'), isFalse);
+      expect(a['error.source'], 'metrickit');
       expect(a['native_capture_tier'], 'full');
     });
 
-    test('ANR + jvm_only tier; a pre-4.0 stored sdk.-prefixed tier is renamed '
+    test('ANR is app.anr; a pre-4.0 stored sdk.-prefixed tier is renamed '
         '(R1)', () {
-      final a =
-          reporting.buildNativeCrashEvent({
-            'message': 'ANR in com.example',
-            'cause': 'ANR',
-            'is_fatal': 'true',
-            'crash.source': 'app_exit_info',
-            'sdk.native_capture_tier': 'jvm_only',
-          }).attributes;
-      expect(a['cause'], 'ANR');
+      final event = reporting.buildNativeCrashEvent({
+        'message': 'ANR in com.example',
+        'cause': 'ANR',
+        'is_fatal': 'true',
+        'crash.source': 'app_exit_info',
+        'sdk.native_capture_tier': 'jvm_only',
+      });
+      final a = event.attributes;
+      expect(event.name, 'app.anr');
+      expect(a['error.cause'], 'anr');
       expect(a['native_capture_tier'], 'jvm_only');
       expect(a.containsKey('sdk.native_capture_tier'), isFalse);
     });
@@ -210,9 +213,8 @@ void main() {
       expect(wireEvent['type'], 'event');
       expect(wireEvent['eventName'], 'app.crash');
       final attrs = wireEvent['attributes'] as Map;
-      expect(attrs['cause'], 'Error');
-      expect(attrs['is_fatal'], 'false');
-      expect(attrs['crash.source'], 'platform_dispatcher');
+      expect(attrs['error.cause'], 'unhandled_exception');
+      expect(attrs['error.source'], 'platform_dispatcher');
       expect(attrs['device.model'], 'device_x'); // context folded in
     });
 
@@ -235,8 +237,7 @@ void main() {
         expect(sender.items, hasLength(1));
         final attrs = sender.items.single['attributes'] as Map;
         expect(sender.items.single['eventName'], 'app.crash');
-        expect(attrs['cause'], 'NativeCrash');
-        expect(attrs['is_fatal'], 'true');
+        expect(attrs['error.cause'], 'native_crash');
         expect(attrs['native_capture_tier'], 'full'); // tiering asserted
         expect(attrs.containsKey('device.id'), isFalse); // envelope only (R1)
       },

@@ -164,7 +164,7 @@ void main() {
       expect(a['frame.max_build_duration_ms'], '500.00');
       expect(a['frame.max_raster_duration_ms'], '300.00');
       expect(a['display.refresh_rate'], '120.0');
-      expect(a['frame.window_duration_ms'], '144.00'); // 10 frames, 16 ms apart
+      expect(a['frame.window_duration_ms'], '144'); // 10 frames, 16 ms apart
       expect(a['screen.name'], '/home');
       expect(a['screen.id'], session.currentScreenId);
     });
@@ -177,14 +177,20 @@ void main() {
     });
   });
 
-  group('thresholds are fixed absolutes', () {
-    test('slow is one frame budget, not one refresh period', () {
-      // At the 120 Hz this hook is reading, a refresh-derived budget would be
-      // 8.3 ms and these would all count as slow. They are not.
-      frames(5, totalMs: 12);
-      frames(1, totalMs: 20);
+  group('thresholds follow the display', () {
+    test('slow is over one refresh period at the display rate', () {
+      // At the 120 Hz this hook is reading the budget is 8.3 ms: a 12 ms
+      // frame is slow here, though it fits a 60 Hz budget.
+      frames(5, totalMs: 8);
+      frames(1, totalMs: 12);
       hook.flushReservoir();
       expect(onlySummary()['frame.slow_frames'], '1');
+    });
+
+    test('an unknown rate budgets at 60 Hz', () {
+      expect(slowFrameBudgetMs(null), closeTo(16.67, 0.01));
+      expect(slowFrameBudgetMs(0), closeTo(16.67, 0.01));
+      expect(slowFrameBudgetMs(120), closeTo(8.33, 0.01));
     });
 
     test('frozen is 700 ms and a subset of slow', () {
@@ -197,9 +203,9 @@ void main() {
     });
 
     test('total duration is the frame span, not build + raster', () {
-      // build 10 + raster 10 = 20 would be slow; the real span is 12 and is
-      // not. v2 summed the two pipelined durations and over-reported drops.
-      frames(1, totalMs: 12, buildMs: 10, rasterMs: 10);
+      // build 6 + raster 6 = 12 would be slow at 120 Hz; the real span is 8
+      // and is not. v2 summed the two pipelined durations and over-reported.
+      frames(1, totalMs: 8, buildMs: 6, rasterMs: 6);
       hook.flushReservoir();
       expect(sink.named('frame.summary'), isEmpty);
     });
@@ -358,16 +364,16 @@ void main() {
     test('nothing at the default tier, whatever the jank', () {
       startHook(gate: standardGate());
       frames(200, totalMs: 900, stepMs: 1);
-      expect(sink.named('long_task'), isEmpty);
+      expect(sink.named('perf.long_task'), isEmpty);
     });
 
     test('one per frozen frame at diagnostic, never per dropped frame', () {
       startHook(gate: diagnosticGate());
       frames(200, totalMs: 20, stepMs: 1); // dropped under v2's predicate
-      expect(sink.named('long_task'), isEmpty);
+      expect(sink.named('perf.long_task'), isEmpty);
 
       frames(3, totalMs: 900, stepMs: 1);
-      final tasks = sink.named('long_task');
+      final tasks = sink.named('perf.long_task');
       expect(tasks, hasLength(3));
       expect(tasks.first.type, 'metric');
       expect(tasks.first.value, closeTo(900, 0.01));
@@ -378,11 +384,11 @@ void main() {
     test('the 100/session backstop still holds, and resets on rotation', () {
       startHook(gate: diagnosticGate());
       frames(kLongTaskCap + 20, totalMs: 900, stepMs: 1);
-      expect(sink.named('long_task'), hasLength(kLongTaskCap));
+      expect(sink.named('perf.long_task'), hasLength(kLongTaskCap));
 
       hook.resetForNewSession();
       frames(1, totalMs: 900, stepMs: 1);
-      expect(sink.named('long_task'), hasLength(kLongTaskCap + 1));
+      expect(sink.named('perf.long_task'), hasLength(kLongTaskCap + 1));
     });
   });
 
@@ -485,7 +491,7 @@ void main() {
 
         frames(3, totalMs: 900, stepMs: 1);
         hook.flushReservoir();
-        expect(sink.named('long_task'), hasLength(3));
+        expect(sink.named('perf.long_task'), hasLength(3));
         expect(sink.named('frame.summary'), isEmpty);
       },
     );

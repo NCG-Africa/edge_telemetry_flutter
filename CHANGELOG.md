@@ -1,5 +1,72 @@
 # Changelog
 
+## [4.2.0]
+
+> **Needs a processor with the event catalogue (processor #47–#49).** It reads
+> the renamed events below; an older processor leaves them in the attributes
+> bag. Builds before 4.2.0 keep working through the processor's aliases.
+
+**The SDK converges on the event catalogue (#127).** Every event name, key,
+type and unit now follows
+[`edge_telemetry_processor_go/docs/catalogue/`](https://github.com/NCG-Africa/edge_telemetry_processor_go/tree/main/docs/catalogue),
+pinned in `catalogue.version` (`catalogue-v4.3`). `contract_version` is `4.3.0`.
+Upgrade notes are in [`MIGRATION.md`](MIGRATION.md) under "Migrating to v4.2.0".
+
+### Changed
+
+- **Crashes.** Keys are `error.*`: `error.message`, `error.stacktrace`,
+  `error.type`, `error.cause`, `error.breadcrumbs`, `error.source` (was
+  `crash.source`). `is_fatal` and `handled` are gone; the event name says it.
+  `trackError` and the SDK's own caught errors are sent as **`app.error`**
+  (`error.cause: handled`); errors the auto-installed handlers catch stay
+  `app.crash` (`error.cause: unhandled_exception`). Both still batch.
+- **ANR and hang are their own events.** A native ANR is `app.anr`, a MetricKit
+  hang is `app.hang` (now with `hang.duration_ms`), a native crash `app.crash`
+  (`error.cause: native_crash`). Fault-bundle keys `device.power_save_mode` /
+  `device.thermal_state` are now `device.power_save` / `device.thermal_status`.
+- **Navigation.** `navigation.to` / `navigation.from` are
+  `navigation.to_screen` / `navigation.from_screen`; `route.type` /
+  `route.has_arguments` are `navigation.route_type` / `navigation.has_arguments`.
+  The first screen's method is `initial`. `navigation.type` and
+  `navigation.timestamp` are gone. A path-shaped route name is templated
+  (`/orders/42` → `/orders/{id}`).
+- **`screen.duration` is back as its own event** (`screen.name`,
+  `screen.duration_ms`, `screen.exit_method`, `span.start_time` = entry), sent
+  when a painted screen is left. `screen.previous_*` on `navigation` is gone.
+- **`app.start` replaces `page_load`.** Measured from **process start** (read
+  natively) to the first frame, `app.start.type: cold`, with
+  `app.start.sdk_init_ms`. The 2-second "warm" guess and the
+  `performance.startup_time` metric are gone. Not sent where the platform cannot
+  read process start (Android below API 24).
+- **Frames.** Slow is over the display's own frame budget
+  (`1000 / refresh rate`, 60 Hz when unknown) instead of a fixed 16 ms; frozen
+  is `>= 700 ms`. `frame.window_duration_ms` is an integer.
+- **Memory.** `memory_usage` (bytes) is the `memory.usage` event with
+  `memory.usage_mb` (MB, binary). Same quantity (PSS / `phys_footprint`).
+- **Long tail.** `app_lifecycle` → `app.lifecycle`, `network_change` →
+  `network.change` (now `network.previous_type` plus the snapshot's
+  `network.type`), `custom_event` → `custom.event`, `long_task` →
+  `perf.long_task` (`metric.unit: ms`).
+- **`trackMetric` is sent.** It rides `custom.metric` with your name in
+  `metric.name`; before, every host metric was dropped as off-canon.
+- **Sessions end after 4 hours** (`session.reason: max_duration`).
+  `session.finalized` carries `session.reason` (`timeout`, `max_duration`,
+  `app_terminated`).
+- **Typed values.** Numbers and booleans the catalogue types are sent as JSON
+  numbers and booleans, not strings. Every timestamp (items and attributes) is
+  UTC with a `Z`.
+
+### Fixed
+
+- `app.start.*` keys were stripped as envelope identity (`app.*`).
+
+### Added
+
+- **Conformance gate.** `test/integration/golden_batch_test.dart` records every
+  event through the real SDK into `test/golden/`; `scripts/conform.sh` checks
+  them with the processor's `cmd/conform` at the pinned tag;
+  `.github/workflows/conform.yml` runs both on every PR and `v*` tag.
+
 ## [4.1.1]
 
 ### Changed

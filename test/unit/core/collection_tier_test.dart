@@ -432,12 +432,12 @@ void main() {
       collector.add(
         const EdgeEvent.event(
           'navigation',
-          attributes: {'navigation.to': '/x'},
+          attributes: {'navigation.to_screen': '/x'},
         ),
       ); // triggers the rotation
 
       final names = _items(sender).map((e) => e['eventName']).toList();
-      expect(names, contains('app.crash'));
+      expect(names, contains('app.error'));
       expect(names, contains('user.profile.update'));
       expect(names, contains('session.finalized'));
       expect(names, contains('session.started'));
@@ -455,7 +455,7 @@ void main() {
       collector.add(
         const EdgeEvent.event(
           'navigation',
-          attributes: {'navigation.to': '/x'},
+          attributes: {'navigation.to_screen': '/x'},
         ),
       );
 
@@ -464,7 +464,7 @@ void main() {
       ).firstWhere((e) => e['eventName'] == 'session.finalized');
       final attrs = finalized['attributes'] as Map<String, dynamic>;
       expect(attrs['session.dropped_reasons'], 'tier_shed=2');
-      expect(attrs['session.dropped_item_count'], '2');
+      expect(attrs['session.dropped_item_count'], 2);
     });
 
     test('the generic calls stringify exactly as v2 did', () async {
@@ -512,13 +512,12 @@ void main() {
           ],
         },
       );
-      // A canon metric name — an off-canon one is dropped by the allowlist,
-      // which is #79's business, not this ticket's.
-      telemetry.trackMetric('memory_usage', 12.0, attributes: {'retries': 2});
+      // A host metric rides `custom.metric`, its name in `metric.name`.
+      telemetry.trackMetric('cart_value', 12.0, attributes: {'retries': 2});
       await Future<void>(() {});
 
       final items = _items(sender);
-      final event = items.firstWhere((e) => e['eventName'] == 'custom_event');
+      final event = items.firstWhere((e) => e['eventName'] == 'custom.event');
       expect(event['attributes'], containsPair('event.name', 'checkout'));
       expect(event['attributes'], containsPair('count', '3'));
       expect(event['attributes'], containsPair('ratio', '1.5'));
@@ -534,8 +533,11 @@ void main() {
       expect(event['attributes'], containsPair('nested', '{a: 1}'));
       expect(event['attributes'], containsPair('listOfLists', '[1, 2],[3]'));
 
-      final metric = items.firstWhere((e) => e['metricName'] == 'memory_usage');
+      final metric = items.firstWhere(
+        (e) => e['metricName'] == 'custom.metric',
+      );
       expect(metric['value'], 12.0);
+      expect(metric['attributes'], containsPair('metric.name', 'cart_value'));
       expect(metric['attributes'], containsPair('retries', '2'));
     });
   });

@@ -91,7 +91,7 @@ List<String> names(Map<String, dynamic> batch) => [
 /// The `event.name` of a `custom_event` batch (`trackEvent('x')` → `x`).
 String? customName(Map<String, dynamic> batch) {
   for (final e in batch['events'] as List) {
-    if ((e as Map)['eventName'] == 'custom_event') {
+    if ((e as Map)['eventName'] == 'custom.event') {
       return (e['attributes'] as Map)['event.name'] as String?;
     }
   }
@@ -423,7 +423,7 @@ void main() {
 
       bool isNativeCrash(Map<String, dynamic> b) => (b['events'] as List).any(
         (e) =>
-            ((e as Map)['attributes'] as Map)['crash.source'] ==
+            ((e as Map)['attributes'] as Map)['error.source'] ==
             'uncaught_handler',
       );
 

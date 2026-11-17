@@ -344,11 +344,12 @@ class EdgeTelemetry {
   );
 
   /// Pull native crashes surfaced by the OS since last launch, once on init,
-  /// and route each into the immediate `app.crash` rail (spec #15 Phase 4, #29).
+  /// and route each into the immediate rail as `app.crash`, `app.anr` or
+  /// `app.hang` (spec #15 Phase 4, #29, #127).
   ///
-  /// Each payload arrives pre-shaped by the native plugin (unprefixed keys,
-  /// `cause` ∈ NativeCrash/ANR/Hang, `is_fatal:true`, `crash.source`,
-  /// `native_capture_tier`); the Collector folds in context and
+  /// Each payload arrives in the plugin's own keys (`cause` ∈
+  /// NativeCrash/ANR/Hang, `crash.source`, ...); [EdgeEvent.nativeCrash]
+  /// translates them to the catalogue's `error.*`. The Collector folds in context and
   /// sends immediately (bypass batch). Empty until the native plugin registers
   /// the channel — the drain returns `[]` and nothing is sent.
   ///
@@ -366,12 +367,12 @@ class EdgeTelemetry {
       );
     }
     if (_config?.debugMode == true && crashes.isNotEmpty) {
-      print('📥 Drained ${crashes.length} native crash(es) → app.crash');
+      print('📥 Drained ${crashes.length} native crash(es)');
     }
   }
 
   /// Funnel every auto-catchable Dart error path into the one immediate
-  /// `app.crash` rail, each tagged with its `crash.source`. `runZonedGuarded`
+  /// `app.crash` path, each tagged with its `error.source`. `runZonedGuarded`
   /// (source `zone`) can't be retrofitted onto the already-running zone from
   /// here — a consumer routes it via `trackError`; the source token is part of
   /// the taxonomy for that path.
@@ -572,11 +573,11 @@ class EdgeTelemetry {
     if (!_ready()) return;
     final stringAttributes = _stringify(attributes);
 
-    // Host names are arbitrary → wrap into the canon `custom_event` with the
+    // Host names are arbitrary → wrap into the canon `custom.event` with the
     // host-supplied name carried in `event.name` (mapping §2).
     _wiring!.collector.add(
       EdgeEvent.event(
-        'custom_event',
+        'custom.event',
         attributes: {'event.name': eventName, ...stringAttributes},
         countsToSession: true,
         consumerAttributes: true,
@@ -607,11 +608,12 @@ class EdgeTelemetry {
     if (!_ready()) return;
     final stringAttributes = _stringify(attributes);
 
+    // Host names are arbitrary → `custom.metric`, the name in `metric.name`.
     _wiring!.collector.add(
       EdgeEvent.metric(
-        metricName,
+        'custom.metric',
         value,
-        attributes: stringAttributes,
+        attributes: {'metric.name': metricName, ...stringAttributes},
         countsToSession: true,
         consumerAttributes: true,
       ),
@@ -678,7 +680,7 @@ class EdgeTelemetry {
     final profileEventAttributes = <String, String>{
       'user.id': _currentUserId!,
       'user.profile_version': profileVersion.toString(),
-      'user.profile_updated_at': DateTime.now().toIso8601String(),
+      'user.profile_updated_at': utcNow(),
     };
     if (name != null) profileEventAttributes['user.name'] = name;
     if (email != null) profileEventAttributes['user.email'] = email;
@@ -720,7 +722,7 @@ class EdgeTelemetry {
     _emitProfileEvent('user.profile.update', {
       'user.id': _currentUserId!,
       'user.profile_version': profileVersion.toString(),
-      'user.profile_updated_at': DateTime.now().toIso8601String(),
+      'user.profile_updated_at': utcNow(),
     });
   }
 

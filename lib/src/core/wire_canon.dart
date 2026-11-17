@@ -12,59 +12,40 @@
 
 import 'sdk_version.dart';
 
-/// The 16 canon event names (§2). `app.crash` takes **either** rail — a fatal
-/// goes immediate and skips this gate, a non-fatal batches and passes it (#90) —
-/// so its presence on this list is load-bearing, not completeness.
+/// Every event name this SDK emits — the catalogue's canonical names
+/// (`edge_telemetry_processor_go/docs/catalogue/`, pinned in
+/// `catalogue.version`). 4.2.0 converged on the catalogue (#127): the legacy
+/// names (`page_load`, `app_lifecycle`, `network_change`, `custom_event`,
+/// `memory_usage`, `long_task`, ANR/hang as `app.crash` causes) are gone from
+/// the device and resolve through the processor's aliases for older builds.
 ///
-/// v3 adds four (#79): `ui.interaction`, `frame.summary`, `screen.load`,
-/// `task.complete`. Deliberately **not** added:
-/// - `memory_pressure` / `storage_usage` — struck off the sibling's
-///   "Unsupported Events — NOT processed by the backend" list.
-/// - `app.anr` / `app.hang` — both already ship as `cause` values on the
-///   unified `app.crash` event.
-///
-/// `user.interaction` and `screen.duration` stay on the list because a canon
-/// name is never removed. Whether either is still emitted — and the deprecation
-/// annotations, changelog line and removal version that go with stopping — is
-/// owned by their own tickets, not by this list. `screen.duration` stopped being
-/// emitted in v3 (#88, removal v5.0.0): the same measurement rides `navigation`
-/// as `screen.previous_duration_ms`, so a navigation is one item, not two.
+/// `app.crash` / `app.anr` / `app.hang` take the immediate rail and skip this
+/// gate; `app.error` and an unhandled Dart `app.crash` batch and pass it.
 const Set<String> kCanonEvents = {
   'session.started',
   'session.finalized',
-  'app_lifecycle',
-  'page_load',
+  'app.lifecycle',
+  'app.start',
   'navigation',
   'screen.duration',
+  'screen.load',
   'http.request',
-  'user.interaction',
-  'network_change',
+  'network.change',
   'user.profile.update',
-  'custom_event',
+  'custom.event',
   'app.crash',
-  // v3 (#79)
+  'app.error',
+  'app.anr',
+  'app.hang',
   'ui.interaction',
   'frame.summary',
-  'screen.load',
+  'memory.usage',
   'task.complete',
 };
 
-/// The 4 canon metric names (§4). v3 adds none — the ceiling is 0 new metrics.
-/// `frame_render_time` and `resource_timing` stay listed for the same reason as
-/// above: the name is kept, the emission is their own tickets' business.
-///
-/// `frame_render_time` stopped being emitted in v3 (#89, removal v5.0.0): a
-/// per-frame metric at 60–120 Hz became a windowed `frame.summary` event, and
-/// the build/raster split it carried rides there as two max-duration keys.
-/// `long_task` keeps its name and its slot but **changes population** — v2
-/// rows were frames over 16.67 ms, v3 rows are frozen frames over 700 ms, and
-/// it is `diagnostic`-only, so a default-config consumer now gets none.
-const Set<String> kCanonMetrics = {
-  'frame_render_time',
-  'memory_usage',
-  'long_task',
-  'resource_timing',
-};
+/// The metric names this SDK emits. A host's `trackMetric` rides
+/// `custom.metric` with its own name in `metric.name`.
+const Set<String> kCanonMetrics = {'custom.metric', 'perf.long_task'};
 
 /// Attribute keys the SDK must never send — the Collector is the single source
 /// of geo/tenant truth (mapping §1, injected from client IP + API key).
@@ -93,8 +74,12 @@ const Set<String> kAmbientTraceAttributes = {
 /// identity lives in the envelope only, so whatever set them (the device-info
 /// bag, a consumer global, an event attribute) never reaches the wire. Every
 /// other `device.*` key (model, `device.platform`, the fault bundle) stays.
+///
+/// `app.start.*` is not identity: it is the `app.start` event's own keys.
 bool isEnvelopeIdentityKey(String key) =>
-    key == 'device.id' || key.startsWith('app.') || key.startsWith('sdk.');
+    key == 'device.id' ||
+    (key.startsWith('app.') && !key.startsWith('app.start.')) ||
+    key.startsWith('sdk.');
 
 /// Whether a batched item of [type] (`event`/`metric`) named [name] is canon.
 bool isCanonWireItem(String type, String name) =>
@@ -104,7 +89,7 @@ bool isCanonWireItem(String type, String name) =>
 
 /// The batch contract version (R11): one semver shared by every SDK in the
 /// family, so it is **not** [kSdkVersion]. Minor = additive, major = breaking.
-const String kContractVersion = '4.0.0';
+const String kContractVersion = '4.3.0';
 
 /// Who sent a batch (R1, R9): the root `device_id` and the `app` block.
 /// Captured once at init — never read from the mutable global bag, so a
@@ -133,7 +118,109 @@ Map<String, String> appIdentity({
 /// skews the server's `received_at − timestamp` by the device's time zone.
 String utcNow() => DateTime.now().toUtc().toIso8601String();
 
-/// The one wire envelope, contract 4.0.0 (R3). Both rails send this shape —
+/// [time] as UTC RFC 3339 with a `Z` — every wire timestamp, envelope, item
+/// or attribute. A local `toIso8601String()` carries no offset and fails the
+/// catalogue's RFC 3339 check.
+String utc(DateTime time) => time.toUtc().toIso8601String();
+
+/// Attribute keys the catalogue types as `int` (`attributes.yaml`). Attributes
+/// are `String` inside the SDK; [typedAttributes] converts these at the wire.
+const Set<String> kIntAttributes = {
+  'app.start.duration_ms',
+  'app.start.sdk_init_ms',
+  'anr.duration_ms',
+  'device.android_sdk',
+  'frame.total_frames',
+  'frame.slow_frames',
+  'frame.frozen_frames',
+  'frame.window_duration_ms',
+  'hang.duration_ms',
+  'http.status_code',
+  'http.duration_ms',
+  'http.request_size',
+  'http.response_size',
+  'http.dns_ms',
+  'http.connect_ms',
+  'http.queue_ms',
+  'http.download_ms',
+  'http.redirect_count',
+  'screen.duration_ms',
+  'screen.load.first_frame_ms',
+  'screen.load.settled_ms',
+  'session.duration_ms',
+  'session.event_count',
+  'session.metric_count',
+  'session.screen_count',
+  'session.total_sessions',
+  'session.error_count',
+  'session.crash_count',
+  'session.http_request_count',
+  'session.action_count',
+  'session.dropped_item_count',
+  'session.cardinality_capped_count',
+  'session.last_screen_duration_ms',
+  'span.duration_ms',
+  'user.profile_version',
+};
+
+/// Attribute keys the catalogue types as `float`.
+const Set<String> kFloatAttributes = {
+  'device.battery_level',
+  'device.text_scale_factor',
+  'display.refresh_rate',
+  'frame.slow_frame_rate',
+  'frame.max_build_duration_ms',
+  'frame.max_raster_duration_ms',
+  'frame.max_total_duration_ms',
+  'frame.build_duration_ms',
+  'frame.raster_duration_ms',
+  'memory.usage_mb',
+};
+
+/// Attribute keys the catalogue types as `bool`.
+const Set<String> kBoolAttributes = {
+  'device.battery_charging',
+  'device.power_save',
+  'device.reduce_motion',
+  'http.success',
+  'http.url_redacted',
+  'http.connection_reused',
+  'navigation.has_arguments',
+  'session.is_first_session',
+  'session.recovered',
+  'session.sampled',
+  'trace.root_expired',
+};
+
+/// The item's attributes as the catalogue types them: the keys in
+/// [kIntAttributes], [kFloatAttributes] and [kBoolAttributes] become JSON
+/// numbers and booleans, every other key stays a string. A value that does not
+/// parse stays a string rather than being dropped, so a bug shows up as a
+/// conformance failure instead of a silent gap.
+// ponytail: one key table, not a typed attribute model through the SDK. Add a
+// key here when the catalogue types it; the golden conformance check fails
+// until you do.
+Map<String, Object> typedAttributes(Map<String, String> attributes) => {
+  for (final MapEntry(:key, :value) in attributes.entries)
+    key: _typed(key, value),
+};
+
+Object _typed(String key, String value) {
+  if (kIntAttributes.contains(key)) {
+    return int.tryParse(value) ?? double.tryParse(value)?.round() ?? value;
+  }
+  if (kFloatAttributes.contains(key)) return double.tryParse(value) ?? value;
+  if (kBoolAttributes.contains(key)) {
+    return switch (value) {
+      'true' => true,
+      'false' => false,
+      _ => value,
+    };
+  }
+  return value;
+}
+
+/// The one wire envelope, contract 4.x (R3). Both rails send this shape —
 /// the batched flush and the one-item immediate crash.
 ///
 /// Closed at exactly these eight keys, in this order. There is no `context`

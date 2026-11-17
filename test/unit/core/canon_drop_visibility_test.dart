@@ -6,6 +6,8 @@
 // the wire — the seam that would have caught v2's seven silent drops.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:edge_telemetry_flutter/src/core/collector.dart';
 import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
@@ -115,44 +117,16 @@ void main() {
   Map<String, dynamic> finalizeOnWire(_RecordingSender s) =>
       s.items.lastWhere((p) => p['eventName'] == 'session.finalized');
 
-  test('the canon holds exactly 16 events and 4 metrics', () {
-    expect(kCanonEvents, hasLength(16));
-    expect(kCanonMetrics, hasLength(4));
-
-    // v3's four additions (#79).
-    expect(
-      kCanonEvents,
-      containsAll([
-        'ui.interaction',
-        'frame.summary',
-        'screen.load',
-        'task.complete',
-      ]),
-    );
-    // Retained deprecate-in-place — the name never goes, only the emission.
-    expect(kCanonEvents, containsAll(['user.interaction', 'screen.duration']));
-    expect(
-      kCanonMetrics,
-      containsAll(['frame_render_time', 'resource_timing']),
-    );
-    // Deliberately absent: unsupported by the backend, or already a `cause`.
-    for (final name in [
-      'memory_pressure',
-      'storage_usage',
-      'app.anr',
-      'app.hang',
-    ]) {
-      expect(
-        kCanonEvents,
-        isNot(contains(name)),
-        reason: '$name must stay off',
-      );
-      expect(
-        kCanonMetrics,
-        isNot(contains(name)),
-        reason: '$name must stay off',
-      );
-    }
+  test('the canon is exactly the events the goldens record (#127)', () {
+    // The goldens are the catalogue-conformance input, so a canon name with no
+    // golden is an event nobody checks, and a golden off the canon never ships.
+    final goldens = <String>{
+      for (final f in Directory('test/golden').listSync().whereType<File>())
+        for (final e
+            in (jsonDecode(f.readAsStringSync())['events'] as List).cast<Map>())
+          (e['eventName'] ?? e['metricName']) as String,
+    };
+    expect({...kCanonEvents, ...kCanonMetrics}, goldens);
   });
 
   test(
@@ -179,7 +153,7 @@ void main() {
       await Future<void>(() {});
 
       final attrs = finalizeOnWire(sender)['attributes'] as Map;
-      expect(attrs['session.dropped_item_count'], '7');
+      expect(attrs['session.dropped_item_count'], 7);
       expect(attrs['session.dropped_reasons'], 'off_canon=7');
     },
   );
@@ -190,7 +164,7 @@ void main() {
     collector.add(
       const EdgeEvent.event(
         'navigation',
-        attributes: {'navigation.to': '/home'},
+        attributes: {'navigation.to_screen': '/home'},
       ),
     );
     await Future<void>(() {});
@@ -200,7 +174,7 @@ void main() {
     await Future<void>(() {});
 
     final attrs = finalizeOnWire(sender)['attributes'] as Map;
-    expect(attrs['session.dropped_item_count'], '0');
+    expect(attrs['session.dropped_item_count'], 0);
     expect(attrs.containsKey('session.dropped_reasons'), isFalse);
   });
 
@@ -221,7 +195,7 @@ void main() {
             .where((p) => p['eventName'] == 'session.finalized')
             .map((p) => (p['attributes'] as Map)['session.dropped_item_count'])
             .toList();
-    expect(finals, ['1', '2']);
+    expect(finals, [1, 2]);
   });
 
   test('the counter takes any reason — later gates reuse it', () async {
@@ -237,7 +211,7 @@ void main() {
     await Future<void>(() {});
 
     final attrs = finalizeOnWire(sender)['attributes'] as Map;
-    expect(attrs['session.dropped_item_count'], '4');
+    expect(attrs['session.dropped_item_count'], 4);
     // Sorted by reason so the attribute is stable across runs.
     expect(
       attrs['session.dropped_reasons'],
@@ -262,7 +236,7 @@ void main() {
       collector.add(
         const EdgeEvent.event(
           'navigation',
-          attributes: {'navigation.to': '/home'},
+          attributes: {'navigation.to_screen': '/home'},
         ),
       );
 
@@ -271,8 +245,8 @@ void main() {
       await Future<void>(() {});
 
       final attrs = finalizeOnWire(sender)['attributes'] as Map;
-      expect(attrs['session.sampled'], 'false');
-      expect(attrs['session.dropped_item_count'], '7');
+      expect(attrs['session.sampled'], false);
+      expect(attrs['session.dropped_item_count'], 7);
       expect(attrs['session.dropped_reasons'], 'off_canon=7');
     },
   );
@@ -347,8 +321,8 @@ void main() {
       await Future<void>(() {});
 
       final attrs = finalizeOnWire(sender)['attributes'] as Map;
-      expect(attrs['session.recovered'], 'true');
-      expect(attrs['session.dropped_item_count'], '2');
+      expect(attrs['session.recovered'], true);
+      expect(attrs['session.dropped_item_count'], 2);
       expect(attrs['session.dropped_reasons'], 'off_canon=2');
     },
   );

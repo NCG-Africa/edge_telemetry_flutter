@@ -20,6 +20,8 @@ flutter test                                     # run all tests
 flutter test test/unit/models/report_data_test.dart   # single file
 flutter test --name "substring of test name"     # single test by name
 dart format lib test                             # format
+UPDATE_GOLDENS=1 flutter test test/integration/golden_batch_test.dart   # re-record goldens
+scripts/conform.sh                               # goldens vs the pinned catalogue (needs go)
 ```
 
 Publishing: bump `version:` in `pubspec.yaml`, update `CHANGELOG.md`, then push a `vX.Y.Z` tag —
@@ -44,9 +46,15 @@ library entry point.
 
 ### The wire is a closed contract
 
-`lib/src/core/wire_canon.dart` holds the family canon: 16 event names, 4 metric names. **`Collector.add`
+**The event catalogue is the contract** (#127): every name, key, type and unit is defined in
+`edge_telemetry_processor_go/docs/catalogue/*.yaml`, pinned in `catalogue.version`. The goldens in
+`test/golden/` are recorded through the real SDK by `test/integration/golden_batch_test.dart`, and
+`scripts/conform.sh` (CI: `.github/workflows/conform.yml`, on every PR and `v*` tag) fails on an
+unknown name, an unregistered key, a wrong type, an old (aliased) name, or an `emitted_by` mismatch.
+A new event or key goes into the catalogue first (a processor PR and a new `catalogue-v4.N` tag),
+then here. `lib/src/core/wire_canon.dart` holds the names this SDK emits. **`Collector.add`
 drops any batched item whose name is off-canon** — adding an event means adding it to the canon
-first, or it never leaves the device. The drop is a hard drop and stays one; from v3 it is no longer
+first, or it never leaves the device. A test asserts the canon equals the golden event set. The drop is a hard drop and stays one; from v3 it is no longer
 silent — a `debugMode` log naming the item, plus a dropped-item counter on `session.finalized`.
 Envelope is `telemetry_batch` and **both rails send it** — a crash is a one-item batch, not a
 bare item (a bare item is what the collector 400'd through all of v2). POST goes to
@@ -54,7 +62,7 @@ the configured `endpoint` **exactly as given** — the full collector URL; the S
 nothing (R10, #118) — with `X-API-Key`, gzipped; a 400 on a compressed body
 triggers one uncompressed re-POST per launch, and that probe is the only capability check.
 
-The envelope is **contract 4.0.0** (#116), closed at exactly eight keys in this order:
+The envelope is **contract 4.x** (4.0.0 #116; 4.3.0 since #127, the catalogue minor), closed at exactly eight keys in this order:
 `type`, `contract_version` (`kContractVersion`, shared by every SDK — not `kSdkVersion`),
 `timestamp`, `batch_size`, `device_id`, `sdk` (`{name: "flutter", version: kSdkVersion}`),
 `app` (`{name?, package_name, platform, version?, build_number?}`), `events`. **Identity lives
@@ -73,15 +81,20 @@ back to a persisted UUIDv4, then an in-memory one. On any OS but android/ios the
 itself at init (one warning, nothing sent, public calls no-op). A 4.0 build is only valid against
 the 4.0 backend.
 
-Attribute spelling is deliberately mixed and must not be "normalized": dotted for identity/domain keys
-(`session.id`, `http.url`), **unprefixed** on `app.crash` (`message`, `stacktrace`, `exception_type`,
-`cause`, `is_fatal`, `handled`) because the backend extractors read those verbatim. Two v3 additions
-sit there and **both are dotted**: the error taxonomy (`error.category`, `error.category_source`)
-and the fatal-only fault bundle (#91: `device.battery_level`, `device.battery_charging`,
-`device.power_save_mode`, `device.thermal_state`, `device.orientation`), beside the already-dotted
-`crash.source` / `crash.breadcrumbs` — new keys the extractors do not read get the family's ordinary
-spelling, not the legacy one. `cause` is a shipped enum here and free text in the sibling, so
-no-renames keeps the taxonomy out of it.
+Attributes are `Map<String, String>` inside the SDK; `typedAttributes` (wire_canon.dart) turns the
+keys the catalogue types as int / float / bool into JSON numbers and booleans at the Collector, from
+three key sets. A new typed key goes in those sets, or conform fails. Every wire timestamp is UTC
+with a `Z` (`utc()` / `utcNow()`).
+
+The crash family is four events (catalogue `crash.yaml`): `app.crash` (unhandled — an auto handler
+caught it, `error.cause: unhandled_exception`, or a native crash, `native_crash`), `app.error`
+(`trackError` and the SDK's own catches, `error.cause: handled`), `app.anr`, `app.hang`. Keys are
+`error.*` (`error.message`, `error.stacktrace`, `error.type`, `error.cause`, `error.source`,
+`error.breadcrumbs`, plus the taxonomy `error.category` / `error.category_source`). There is no
+`is_fatal` or `handled` key: the rail is chosen by the factory (`EdgeEvent.error` batches,
+`EdgeEvent.nativeCrash` is immediate), never by an attribute. The native plugins still write the old
+keys (`message`, `cause`, `crash.source`, ...) and old payloads sit on disk, so `EdgeEvent.nativeCrash`
+translates them — keep the plugins' payload shape as it is.
 
 ### Six rules govern the canon
 
@@ -90,7 +103,9 @@ first (#53, amended by #61):
 
 1. **Conform where a sibling already ships the name**, decide locally where none does, and never block
    a release on ratification.
-2. **No renames of a v2 name, ever** — deprecate-in-place. A name may stop being emitted; it may never
+2. **Superseded for names by the catalogue (#127).** Since 4.2.0 a rename is licensed by a processor
+   alias in the catalogue: old builds keep resolving, and conform rejects the old name in new builds.
+   The history below is why the rule existed. **No renames of a v2 name, ever** — deprecate-in-place. A name may stop being emitted; it may never
    be renamed or have its meaning changed under the same backend columns. `page_load` therefore means
    app launch forever, and screen load minted a new name instead.
    **Four v3 carve-outs, all deliberate** — three in §8 (#85): `http.duration_ms` re-bases,
@@ -254,8 +269,8 @@ never the SDK's own keys, which are unique per item by design and would be senti
   **every** declaration naming the removal version (the clause that catches a missed field), a shipped
   release, a changelog line, and a runtime warning wherever behaviour *changes* rather than disappears.
   Every v3 deprecation names v5.0.0 (retargeted from v4.0.0 when 4.0.0 shipped the contract
-  major without the removals, #118). Currently deprecated-in-place: `frame_render_time`
-  and `screen.duration` — both stopped being emitted in v3. `user.interaction` and
+  major without the removals, #118). `frame_render_time` stopped being emitted in v3;
+  `screen.duration` stopped in v3 and is emitted again as its own event since 4.2.0 (#127). `user.interaction` and
   `resource_timing` are **not** deprecations: this SDK has never emitted either, so
   there is no emission to stop and no removal version to name. They are allowlist
   entries kept for family conformance, and they are recorded as **errata** (see

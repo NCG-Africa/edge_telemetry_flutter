@@ -78,14 +78,10 @@ class NetworkCaptureHook implements CaptureHook {
 
     sink.add(
       EdgeEvent.event(
-        'network_change',
-        attributes: {
-          'network.previous_type': previous,
-          'network.current_type': newType,
-          'network.change_timestamp': DateTime.now().toIso8601String(),
-          'network.available': newType != 'none' ? 'true' : 'false',
-          'network.change_direction': _getChangeDirection(previous, newType),
-        },
+        'network.change',
+        // `network.type` (the new type) rides the context snapshot, which was
+        // updated just above; the event time is the change time.
+        attributes: {'network.previous_type': previous},
       ),
     );
 
@@ -120,13 +116,6 @@ class NetworkCaptureHook implements CaptureHook {
       case ConnectivityResult.other:
         return 'other';
     }
-  }
-
-  String _getChangeDirection(String previous, String next) {
-    if (previous == 'none' && next != 'none') return 'connected';
-    if (previous != 'none' && next == 'none') return 'disconnected';
-    if (previous != next) return 'switched';
-    return 'unchanged';
   }
 
   double getNetworkQualityScore(String networkType) {

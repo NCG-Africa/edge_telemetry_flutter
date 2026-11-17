@@ -9,8 +9,10 @@ Edge collector in the family's shared custom-JSON wire format.
 ### Wire
 
 **Canon**:
-The family-wide contract every Edge RUM SDK emits against — the 16 event names, 4
-metric names, envelope and attribute spelling. Defined here in `lib/src/core/wire_canon.dart`.
+The family-wide contract every Edge RUM SDK emits against — event names, keys, types,
+units and the envelope. Defined by the **event catalogue**
+(`edge_telemetry_processor_go/docs/catalogue/`, pinned in `catalogue.version`); the names this
+SDK emits are listed in `lib/src/core/wire_canon.dart`.
 _Avoid_: schema, spec, protocol
 
 **Batch**:
@@ -24,13 +26,13 @@ rail sends a one-item batch, never a bare item.
 _Avoid_: record, message
 
 **Event**:
-A named thing that happened (`navigation`, `http.request`, `app.crash`), carrying only
-string attributes.
+A named thing that happened (`navigation`, `http.request`, `app.crash`), carrying
+attributes.
 _Avoid_: signal, log
 
 **Metric**:
-A named numeric sample (`memory_usage`, `long_task`) — an event that also carries
-a top-level `value`. `frame_render_time` is retained but no longer emitted.
+A named numeric sample (`custom.metric`, `perf.long_task`) — an event that also carries
+a top-level `value`.
 _Avoid_: measurement, gauge
 
 **Allowlist**:
@@ -52,8 +54,9 @@ the finalize bookend verbatim; one counter, several gates.
 _Avoid_: drop cause, error code
 
 **Attribute**:
-A key/value pair on a wire item. Always String-valued on the wire. Dotted for identity and
-domain keys (`session.id`), unprefixed on `app.crash` (`message`, `cause`), deliberately mixed.
+A key/value pair on a wire item, typed as the catalogue says (string, number or boolean —
+`typedAttributes` converts at the wire). Dotted `namespace.key` throughout (`session.id`,
+`error.message`).
 _Avoid_: property, field, tag
 
 **Common attributes**:
@@ -281,13 +284,13 @@ _Avoid_: coverage, health, instrumentation state
 
 **Fault bundle**:
 The five device-state keys attached to a **fatal** crash and to nothing else —
-`device.battery_level`, `device.battery_charging`, `device.power_save_mode`,
-`device.thermal_state`, `device.orientation`. Read off the dying thread, where the binder
+`device.battery_level`, `device.battery_charging`, `device.power_save`,
+`device.thermal_status`, `device.orientation`. Read off the dying thread, where the binder
 calls are free. A key the platform cannot answer is **omitted**, never sentinelled.
 _Avoid_: device health snapshot, device state event, health sample
 
 **Memory bookend**:
-One `memory_usage` metric when the session opens and one when the app is backgrounded —
+One `memory.usage` event (`memory.usage_mb`) when the session opens and one when the app is backgrounded —
 two items, where v2 sampled sixty. The quantity is native (`phys_footprint` on iOS, total
 PSS on Android) and `memory.source` names it on the wire.
 _Avoid_: memory poll, memory sample, memory tick
@@ -357,7 +360,7 @@ a resumed session neither re-sends it nor starts ranking from empty.
 _Avoid_: buffer, cache, sample, top-N queue
 
 **Long task**:
-The `long_task` metric, **redefined to frozen frames only** — name and slot kept, population
+The `perf.long_task` metric (v3's `long_task`), **redefined to frozen frames only** — name and slot kept, population
 changed. At v2's per-frame threshold its cap was exhausted by the first two-second stall,
 reproducing one tier down the start-of-session bias the reservoir exists to avoid.
 _Avoid_: stall, hang, blocked frame
@@ -473,15 +476,15 @@ _Avoid_: session stats, funnel
 ### Crash
 
 **Crash**:
-Any captured failure, Dart or native, emitted as the `app.crash` event. Dart errors are
-non-fatal crashes (`is_fatal:"false"`); the app survived them, so they ride the batch rail.
+Any captured failure, Dart or native — one of the four crash-family events: `app.crash`
+(unhandled), `app.error` (handled), `app.anr`, `app.hang`. Dart errors of either name ride
+the batch rail (the app survived them); native ones the immediate rail.
 _Avoid_: error report, exception event
 
 **Cause**:
-The crash taxonomy — `Error` (all Dart entry points), `NativeCrash`, `ANR`, `Hang`. The
-specific Dart handler goes in the secondary `crash.source`, never in `cause`. It is **not**
-the error category: the sibling's `cause` is free text and this one is an enum, both
-shipped, so the taxonomy got its own key instead.
+`error.cause`, the catalogue enum — `handled`, `unhandled_exception` (Dart),
+`native_crash`, `anr`, `hang`. The specific Dart handler goes in `error.source`, never in
+`error.cause`. It is **not** the error category, which has its own key.
 _Avoid_: kind, category, severity
 
 **Error category**:
@@ -493,10 +496,10 @@ either. Named `ErrorCategory`.
 _Avoid_: error type, error kind, severity, cause
 
 **Handled**:
-Whether the app kept running because someone caught the error — `"true"` for `trackError`
-and the SDK's own self-diagnostics, `"false"` for the three auto-installed handlers
-(`flutter_error`, `platform_dispatcher`, `isolate`) and every native crash. A string,
-matching the shipped `is_fatal`.
+Whether the app kept running because someone caught the error — `trackError` and the SDK's
+own self-diagnostics are handled (`app.error`); the three auto-installed handlers
+(`flutter_error`, `platform_dispatcher`, `isolate`) and every native crash are not. The
+event name carries it; there is no `handled` key since 4.2.0.
 _Avoid_: caught, recovered, is_handled
 
 **Drain**:

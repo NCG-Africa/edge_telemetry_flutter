@@ -35,7 +35,7 @@ class _RecordingSender {
   Map<String, String> attributesOf(String eventName) =>
       (items.firstWhere((i) => i['eventName'] == eventName)['attributes']
               as Map)
-          .cast<String, String>();
+          .map((k, v) => MapEntry('$k', '$v'));
 
   Future<bool> call(Map<String, dynamic> payload) async {
     sent.add(payload);
@@ -235,13 +235,13 @@ void main() {
         // network_change is emitted by a hook with no knowledge of tracing.
         rig.collector.add(
           const EdgeEvent.event(
-            'network_change',
+            'network.change',
             attributes: {'network.type': 'wifi'},
           ),
         );
         rig.flush();
 
-        final attrs = rig.sender.attributesOf('network_change');
+        final attrs = rig.sender.attributesOf('network.change');
         expect(attrs['trace.id'], isNotNull);
         expect(attrs['rum.action.id'], isNotNull);
         expect(attrs['trace.root_type'], 'launch');
@@ -340,14 +340,14 @@ void main() {
 
       // Past the idle window → the next event rotates the session.
       now = now.add(const Duration(minutes: 31));
-      rig.collector.add(const EdgeEvent.event('custom_event'));
+      rig.collector.add(const EdgeEvent.event('custom.event'));
       expect(rig.session.currentSessionId, 'session_rotated_1');
 
       // A trace never spans a session; no callback needed, the root's own
       // session id no longer matches the live one.
       expect(rig.trace.current(), isEmpty);
       rig.flush();
-      final attrs = rig.sender.attributesOf('custom_event');
+      final attrs = rig.sender.attributesOf('custom.event');
       for (final key in kAmbientTraceAttributes) {
         expect(attrs.containsKey(key), isFalse);
       }
@@ -380,7 +380,7 @@ void main() {
       expect(rig.session.currentScreenId, isNotNull);
 
       now = now.add(const Duration(minutes: 31));
-      rig.collector.add(const EdgeEvent.event('custom_event'));
+      rig.collector.add(const EdgeEvent.event('custom.event'));
 
       expect(rig.session.currentScreenId, isNull);
       expect(rig.context.snapshot().containsKey('screen.id'), isFalse);
