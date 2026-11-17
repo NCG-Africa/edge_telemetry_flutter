@@ -6,7 +6,7 @@
   "device_id": "<device_id>",
   "sdk": {
     "name": "flutter",
-    "version": "4.2.0"
+    "version": "4.2.1"
   },
   "app": {
     "name": "Golden App",
@@ -21,7 +21,7 @@
       "eventName": "app.hang",
       "timestamp": "2026-01-01T00:00:00.000Z",
       "attributes": {
-        "device.platform": "macos",
+        "device.platform": "android",
         "device.platform_brightness": "light",
         "device.platform_version": "<device.platform_version>",
         "device.reduce_motion": false,

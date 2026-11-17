@@ -69,6 +69,9 @@ Object? _normalize(String key, Object? v) {
   // The run flips connectivity mid-way, so which value an event carries is a
   // race. Pinned to a value the catalogue's enum accepts.
   if (key == 'network.type') return 'wifi';
+  // The host OS the tests run on (macos locally, linux in CI). Pinned to the
+  // envelope's platform so goldens match wherever they are generated.
+  if (key == 'device.platform') return 'android';
   return v;
 }
 

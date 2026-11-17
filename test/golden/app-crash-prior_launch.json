@@ -6,7 +6,7 @@
   "device_id": "<device_id>",
   "sdk": {
     "name": "flutter",
-    "version": "4.2.0"
+    "version": "4.2.1"
   },
   "app": {
     "name": "Golden App",
@@ -24,7 +24,7 @@
         "device.battery_charging": false,
         "device.battery_level": 1.5,
         "device.orientation": "portrait",
-        "device.platform": "macos",
+        "device.platform": "android",
         "device.platform_brightness": "light",
         "device.platform_version": "<device.platform_version>",
         "device.power_save": false,
