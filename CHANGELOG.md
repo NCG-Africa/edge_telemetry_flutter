@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Removed
+
+- **The conformance CI job (`conform.yml`)**, to cut Actions spend. Run
+  `scripts/conform.sh` locally before a release.
+
 ## [4.2.1]
 
 ### Fixed

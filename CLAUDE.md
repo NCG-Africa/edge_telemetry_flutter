@@ -49,7 +49,7 @@ library entry point.
 **The event catalogue is the contract** (#127): every name, key, type and unit is defined in
 `edge_telemetry_processor_go/docs/catalogue/*.yaml`, pinned in `catalogue.version`. The goldens in
 `test/golden/` are recorded through the real SDK by `test/integration/golden_batch_test.dart`, and
-`scripts/conform.sh` (CI: `.github/workflows/conform.yml`, on every PR and `v*` tag) fails on an
+`scripts/conform.sh` (run locally; no CI job) fails on an
 unknown name, an unregistered key, a wrong type, an old (aliased) name, or an `emitted_by` mismatch.
 A new event or key goes into the catalogue first (a processor PR and a new `catalogue-v4.N` tag),
 then here. `lib/src/core/wire_canon.dart` holds the names this SDK emits. **`Collector.add`
