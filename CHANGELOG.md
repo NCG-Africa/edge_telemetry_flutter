@@ -67,6 +67,12 @@ Upgrade notes are in [`MIGRATION.md`](MIGRATION.md) under "Migrating to v4.2.0".
 ### Fixed
 
 - `app.start.*` keys were stripped as envelope identity (`app.*`).
+- **Resolves alongside newer plus plugins.** `package_info_plus`,
+  `device_info_plus` and `connectivity_plus` were pinned to one major each, so
+  apps on `package_info_plus` 9 (or `device_info_plus` 12-13, `connectivity_plus` 7)
+  failed version solving. Now `>=8.3.0 <11.0.0`, `>=11.5.0 <14.0.0` and
+  `>=6.1.4 <8.0.0`. `ConnectivityResult.satellite` (connectivity_plus 7)
+  reports as `network.type: other`.
 
 ### Added
 
@@ -74,17 +80,6 @@ Upgrade notes are in [`MIGRATION.md`](MIGRATION.md) under "Migrating to v4.2.0".
   event through the real SDK into `test/golden/`; `scripts/conform.sh` checks
   them with the processor's `cmd/conform` at the pinned tag;
   `.github/workflows/conform.yml` runs both on every PR and `v*` tag.
-
-## [4.1.1]
-
-### Fixed
-
-- **Resolves alongside newer plus plugins.** `package_info_plus`,
-  `device_info_plus` and `connectivity_plus` were pinned to one major each, so
-  apps on `package_info_plus` 9 (or `device_info_plus` 12-13, `connectivity_plus` 7)
-  failed version solving. Now `>=8.3.0 <11.0.0`, `>=11.5.0 <14.0.0` and
-  `>=6.1.4 <8.0.0`. `ConnectivityResult.satellite` (connectivity_plus 7)
-  reports as `network.type: other`.
 
 ## [4.1.0]
 
