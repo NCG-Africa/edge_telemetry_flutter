@@ -1,5 +1,16 @@
 # Changelog
 
+## [4.1.1]
+
+### Fixed
+
+- **Resolves alongside newer plus plugins.** `package_info_plus`,
+  `device_info_plus` and `connectivity_plus` were pinned to one major each, so
+  apps on `package_info_plus` 9 (or `device_info_plus` 12-13, `connectivity_plus` 7)
+  failed version solving. Now `>=8.3.0 <11.0.0`, `>=11.5.0 <14.0.0` and
+  `>=6.1.4 <8.0.0`. `ConnectivityResult.satellite` (connectivity_plus 7)
+  reports as `network.type: other`.
+
 ## [4.1.0]
 
 ### Security

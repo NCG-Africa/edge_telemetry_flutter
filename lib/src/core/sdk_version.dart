@@ -15,4 +15,4 @@
 /// Framework version is **rejected, not deferred**: Flutter's version is
 /// build-time only, and reaching it means code generation in a published
 /// package for a field no consumer asked for.
-const String kSdkVersion = '4.1.0';
+const String kSdkVersion = '4.1.1';
