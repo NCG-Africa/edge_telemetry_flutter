@@ -99,24 +99,21 @@ class NetworkCaptureHook implements CaptureHook {
     );
   }
 
-  String _mapConnectivityResult(ConnectivityResult result) {
-    switch (result) {
-      case ConnectivityResult.wifi:
-        return 'wifi';
-      case ConnectivityResult.mobile:
-        return 'mobile';
-      case ConnectivityResult.ethernet:
-        return 'ethernet';
-      case ConnectivityResult.bluetooth:
-        return 'bluetooth';
-      case ConnectivityResult.vpn:
-        return 'vpn';
-      case ConnectivityResult.none:
-        return 'none';
-      case ConnectivityResult.other:
-        return 'other';
-    }
-  }
+  // Enum names are the wire values. Not a switch: connectivity_plus 7 added
+  // `satellite`, and an exhaustive switch can't compile against both 6 and 7.
+  // Values newer than this set report as 'other'.
+  static const _knownTypes = {
+    'wifi',
+    'mobile',
+    'ethernet',
+    'bluetooth',
+    'vpn',
+    'none',
+    'other',
+  };
+
+  String _mapConnectivityResult(ConnectivityResult result) =>
+      _knownTypes.contains(result.name) ? result.name : 'other';
 
   double getNetworkQualityScore(String networkType) {
     switch (networkType) {

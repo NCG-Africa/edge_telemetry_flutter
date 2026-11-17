@@ -55,6 +55,14 @@ Upgrade notes are in [`MIGRATION.md`](MIGRATION.md) under "Migrating to v4.2.0".
 - **Typed values.** Numbers and booleans the catalogue types are sent as JSON
   numbers and booleans, not strings. Every timestamp (items and attributes) is
   UTC with a `Z`.
+- **Path templating follows the family rule (RN contract §4.4.1, #125).** A
+  path segment becomes `{id}` if it contains any digit or is 32+ characters,
+  unless it is a version (`v2`, `V10`). Empty segments (trailing or doubled
+  slashes) drop, depth caps at 6 segments then `/…`, and an empty path is `/`.
+  Previously only all-digit, UUID and 20+ hex segments were templated, so ids
+  like `ord-7` or `abc123` left the device raw. Applies to `http.url` and the
+  network breadcrumb path, and now also to a URL `Uri` cannot parse, which
+  previously had its query cut but its path sent raw.
 
 ### Fixed
 
@@ -69,16 +77,14 @@ Upgrade notes are in [`MIGRATION.md`](MIGRATION.md) under "Migrating to v4.2.0".
 
 ## [4.1.1]
 
-### Changed
+### Fixed
 
-- **Path templating follows the family rule (RN contract §4.4.1, #125).** A
-  path segment becomes `{id}` if it contains any digit or is 32+ characters,
-  unless it is a version (`v2`, `V10`). Empty segments (trailing or doubled
-  slashes) drop, depth caps at 6 segments then `/…`, and an empty path is `/`.
-  Previously only all-digit, UUID and 20+ hex segments were templated, so ids
-  like `ord-7` or `abc123` left the device raw. Applies to `http.url` and the
-  network breadcrumb path, and now also to a URL `Uri` cannot parse, which
-  previously had its query cut but its path sent raw.
+- **Resolves alongside newer plus plugins.** `package_info_plus`,
+  `device_info_plus` and `connectivity_plus` were pinned to one major each, so
+  apps on `package_info_plus` 9 (or `device_info_plus` 12-13, `connectivity_plus` 7)
+  failed version solving. Now `>=8.3.0 <11.0.0`, `>=11.5.0 <14.0.0` and
+  `>=6.1.4 <8.0.0`. `ConnectivityResult.satellite` (connectivity_plus 7)
+  reports as `network.type: other`.
 
 ## [4.1.0]
 

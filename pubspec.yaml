@@ -27,9 +27,9 @@ dependencies:
   # `cupertino_http` and `cronet_http` *are* `package:http` implementations.
   # Promoted from transitive to direct: it was already in the lockfile.
   http: ^1.2.0
-  device_info_plus: ^11.5.0
-  package_info_plus: ^8.3.0
-  connectivity_plus: ^6.1.4
+  device_info_plus: '>=11.5.0 <14.0.0'
+  package_info_plus: '>=8.3.0 <11.0.0'
+  connectivity_plus: '>=6.1.4 <8.0.0'
   shared_preferences: ^2.5.3
   flutter_secure_storage: ^9.2.4
   path_provider: ^2.1.4
