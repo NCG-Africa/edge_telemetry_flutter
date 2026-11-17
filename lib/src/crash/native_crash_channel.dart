@@ -107,6 +107,18 @@ class NativeCrashChannel {
   /// [PlatformException] from a native read that went wrong is not worth
   /// surfacing as an app-visible async error — this is the health signal, and
   /// its failure mode is having no health signal.
+  /// Milliseconds since this process started, or null where the platform
+  /// cannot say (no plugin, Android below API 24).
+  Future<int?> processUptimeMs() async {
+    try {
+      return await _channel.invokeMethod<int>('processUptimeMs');
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
   Future<Map<String, String>> readDeviceState() async {
     try {
       final raw = await _channel.invokeMapMethod<String, dynamic>(

@@ -195,7 +195,7 @@ void main() {
       expect(declared.attributes['error.category_source'], 'declared');
     });
 
-    test('the taxonomy is a new key — cause is untouched', () {
+    test('the taxonomy is its own key — error.cause is untouched', () {
       final a =
           reporting
               .buildCrashEvent(
@@ -203,7 +203,7 @@ void main() {
                 category: ErrorCategory.business,
               )
               .attributes;
-      expect(a['cause'], 'Error'); // shipped enum, never the taxonomy
+      expect(a['error.cause'], 'handled'); // never the taxonomy
       expect(a['error.category'], 'business');
     });
 
@@ -223,26 +223,21 @@ void main() {
     });
   });
 
-  group('handled — spelled as a string, matching is_fatal', () {
-    test('the three auto handlers are unhandled; trackError is handled', () {
+  group('handled — the event name says it', () {
+    test('the three auto handlers are app.crash; trackError is app.error', () {
       for (final source in [
         'flutter_error',
         'platform_dispatcher',
         'isolate',
       ]) {
-        expect(
-          reporting
-              .buildCrashEvent(Exception('x'), source: source)
-              .attributes['handled'],
-          'false',
-          reason: source,
-        );
+        final e = reporting.buildCrashEvent(Exception('x'), source: source);
+        expect(e.name, 'app.crash', reason: source);
+        expect(e.attributes['error.cause'], 'unhandled_exception');
       }
       // Host trackError: no source token, a live catch.
-      expect(
-        reporting.buildCrashEvent(Exception('x')).attributes['handled'],
-        'true',
-      );
+      final e = reporting.buildCrashEvent(Exception('x'));
+      expect(e.name, 'app.error');
+      expect(e.attributes['error.cause'], 'handled');
     });
 
     test('a native crash is unhandled without a channel-contract change', () {
@@ -252,8 +247,9 @@ void main() {
             'cause': 'NativeCrash',
             'is_fatal': 'true',
           }).attributes;
-      expect(a['handled'], 'false');
-      expect(a['is_fatal'], 'true'); // same string spelling, not a bool
+      expect(a.containsKey('handled'), isFalse);
+      expect(a.containsKey('is_fatal'), isFalse);
+      expect(a['error.cause'], 'native_crash');
       // The facet covers the fatal half; nothing was inferred or declared, so
       // the source flag is absent rather than claiming a guess.
       expect(a['error.category'], 'unknown');
@@ -321,13 +317,13 @@ void main() {
       await session.recoverAndStart();
 
       // Sampled out: an ordinary event never reaches the wire.
-      collector.add(const EdgeEvent.event('custom_event'));
+      collector.add(const EdgeEvent.event('custom.event'));
       collector.add(reporting.buildCrashEvent(StateError('boom')));
       pipeline.flush();
       await Future<void>(() {});
 
-      expect(sender.named('custom_event'), isEmpty);
-      expect(sender.named('app.crash'), hasLength(1));
+      expect(sender.named('custom.event'), isEmpty);
+      expect(sender.named('app.error'), hasLength(1));
     });
   });
 
@@ -364,12 +360,12 @@ void main() {
       rotate(session);
       await Future<void>(() {});
       final finalize = sender.named('session.finalized').last;
-      final attrs = (finalize['attributes'] as Map).cast<String, String>();
-      expect(attrs['session.dropped_item_count'], '35');
+      final attrs = finalize['attributes'] as Map;
+      expect(attrs['session.dropped_item_count'], 35);
       expect(attrs['session.dropped_reasons'], contains('error_cap'));
       // The counter counts what happened, not what shipped — same rule as
       // `session.action_count`. 5 sent + 35 dropped adds back to 40.
-      expect(attrs['session.error_count'], '40');
+      expect(attrs['session.error_count'], 40);
     });
 
     test(
@@ -424,24 +420,23 @@ void main() {
       () async {
         final (collector, _, pipeline, sender) = await wire();
 
-        // `is_fatal` selects the rail now, so the SDK's value has to win.
+        // The rail is the factory's, never an attribute's.
         collector.add(
           reporting.buildCrashEvent(
             StateError('boom'),
-            attributes: {'is_fatal': 'true', 'handled': 'false'},
+            attributes: {'is_fatal': 'true', 'error.cause': 'native_crash'},
           ),
         );
         await Future<void>(() {});
 
         // Nothing POSTed on its own — only the session.started bookend is out.
-        expect(sender.named('app.crash'), isEmpty);
+        expect(sender.named('app.error'), isEmpty);
 
         pipeline.flush();
         await Future<void>(() {});
 
-        final a = sender.named('app.crash').single['attributes'] as Map;
-        expect(a['is_fatal'], 'false'); // the SDK's value, not the consumer's
-        expect(a['handled'], 'true');
+        final a = sender.named('app.error').single['attributes'] as Map;
+        expect(a['error.cause'], 'handled'); // the SDK's value wins
       },
     );
 
@@ -501,7 +496,7 @@ void main() {
     });
 
     List<dynamic> crumbsOnWire(Map<String, dynamic> item) =>
-        jsonDecode((item['attributes'] as Map)['crash.breadcrumbs'] as String)
+        jsonDecode((item['attributes'] as Map)['error.breadcrumbs'] as String)
             as List;
 
     test('a fatal carries all 50; a non-fatal the newest 10', () async {
@@ -526,10 +521,10 @@ void main() {
 
       final crashes = sender.named('app.crash');
       final fatal = crashes.firstWhere(
-        (c) => (c['attributes'] as Map)['is_fatal'] == 'true',
+        (c) => (c['attributes'] as Map)['error.cause'] == 'native_crash',
       );
       final nonFatal = crashes.firstWhere(
-        (c) => (c['attributes'] as Map)['is_fatal'] == 'false',
+        (c) => (c['attributes'] as Map)['error.cause'] == 'unhandled_exception',
       );
 
       expect(crumbsOnWire(fatal), hasLength(50));
@@ -546,13 +541,13 @@ void main() {
       pipeline.flush();
       await Future<void>(() {});
 
-      final attrs = sender.named('app.crash').single['attributes'] as Map;
-      expect(attrs.containsKey('crash.breadcrumbs'), isFalse);
+      final attrs = sender.named('app.error').single['attributes'] as Map;
+      expect(attrs.containsKey('error.breadcrumbs'), isFalse);
     });
   });
 
   group('attribution and absences', () {
-    test('unprefixed spelling survives the taxonomy addition', () async {
+    test('error.* spelling survives the taxonomy addition', () async {
       final a =
           reporting
               .buildCrashEvent(
@@ -563,11 +558,10 @@ void main() {
               .attributes;
       // The backend extractors read these verbatim — a dotted taxonomy key
       // beside them must not have renamed any of them.
-      expect(a['message'], 'Bad state: boom');
-      expect(a['stacktrace'], '#0 main');
-      expect(a['exception_type'], 'StateError');
-      expect(a['cause'], 'Error');
-      expect(a['is_fatal'], 'false');
+      expect(a['error.message'], 'Bad state: boom');
+      expect(a['error.stacktrace'], '#0 main');
+      expect(a['error.type'], 'StateError');
+      expect(a['error.cause'], 'unhandled_exception');
     });
 
     test('no error id and no client-side fingerprint', () {
@@ -606,9 +600,9 @@ void main() {
         await Future<void>(() {});
 
         final attrs =
-            sender.named('app.crash').single['attributes']
+            sender.named('app.error').single['attributes']
                 as Map<String, dynamic>;
-        expect(attrs['crash.source'], 'sdk');
+        expect(attrs['error.source'], 'sdk');
         // Exempt from inference: a SocketException inside the SDK is not the host
         // app's network problem — and the source flag is omitted rather than
         // claiming an inference that never ran.
@@ -618,10 +612,9 @@ void main() {
         rotate(session);
         await Future<void>(() {});
         final finalize =
-            (sender.named('session.finalized').last['attributes'] as Map)
-                .cast<String, String>();
-        expect(finalize['session.error_count'], '0');
-        expect(finalize['session.crash_count'], '0');
+            sender.named('session.finalized').last['attributes'] as Map;
+        expect(finalize['session.error_count'], 0);
+        expect(finalize['session.crash_count'], 0);
       },
     );
 
@@ -636,10 +629,9 @@ void main() {
       await Future<void>(() {});
 
       final finalize =
-          (sender.named('session.finalized').last['attributes'] as Map)
-              .cast<String, String>();
-      expect(finalize['session.error_count'], '1');
-      expect(finalize['session.crash_count'], '1');
+          sender.named('session.finalized').last['attributes'] as Map;
+      expect(finalize['session.error_count'], 1);
+      expect(finalize['session.crash_count'], 1);
     });
   });
 

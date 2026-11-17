@@ -107,7 +107,7 @@ class LifecycleCaptureHook with WidgetsBindingObserver implements CaptureHook {
     );
     _sink?.add(
       EdgeEvent.event(
-        'app_lifecycle',
+        'app.lifecycle',
         attributes: {'lifecycle.state': state.name},
       ),
     );

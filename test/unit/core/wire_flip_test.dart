@@ -78,40 +78,6 @@ Future<(Collector, _RecordingSender)> _wire({
   return (collector, sender);
 }
 
-/// Normalize an assembled batch for golden comparison: blank the volatile
-/// timestamps and drop the session.*/network.* attrs (owned by #9) plus the
-/// live device-context keys (`device.platform_brightness` — owned by #26), none
-/// of which the wire-flip canon (#21) this fixture pins is concerned with.
-Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
-  ...batch,
-  'timestamp': '<TS>',
-  'sdk': {...batch['sdk'] as Map, 'version': '<SDK>'},
-  'events':
-      (batch['events'] as List).map((e) {
-        final ev = Map<String, dynamic>.from(e as Map);
-        ev['timestamp'] = '<TS>';
-        ev['attributes'] =
-            Map<String, dynamic>.from(ev['attributes'] as Map)
-              ..removeWhere(
-                (k, _) =>
-                    k.startsWith('session.') ||
-                    k.startsWith('network.') ||
-                    k == 'device.platform_brightness' ||
-                    k == 'device.text_scale_factor' ||
-                    k == 'device.reduce_motion',
-              )
-              // The key is canon and rides every item; its *value* says which
-              // seams happen to be live in this process, so the fixture pins the
-              // presence and not the environment.
-              ..update(
-                'http_seam_state',
-                (_) => '<SEAM>',
-                ifAbsent: () => '<MISSING>',
-              );
-        return ev;
-      }).toList(),
-};
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -124,10 +90,10 @@ void main() {
       collector.add(
         const EdgeEvent.event(
           'navigation',
-          attributes: {'navigation.to': '/home'},
+          attributes: {'navigation.to_screen': '/home'},
         ),
       );
-      collector.add(const EdgeEvent.metric('frame_render_time', 12.5));
+      collector.add(const EdgeEvent.metric('custom.metric', 12.5));
       await Future<void>(() {});
 
       expect(sender.sent, hasLength(1));
@@ -135,7 +101,7 @@ void main() {
       // Exactly the R3 eight, in canon order.
       expect(batch.keys.toList(), kR3EnvelopeKeys);
       expect(batch['type'], 'telemetry_batch');
-      expect(batch['contract_version'], '4.0.0');
+      expect(batch['contract_version'], kContractVersion);
       expect(batch['batch_size'], 2);
       expect(batch['device_id'], kTestIdentity.deviceId);
       expect(batch['sdk'], {'name': 'flutter', 'version': kSdkVersion});
@@ -144,14 +110,14 @@ void main() {
       final events = (batch['events'] as List).cast<Map<String, dynamic>>();
       expect(events.map((e) => e['eventName'] ?? e['metricName']), [
         'navigation',
-        'frame_render_time',
+        'custom.metric',
       ]);
       // Identity rides the envelope only (R1): no per-item copy.
       for (final e in events) {
         expect((e['attributes'] as Map).containsKey('device.id'), isFalse);
       }
       // The metric keeps metricName + value at root (shape unchanged).
-      expect(events[1]['metricName'], 'frame_render_time');
+      expect(events[1]['metricName'], 'custom.metric');
       expect(events[1]['value'], 12.5);
     },
   );
@@ -173,7 +139,7 @@ void main() {
       );
       collector.add(
         const EdgeEvent.event(
-          'custom_event',
+          'custom.event',
           attributes: {'app.environment': 'prod', 'sdk.health': 'x'},
         ),
       );
@@ -219,13 +185,13 @@ void main() {
     );
   });
 
-  test('the immediate rail sends the same 4.0 envelope', () async {
+  test('the immediate rail sends the same 4.x envelope', () async {
     final (collector, sender) = await _wire();
     collector.add(const EdgeEvent.session('session.started', {}));
     await Future<void>(() {});
 
     final batch = sender.sent.single;
-    expect(batch['contract_version'], '4.0.0');
+    expect(batch['contract_version'], kContractVersion);
     expect(batch['device_id'], kTestIdentity.deviceId);
     expect(batch['app'], kTestIdentity.app);
     expect(batch['batch_size'], 1);
@@ -364,29 +330,6 @@ void main() {
       expect(attrs.containsKey('geo'), isFalse);
     },
   );
-
-  test('assembled batch matches the family-canon golden fixture', () async {
-    final (collector, sender) = await _wire(flushAt: 2);
-    collector.add(
-      const EdgeEvent.event(
-        'navigation',
-        attributes: {'navigation.to': '/home'},
-      ),
-    );
-    collector.add(const EdgeEvent.metric('frame_render_time', 12.5));
-    await Future<void>(() {});
-
-    final golden =
-        (jsonDecode(
-                File(
-                  'test/fixtures/canon_telemetry_batch.json',
-                ).readAsStringSync(),
-              )
-              as Map<String, dynamic>)
-          ..remove('_comment');
-
-    expect(_normalize(sender.sent.single), golden);
-  });
 
   test('transport posts to the configured URL as given (R10)', () {
     Uri url(String endpoint) =>

@@ -10,7 +10,7 @@ import 'dart:io' show FileSystemException, HttpException, SocketException;
 /// two different things — free text in the sibling, a fixed enum
 /// (`Error`/`NativeCrash`/`ANR`/`Hang`) here — so the no-renames rule keeps the
 /// taxonomy out of it, on its own dotted key beside the already-dotted
-/// `crash.source` / `crash.breadcrumbs`.
+/// `error.source` / `error.breadcrumbs`.
 enum ErrorCategory {
   network,
   timeout,
@@ -39,7 +39,7 @@ enum ErrorCategory {
 const String kCategoryInferred = 'inferred';
 const String kCategoryDeclared = 'declared';
 
-/// `crash.source` for the SDK's own capture-hook self-diagnostics. Without it
+/// `error.source` for the SDK's own capture-hook self-diagnostics. Without it
 /// an SDK-internal failure is indistinguishable from a host-app error and
 /// inflates the host's error rate; with it, the Collector also keeps it off
 /// `session.error_count` / `session.crash_count`.

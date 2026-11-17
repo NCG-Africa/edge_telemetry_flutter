@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../capture/capture_hook.dart' show EventSink;
 import '../core/edge_event.dart';
+import '../core/wire_canon.dart' show utc;
 import 'identity_format.dart';
 
 /// Timer-free lazy session model (spec #15 §2 / ticket #24).
@@ -49,6 +50,10 @@ class SessionManager {
 
   /// Idle window after which the next activity rotates the session.
   final Duration idleTimeout;
+
+  /// Hard cap on a session's age (catalogue `session.yaml`): the next activity
+  /// past it rotates the session with `session.reason: max_duration`.
+  final Duration maxDuration;
 
   /// Per-session sampling roll (spec #15 Phase 3 / ticket #25). Called once at
   /// [_beginSession]; true = keep this session's subject-to-sample events.
@@ -123,6 +128,7 @@ class SessionManager {
     DateTime Function()? clock,
     bool Function()? sampledRoll,
     this.idleTimeout = const Duration(minutes: 30),
+    this.maxDuration = const Duration(hours: 4),
     SharedPreferences? prefs,
   }) : _emit = emit,
        _newId =
@@ -180,7 +186,7 @@ class SessionManager {
     _emit?.call(
       EdgeEvent.session('session.started', {
         'session.id': sessionId,
-        'session.start_time': now.toIso8601String(),
+        'session.start_time': utc(now),
       }),
     );
   }
@@ -198,11 +204,7 @@ class SessionManager {
       return;
     }
     final now = _clock();
-    if (now.difference(_lastActivityAt!) > idleTimeout) {
-      _rotate(_lastActivityAt!);
-    } else {
-      _lastActivityAt = now;
-    }
+    if (!_rotateIfDue(now)) _lastActivityAt = now;
   }
 
   /// `AppLifecycleState.paused`: mark the background time and persist. The
@@ -219,18 +221,30 @@ class SessionManager {
   void handleResume() {
     if (_currentSessionId == null || _lastActivityAt == null) return;
     final now = _clock();
-    if (now.difference(_lastActivityAt!) > idleTimeout) {
-      _rotate(_lastActivityAt!);
-    } else {
+    if (!_rotateIfDue(now)) {
       _lastActivityAt = now;
       _persist();
     }
   }
 
-  void _rotate(DateTime backdatedEnd) {
+  /// Rotate if the session is idle past [idleTimeout] (ended at its last
+  /// activity, `timeout`) or older than [maxDuration] (ended now,
+  /// `max_duration`). True when it rotated.
+  bool _rotateIfDue(DateTime now) {
+    if (now.difference(_lastActivityAt!) > idleTimeout) {
+      _rotate(_lastActivityAt!, 'timeout');
+    } else if (now.difference(_sessionStartTime!) >= maxDuration) {
+      _rotate(now, 'max_duration');
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  void _rotate(DateTime end, String reason) {
     if (_rotating) return;
     _rotating = true;
-    _emitFinalizeCurrent(backdatedEnd);
+    _emitFinalizeCurrent(end, reason);
     _beginSession(_newId());
     _rotating = false;
   }
@@ -416,7 +430,7 @@ class SessionManager {
 
   // ==================== FINALIZE / JOURNEY SUMMARY ====================
 
-  void _emitFinalizeCurrent(DateTime end) {
+  void _emitFinalizeCurrent(DateTime end, String reason) {
     if (_currentSessionId == null || _sessionStartTime == null) return;
     // Before the journey summary is built, so a deferred item's own counters
     // are included in the numbers this bookend reports.
@@ -449,6 +463,7 @@ class SessionManager {
           dropped: _droppedByReason,
           cardinalityCapped: _cardinalityCapped,
           lastScreenStart: _currentScreenVisible ? _currentScreenStart : null,
+          reason: reason,
         ),
       ),
     );
@@ -497,6 +512,7 @@ class SessionManager {
               r['screenVisible'] == true
                   ? DateTime.tryParse(r['screenStart'] as String? ?? '')
                   : null,
+          reason: 'app_terminated',
           recovered: true,
         ),
       ),
@@ -516,6 +532,7 @@ class SessionManager {
     required Map<String, int> dropped,
     required int cardinalityCapped,
     DateTime? lastScreenStart,
+    required String reason,
     bool recovered = false,
   }) {
     // Last 20 hops only, so a multi-hour session can't emit a giant attribute.
@@ -523,8 +540,9 @@ class SessionManager {
         journey.length > 20 ? journey.sublist(journey.length - 20) : journey;
     return {
       'session.id': id,
-      'session.start_time': start.toIso8601String(),
-      'session.end_time': end.toIso8601String(),
+      'session.reason': reason,
+      'session.start_time': utc(start),
+      'session.end_time': utc(end),
       'session.duration_ms': end.difference(start).inMilliseconds.toString(),
       'session.event_count': eventCount.toString(),
       'session.error_count': errorCount.toString(),
@@ -595,7 +613,7 @@ class SessionManager {
     final duration = _clock().difference(_sessionStartTime!);
     return {
       'session.id': _currentSessionId!,
-      'session.start_time': _sessionStartTime!.toIso8601String(),
+      'session.start_time': utc(_sessionStartTime!),
       'session.duration_ms': duration.inMilliseconds.toString(),
       'session.event_count': _eventCount.toString(),
       'session.metric_count': _metricCount.toString(),
