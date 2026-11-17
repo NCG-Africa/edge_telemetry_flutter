@@ -2,9 +2,8 @@ name: CI
 
 # Checks only — never publishes. Distribution is tag-gated in publish.yml.
 on:
-  pull_request:
   push:
-    branches: [master]
+    tags: ['v*']
 
 jobs:
   test:

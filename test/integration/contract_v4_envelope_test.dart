@@ -16,6 +16,8 @@ import 'dart:io';
 import 'package:edge_telemetry_flutter/edge_telemetry_flutter.dart';
 import 'package:edge_telemetry_flutter/src/core/retry_transport.dart';
 import 'package:edge_telemetry_flutter/src/core/sdk_version.dart';
+import 'package:edge_telemetry_flutter/src/core/wire_canon.dart'
+    show kContractVersion;
 import 'package:edge_telemetry_flutter/src/crash/native_crash_channel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -145,18 +147,18 @@ void main() {
   );
 
   test(
-    'the envelope on the wire is contract 4.0.0 (R1–R3, R5, R6, R13, S1)',
+    'the envelope on the wire is contract 4.x (R1–R3, R5, R6, R13, S1)',
     () async {
       await init(globals: {'app.version': '9.9.9', 'team': 'core'});
       EdgeTelemetry.instance.trackEvent('checkout', attributes: {'step': 2});
-      await collector.waitFor('custom_event');
+      await collector.waitFor('custom.event');
 
       expect(collector.batches, isNotEmpty);
       for (final batch in collector.batches) {
         // Exactly the eight R3 keys, in order — no clock_skew_ms, no context.
         expect(batch.keys.toList(), kR3EnvelopeKeys);
         expect(batch['type'], 'telemetry_batch');
-        expect(batch['contract_version'], '4.0.0');
+        expect(batch['contract_version'], kContractVersion);
         expect(batch['sdk'], {'name': 'flutter', 'version': kSdkVersion});
         // Captured once at init from PackageInfo + the OS; a consumer global
         // named app.version does not override it.
@@ -205,7 +207,7 @@ void main() {
       }
 
       final event = collector.items.firstWhere(
-        (i) => i['eventName'] == 'custom_event',
+        (i) => i['eventName'] == 'custom.event',
       );
       final attrs = event['attributes'] as Map;
       expect(attrs['event.name'], 'checkout');
@@ -279,7 +281,7 @@ void main() {
     Map<String, dynamic> crashBatch() => collector.batches.singleWhere(
       (b) => (b['events'] as List).any(
         (e) =>
-            ((e as Map)['attributes'] as Map)['crash.source'] ==
+            ((e as Map)['attributes'] as Map)['error.source'] ==
             'uncaught_handler',
       ),
     );
@@ -304,7 +306,7 @@ void main() {
 
       final batch = crashBatch();
       expect(batch['batch_size'], 1); // its own batch, nothing else in it
-      expect(batch['contract_version'], '4.0.0');
+      expect(batch['contract_version'], kContractVersion);
       expect(batch['sdk'], {'name': 'flutter', 'version': kSdkVersion});
       expect(batch['app'], {
         'name': 'Client App Old',

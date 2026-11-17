@@ -706,7 +706,7 @@ void main() {
         await tester.pump();
 
         final names = g.recorder.itemsFor(id).map(_Recorder.nameOf).toList();
-        expect(names, contains('app.crash'));
+        expect(names, contains('app.error'));
         expect(names, contains('session.started'));
         expect(names, contains('session.finalized'));
         await tester.pump();
@@ -749,7 +749,7 @@ void main() {
     final memory =
         g.recorder
             .itemsFor(id)
-            .where((i) => _Recorder.nameOf(i) == 'memory_usage')
+            .where((i) => _Recorder.nameOf(i) == 'memory.usage')
             .toList();
     expect(memory, hasLength(2), reason: 'two bookends, never a cadence');
     final phases =
@@ -848,7 +848,7 @@ void main() {
       g.wiring.collector.add(
         const EdgeEvent.event(
           'navigation',
-          attributes: {'navigation.to': '/x'},
+          attributes: {'navigation.to_screen': '/x'},
         ),
       );
     }

@@ -5,6 +5,8 @@
 // touches the context snapshot — asserted on the JSON that reaches the
 // transport, not on the policy's internals.
 
+import 'dart:io';
+
 import 'package:edge_telemetry_flutter/src/core/attribute_policy.dart';
 import 'package:edge_telemetry_flutter/src/core/collector.dart';
 import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
@@ -95,6 +97,20 @@ void main() {
   }
 
   group('cardinality cap', () {
+    // #127: a renamed key silently drops out of the cap. Every capped key must
+    // be one the SDK actually emits, i.e. appear in some golden.
+    test('every capped key is still on the wire', () {
+      final goldens =
+          [
+            for (final f
+                in Directory('test/golden').listSync().whereType<File>())
+              f.readAsStringSync(),
+          ].join();
+      for (final key in kCappedSdkKeys) {
+        expect(goldens, contains('"$key"'), reason: key);
+      }
+    });
+
     test(
       'the 51st distinct value is the sentinel, counted on its own key',
       () async {
@@ -103,7 +119,7 @@ void main() {
         for (var i = 0; i < kCardinalityCap + 3; i++) {
           collector.add(
             EdgeEvent.event(
-              'custom_event',
+              'custom.event',
               attributes: {'order': 'o$i'},
               consumerAttributes: true,
             ),
@@ -113,7 +129,7 @@ void main() {
 
         final orders =
             sender.items
-                .where((e) => e['eventName'] == 'custom_event')
+                .where((e) => e['eventName'] == 'custom.event')
                 .map((e) => (e['attributes'] as Map)['order'])
                 .toList();
 
@@ -126,7 +142,7 @@ void main() {
 
         // Idle past the window, then let the next event rotate and finalize.
         clock = clock.add(const Duration(hours: 1));
-        collector.add(const EdgeEvent.event('custom_event'));
+        collector.add(const EdgeEvent.event('custom.event'));
         await settle(pipeline);
 
         final attrs =
@@ -134,10 +150,10 @@ void main() {
                   (e) => e['eventName'] == 'session.finalized',
                 )['attributes']
                 as Map;
-        expect(attrs['session.cardinality_capped_count'], '3');
+        expect(attrs['session.cardinality_capped_count'], 3);
         expect(
           attrs['session.dropped_item_count'],
-          '0',
+          0,
           reason: 'a replaced value is not a dropped item',
         );
       },
@@ -234,7 +250,7 @@ void main() {
 
       collector.add(
         const EdgeEvent.event(
-          'custom_event',
+          'custom.event',
           attributes: {'email': 'a@b.test', 'plan': 'gold'},
           consumerAttributes: true,
         ),
@@ -243,7 +259,7 @@ void main() {
 
       final attrs =
           sender.items.firstWhere(
-                (e) => e['eventName'] == 'custom_event',
+                (e) => e['eventName'] == 'custom.event',
               )['attributes']
               as Map;
       expect(attrs.containsKey('email'), isFalse);
@@ -288,7 +304,7 @@ void main() {
 
       collector.add(
         const EdgeEvent.event(
-          'custom_event',
+          'custom.event',
           attributes: {'own': '1'},
           consumerAttributes: true,
         ),
@@ -298,7 +314,7 @@ void main() {
       expect(seen, ['own']);
       final attrs =
           sender.items.firstWhere(
-                (e) => e['eventName'] == 'custom_event',
+                (e) => e['eventName'] == 'custom.event',
               )['attributes']
               as Map;
       expect(

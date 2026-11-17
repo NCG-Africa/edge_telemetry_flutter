@@ -1,3 +1,56 @@
+# Migrating to v4.2.0
+
+*Companion to [`CHANGELOG.md`](CHANGELOG.md) `[4.2.0]`.*
+
+> **Deploy a processor with the event catalogue (processor #47–#49) first.**
+> An older processor leaves the renamed events in the attributes bag. Builds
+> before 4.2.0 keep working through the processor's aliases.
+
+Your Dart code compiles unchanged. What moves is what lands on the wire, so
+anything that queries the raw events (dashboards, alerts, exports) needs the new
+names. The full list is the catalogue YAML pinned in `catalogue.version`; the
+SDK's real output for every event is in `test/golden/`.
+
+## Renames
+
+| Before (≤ 4.1) | 4.2.0 |
+| --- | --- |
+| `app.crash` from `trackError` / caught SDK errors | `app.error` (`error.cause: handled`) |
+| `app.crash` with cause ANR / Hang | `app.anr` / `app.hang` (`hang.duration_ms` added) |
+| `message`, `stacktrace`, `exception_type` | `error.message`, `error.stacktrace`, `error.type` |
+| `crash.source`, `crash.breadcrumbs` | `error.source`, `error.breadcrumbs` |
+| `is_fatal`, `handled` | gone (the event name says it) |
+| `device.power_save_mode`, `device.thermal_state` | `device.power_save`, `device.thermal_status` |
+| `navigation.to`, `navigation.from` | `navigation.to_screen`, `navigation.from_screen` |
+| `route.type`, `route.has_arguments` | `navigation.route_type`, `navigation.has_arguments` |
+| `navigation.type`, `navigation.timestamp` | gone; first screen's `navigation.method` is `initial` |
+| `screen.previous_*` on `navigation` | own `screen.duration` event |
+| `page_load`, `performance.startup_time` | `app.start` (from process start, `cold` only) |
+| `memory_usage` (bytes) | `memory.usage` with `memory.usage_mb` |
+| `long_task` | `perf.long_task` (`metric.unit: ms`) |
+| `app_lifecycle`, `network_change`, `custom_event` | `app.lifecycle`, `network.change`, `custom.event` |
+
+## Behaviour changes
+
+- **Typed values.** Numbers and booleans are JSON numbers and booleans, not
+  strings. Every timestamp is UTC with a `Z`.
+- **Route names are templated.** `/orders/42` arrives as `/orders/{id}`.
+- **Slow frames** are measured against the display's own budget
+  (`1000 / refresh rate`), so a 120 Hz device reports more of them than 4.1 did.
+  Frozen is `>= 700 ms`.
+- **`trackMetric` now arrives** as `custom.metric` with your name in
+  `metric.name`. Before 4.2.0 it was dropped.
+- **Sessions end after 4 hours** (`session.reason: max_duration`).
+- **`app.start` is not sent** where the platform cannot read process start
+  (Android below API 24).
+
+## The upgrade, in order
+
+1. Deploy the processor with the catalogue.
+2. Move dashboards and alerts to the new names (the old ones keep filling from
+   older builds).
+3. Ship the app with 4.2.0.
+
 # Migrating to v4.0.0
 
 *Companion to [`CHANGELOG.md`](CHANGELOG.md) `[4.0.0]`.*

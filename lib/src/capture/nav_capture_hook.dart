@@ -13,9 +13,8 @@ import 'screen_load_hook.dart';
 /// here. Records visited screens + navigation breadcrumbs, then emits the canon
 /// `navigation` event direct (which does not bump session counters).
 ///
-/// The departing screen's dwell rides that same event — `screen.duration` is
-/// deprecated in place (removal in v5.0.0) — so a navigation is one item, not
-/// two.
+/// The departing screen's dwell is its own `screen.duration`, emitted by the
+/// observer just before the `navigation` it ends with.
 class NavCaptureHook implements CaptureHook {
   final SessionManager session;
   final BreadcrumbManager breadcrumbs;
@@ -49,8 +48,8 @@ class NavCaptureHook implements CaptureHook {
       onEvent: (eventName, {attributes}) {
         if (eventName == 'navigation' &&
             attributes != null &&
-            attributes.containsKey('navigation.to')) {
-          final to = attributes['navigation.to']!;
+            attributes.containsKey('navigation.to_screen')) {
+          final to = attributes['navigation.to_screen']!;
           session.recordScreen(to);
           if (trace != null && trace!.current().isEmpty) {
             trace!.mint(TraceRootType.navigation);
@@ -58,7 +57,7 @@ class NavCaptureHook implements CaptureHook {
           breadcrumbs.addNavigation(
             to,
             data: {
-              'from': attributes['navigation.from'] ?? 'unknown',
+              'from': attributes['navigation.from_screen'] ?? 'unknown',
               'method': attributes['navigation.method'] ?? 'unknown',
             },
           );
@@ -68,10 +67,11 @@ class NavCaptureHook implements CaptureHook {
           screenLoad?.enter(
             to,
             routeContext: {
-              if (attributes['route.type'] != null)
-                'route.type': attributes['route.type']!,
-              if (attributes['route.has_arguments'] != null)
-                'route.has_arguments': attributes['route.has_arguments']!,
+              for (final key in const [
+                'navigation.route_type',
+                'navigation.has_arguments',
+              ])
+                if (attributes[key] != null) key: attributes[key]!,
             },
           );
         }

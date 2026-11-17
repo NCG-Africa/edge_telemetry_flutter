@@ -45,7 +45,7 @@ class _RecordingSender {
   List<Map<String, String>> attributesOf(String eventName) => [
     for (final i in items)
       if (i['eventName'] == eventName)
-        (i['attributes'] as Map).cast<String, String>(),
+        (i['attributes'] as Map).map((k, v) => MapEntry('$k', '$v')),
   ];
 
   Future<bool> call(Map<String, dynamic> payload) async {
@@ -254,10 +254,10 @@ void main() {
         isEmpty,
         reason: 'a scroll stop must not supersede the open root',
       );
-      rig.collector.add(const EdgeEvent.event('custom_event'));
+      rig.collector.add(const EdgeEvent.event('custom.event'));
       rig.flush();
       expect(
-        rig.sender.attributesOf('custom_event').single['session.action_count'],
+        rig.sender.attributesOf('custom.event').single['session.action_count'],
         '0',
       );
       rig.dispose();
@@ -389,10 +389,10 @@ void main() {
       expect(rig.interactions, hasLength(kActionEventCap));
       // The count rides every item, so any item emitted after the cap reports
       // it: 205 actions against 200 recorded, not a quiet 200.
-      rig.collector.add(const EdgeEvent.event('custom_event'));
+      rig.collector.add(const EdgeEvent.event('custom.event'));
       rig.flush();
       expect(
-        rig.sender.attributesOf('custom_event').last['session.action_count'],
+        rig.sender.attributesOf('custom.event').last['session.action_count'],
         '${kActionEventCap + 5}',
         reason: 'the count is of roots minted, not events emitted',
       );

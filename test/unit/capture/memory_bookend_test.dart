@@ -57,7 +57,7 @@ void main() {
       expect(sink.events, hasLength(2), reason: 'closing bookend');
 
       final names = sink.events.map((e) => e.name).toSet();
-      expect(names, {'memory_usage'});
+      expect(names, {'memory.usage'});
       expect(sink.events.map((e) => e.attributes['memory.phase']), [
         'session_start',
         'session_end',
@@ -107,15 +107,19 @@ void main() {
   test(
     'the source key makes the native quantity legible on the wire',
     () async {
-      mockState({'memory.used_bytes': '512', 'memory.source': 'footprint'});
+      mockState({
+        'memory.used_bytes': '157286400',
+        'memory.source': 'footprint',
+      });
       final sink = _RecordingSink();
       hookOn(sink).onSessionStart();
       await pumpEventQueue();
 
       final metric = sink.events.single;
-      expect(metric.value, 512.0);
+      expect(metric.type, 'event');
+      expect(metric.attributes['memory.usage_mb'], '150.00'); // binary MB
       expect(metric.attributes['memory.source'], 'footprint');
-      expect(metric.attributes['memory.unit'], 'bytes');
+      expect(metric.attributes.containsKey('memory.unit'), isFalse);
       // v2's `memory.type: rss` described a quantity we no longer read.
       expect(metric.attributes.containsKey('memory.type'), isFalse);
     },
@@ -147,7 +151,7 @@ void main() {
     tester,
   ) async {
     final sink = _RecordingSink();
-    final dispose = PerfCaptureHook().start(sink);
+    final dispose = PerfCaptureHook(channel: NativeCrashChannel()).start(sink);
     addTearDown(dispose);
 
     // v2 emitted `memory_usage` every 10 s and `performance.system_check`

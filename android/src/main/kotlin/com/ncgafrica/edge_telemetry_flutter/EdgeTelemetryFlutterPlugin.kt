@@ -10,6 +10,8 @@ import android.os.Debug
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.Process
+import android.os.SystemClock
 import androidx.annotation.RequiresApi
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
@@ -82,6 +84,13 @@ class EdgeTelemetryFlutterPlugin : FlutterPlugin, MethodCallHandler {
           main.post { result.success(state) }
         }.start()
       }
+      // Milliseconds since this process started: `app.start` is measured from
+      // process start (catalogue #32). Null below API 24, which has no read.
+      "processUptimeMs" -> result.success(
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
+          SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()
+        else null
+      )
       else -> result.notImplemented()
     }
   }

@@ -73,6 +73,12 @@ carries `native_capture_tier` so per-device coverage is visible on the
 dashboard. The API 21 floor is the one an existing dependency already demanded,
 not a bump made for crash capture.
 
+## 🧭 Migrating to 4.2.0
+
+Event names and keys follow the event catalogue. See **[`MIGRATION.md`](MIGRATION.md)** under
+"Migrating to v4.2.0" for the rename table; dashboards on the old names keep working through the
+processor's aliases for older builds only.
+
 ## 🧭 Migrating from 3.x to 4.0.0
 
 **Install the backend release (deployment, analytics, processor, collector)
@@ -151,9 +157,10 @@ class MyApp extends StatelessWidget {
 }
 ```
 
-> ⏱️ **Call `initialize()` as early as possible in `main()`.** `page_load`'s
-> `startup.time_to_first_frame_ms` is measured from SDK init, not process start,
-> so anything before this call is not counted.
+> ⏱️ **Call `initialize()` as early as possible in `main()`.** `app.start` is
+> measured natively from **process start** to the first frame after the SDK
+> starts, so a late `initialize()` stretches it to a later frame;
+> `app.start.sdk_init_ms` shows how long the process ran before the SDK did.
 
 **That's it! 🎉** Your app now has comprehensive telemetry:
 - ✅ All HTTP requests automatically tracked
@@ -163,6 +170,13 @@ class MyApp extends StatelessWidget {
 - ✅ User sessions automatically managed
 
 ## 📊 What Gets Tracked Automatically
+
+> **Event reference:** every event name, key, type and unit is defined by the
+> family's event catalogue,
+> [`edge_telemetry_processor_go/docs/catalogue/`](https://github.com/NCG-Africa/edge_telemetry_processor_go/tree/main/docs/catalogue),
+> at the tag in [`catalogue.version`](catalogue.version). What this SDK sends is
+> recorded in [`test/golden/`](test/golden/) and checked against it in CI. The
+> sections below explain behaviour; the catalogue is the schema.
 
 ### 🌐 HTTP Requests (Zero Setup Required)
 ```dart
@@ -277,7 +291,7 @@ Navigator.pop(context);                    // ✅ Automatically tracked
 // - Screen transitions and timing
 // - User journey mapping
 // - Session screen counts
-// - Dwell time on the screen you just left, on the same `navigation` event
+// - One `screen.duration` for each painted screen you leave
 ```
 
 Screen names come from `RouteSettings.name`. An unnamed route falls back to its
@@ -285,13 +299,12 @@ route **type** (`unnamed_MaterialPageRoute<void>`) — never an identity hash, w
 would mint a fresh name on every visit and make every screen-keyed dashboard
 carry cardinality equal to your total navigations. Visit identity is `screen.id`.
 
-**Parameterised names are documented, not sanitized.** If you push
-`/orders/8412`, that is the screen name you get: the SDK cannot tell a path
-segment you meant as a name from one you meant as an id, and guessing would
-silently rename your screens. Name such routes yourself
-(`RouteSettings(name: '/orders/:id')`) if you want them grouped. The guard if you
-don't is the per-session cardinality cap on `screen.name`, `navigation.to` and
-`navigation.from` — past 50 distinct values the key becomes
+**Path-shaped names are templated.** A route name that starts with `/` is
+templated with the HTTP path rule: `/orders/8412` becomes `/orders/{id}` (a
+segment with a digit, or 32+ characters, unless it is a version like `v2`).
+Name other parameterised routes yourself if you want them grouped. The guard if
+you don't is the per-session cardinality cap on `screen.name`,
+`navigation.to_screen` and `navigation.from_screen` — past 50 distinct values the key becomes
 `__over_cardinality__` and `session.cardinality_capped_count` says so.
 
 ### ⏱️ Screen Load (Zero Setup Required)
@@ -356,8 +369,8 @@ survivors are sent when the app is backgrounded or the session ends.
 | Key | Means |
 |---|---|
 | `frame.total_frames` | Frames in the window |
-| `frame.slow_frames` | Frames over 16 ms |
-| `frame.frozen_frames` | Frames over 700 ms (a subset of slow) |
+| `frame.slow_frames` | Frames over the display's frame budget (`1000 / refresh rate`, 60 Hz if unknown) |
+| `frame.frozen_frames` | Frames of 700 ms or more (a subset of slow) |
 | `frame.slow_frame_rate` | `slow / total` |
 | `frame.max_total_duration_ms` | Worst frame, vsync start → raster finish |
 | `frame.max_build_duration_ms` | Worst UI-thread build |
@@ -391,7 +404,7 @@ not a sample. Use `screen.load` / `navigation` counts for coverage. Turn on
 as it closes; it *replaces* the reservoir rather than adding to it, so nothing
 is ever counted twice.
 
-`Capture.longTask` (diagnostic) adds one `long_task` metric per **frozen** frame
+`Capture.longTask` (diagnostic) adds one `perf.long_task` metric per **frozen** frame
 — redefined from v2's every-dropped-frame, where a single two-second stall
 exhausted the whole session's allowance in one go. It is independent of
 `Capture.frames`: turn frames off and long tasks on and you get the frozen-frame
@@ -609,7 +622,7 @@ concern — so it is declined and documented rather than silently fixed.
 30-second system check — roughly 58 items a session into a stream with no named
 consumer. v3 ships two signals instead, and neither of them polls:
 
-- **Memory at the two session bookends** (`memory_usage`, `Capture.health`): one
+- **Memory at the two session bookends** (`memory.usage` in MB, `Capture.health`): one
   reading when the session opens, one when the app is backgrounded. The quantity
   is read **natively** — `phys_footprint` on iOS, total PSS on Android — because
   Dart's `ProcessInfo.currentRss` is the wrong number on both platforms and the
@@ -679,9 +692,9 @@ PII partitions by **who chose the value**.
 
 - **The SDK redacts what it collected.** `http.url` defaults to scheme, host and path
   — no query string, no fragment, no userinfo — and every request says so in
-  `http.url_redacted`. Path segments that are all digits, a UUID, or 20+ hex characters
-  become `{id}`. Turn `Capture.httpQueryString` on to get the full URL back at the
-  `diagnostic` tier.
+  `http.url_redacted`. Path segments that contain a digit or are 32+ characters become
+  `{id}` — except versions like `v2`; depth caps at 6 segments then `/…`. Turn
+  `Capture.httpQueryString` on to get the full URL back at the `diagnostic` tier.
 - **The SDK caps what the developer named.** Any one attribute key may carry 50 distinct
   values per session; the 51st and everything after it becomes `__over_cardinality__`,
   counted on `session.cardinality_capped_count`. URL templating exists mostly to keep a
@@ -930,28 +943,26 @@ EdgeTelemetry.instance.clearBreadcrumbs();
 
 ### 🚨 Crash Reports
 ```dart
-// Every captured failure — Dart error, native crash, ANR, iOS hang — is one
-// `app.crash` event. A **fatal** (native crash, ANR, hang) is POSTed immediately,
-// because its process is dying. A **non-fatal** Dart error batches, so it earns
-// the pipeline's retries and the offline queue instead of one attempt — and one
+// Four events: `app.error` (trackError — a live catch), `app.crash` (an
+// auto-installed handler caught it, or a native crash), `app.anr` (Android) and
+// `app.hang` (iOS MetricKit). A native crash, ANR or hang is POSTed immediately,
+// because its process is dying. A Dart error batches, so it earns the
+// pipeline's retries and the offline queue instead of one attempt — and one
 // error thrown from a `build()` method becomes items in a batch rather than a
-// POST per throw. Neither is ever sampled away.
+// POST per throw. None is ever sampled away.
 {
   "type": "event",
-  "eventName": "app.crash",
+  "eventName": "app.error",
   "timestamp": "2026-07-13T12:00:00.000Z",
   "attributes": {
-    "message": "Exception: payment failed",
-    "stacktrace": "#0  ...",
-    "exception_type": "_Exception",
-    "cause": "Error",              // Error | NativeCrash | ANR | Hang
-    "is_fatal": "false",           // Dart errors are non-fatal — the app survived
-    "handled": "true",             // a live catch, not an uncaught handler
+    "error.message": "Exception: payment failed",
+    "error.stacktrace": "#0  ...",
+    "error.type": "_Exception",
+    "error.cause": "handled",      // handled | unhandled_exception | native_crash | anr | hang
     "error.category": "network",   // network|timeout|auth|parse|storage|business|unknown
     "error.category_source": "inferred",   // inferred | declared
-    "crash.source": "flutter_error",
-    "crash.breadcrumbs": "[{\"message\":\"Navigated to /checkout\",\"category\":\"navigation\"}]"
-    // + session, user and device context
+    "error.breadcrumbs": "[{\"message\":\"Navigated to /checkout\",\"category\":\"navigation\"}]"
+    // + error.source for an auto handler, + session, user and device context
   }
 }
 
@@ -962,7 +973,7 @@ EdgeTelemetry.instance.clearBreadcrumbs();
 // overall; the overflow is counted on `session.finalized` rather than dropped
 // silently. An HTTP failure emits no crash event at all — the status code and
 // `http.error` already ride `http.request`, so 4xx-vs-5xx is a query, not a
-// second item. The SDK's own internal failures are tagged `crash.source: "sdk"`
+// second item. The SDK's own internal failures are tagged `error.source: "sdk"`
 // and stay off your session error and crash counts.
 ```
 
@@ -1026,10 +1037,10 @@ print('Session: ${EdgeTelemetry.instance.currentSessionInfo}');
 **Events not appearing in backend:**
 - Check `debugMode: true` for console logs
 - Verify endpoint URL and network connectivity
-- **Custom metric names are dropped.** `trackMetric()` takes any name, but only
-  the four canon metric names reach the wire (`frame_render_time`,
-  `memory_usage`, `long_task`, `resource_timing`). `trackEvent()` is safe — it
-  always ships as `custom_event` with your name as an attribute. Every drop
+- **Host names are wrapped.** `trackEvent()` ships as `custom.event` and
+  `trackMetric()` as `custom.metric`, with your name in `event.name` /
+  `metric.name` — query on those, not on the event name. Any other off-canon
+  item the SDK builds is dropped. Every drop
   prints under `debugMode: true` and is counted on the session's closing event
   as `session.dropped_item_count` / `session.dropped_reasons`, so you can see
   the loss on your dashboard without attaching a debugger.

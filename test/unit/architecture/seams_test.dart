@@ -147,7 +147,7 @@ void main() {
         expect(batch['type'], 'telemetry_batch');
         final events = batch['events'] as List;
         // Host names wrap into custom_event with event.name carrying the name.
-        expect(events.single['eventName'], 'custom_event');
+        expect(events.single['eventName'], 'custom.event');
         final attrs = events.single['attributes'] as Map;
         expect(attrs['event.name'], 'demo.click');
         expect(attrs['button'], 'x');
@@ -175,7 +175,7 @@ void main() {
 
       final nav = sink.events.firstWhere((e) => e.name == 'navigation');
       expect(nav.type, 'event');
-      expect(nav.attributes['navigation.to'], '/home');
+      expect(nav.attributes['navigation.to_screen'], '/home');
       expect(nav.countsToSession, isFalse); // nav sent direct in v1.5.2
     });
   });
@@ -302,7 +302,7 @@ void main() {
         ); // crash still sent (immediate+bypass)
         expect(sender.sent[1]['type'], 'telemetry_batch'); // enveloped (#81)
         expect(sender.items[1]['type'], 'event'); // immediate app.crash
-        expect(sender.items[1]['eventName'], 'app.crash');
+        expect(sender.items[1]['eventName'], 'app.error');
       },
     );
 

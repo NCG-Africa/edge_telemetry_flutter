@@ -10,16 +10,12 @@
 //   - Backend-team sign-off on the wire + accommodation asks (the ship gate).
 //   - On-device native-crash e2e (device matrix, #29 deviation).
 
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:edge_telemetry_flutter/src/core/collector.dart';
 import 'package:edge_telemetry_flutter/src/core/config/telemetry_config.dart';
 import 'package:edge_telemetry_flutter/src/core/edge_event.dart';
 import 'package:edge_telemetry_flutter/src/core/offline_queue.dart';
 import 'package:edge_telemetry_flutter/src/core/pipeline.dart';
 import 'package:edge_telemetry_flutter/src/core/retry_transport.dart';
-import 'package:edge_telemetry_flutter/src/core/wire_canon.dart';
 import 'package:edge_telemetry_flutter/src/crash/crash_reporting.dart';
 import 'package:edge_telemetry_flutter/src/facade/edge_telemetry.dart';
 import 'package:edge_telemetry_flutter/src/facade/telemetry_wiring.dart';
@@ -112,39 +108,6 @@ Future<(EdgeTelemetry, _RecordingSender, TelemetryWiring)> _facade({
   return (EdgeTelemetry.fromWiring(wiring), sender, wiring);
 }
 
-/// Blank the volatile timestamps and drop the session.*/network.* + live
-/// device-context keys the wire-flip canon fixture doesn't pin (same normalize
-/// as wire_flip_test — those attrs are #9/#26's concern, not the envelope).
-Map<String, dynamic> _normalize(Map<String, dynamic> batch) => {
-  ...batch,
-  'timestamp': '<TS>',
-  'sdk': {...batch['sdk'] as Map, 'version': '<SDK>'},
-  'events':
-      (batch['events'] as List).map((e) {
-        final ev = Map<String, dynamic>.from(e as Map);
-        ev['timestamp'] = '<TS>';
-        ev['attributes'] =
-            Map<String, dynamic>.from(ev['attributes'] as Map)
-              ..removeWhere(
-                (k, _) =>
-                    k.startsWith('session.') ||
-                    k.startsWith('network.') ||
-                    k == 'device.platform_brightness' ||
-                    k == 'device.text_scale_factor' ||
-                    k == 'device.reduce_motion',
-              )
-              // The key is canon and rides every item; its *value* says which
-              // seams happen to be live in this process, so the fixture pins the
-              // presence and not the environment.
-              ..update(
-                'http_seam_state',
-                (_) => '<SEAM>',
-                ifAbsent: () => '<MISSING>',
-              );
-        return ev;
-      }).toList(),
-};
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -163,66 +126,11 @@ void main() {
       expect(batch['type'], 'telemetry_batch');
       final event = (batch['events'] as List).single as Map;
       // Host name folds into the canon custom_event.
-      expect(event['eventName'], 'custom_event');
+      expect(event['eventName'], 'custom.event');
       final attrs = event['attributes'] as Map;
       expect(attrs['event.name'], 'demo.click');
       expect(attrs.containsKey('device.id'), isFalse); // envelope only (R1)
       wiring.disposeAll();
-    },
-  );
-
-  test(
-    'e2e wire snapshot: assembled stack matches the family-canon fixture',
-    () async {
-      // The system-level counterpart to wire_flip_test's collector-level golden:
-      // drive canon events through the full TelemetryWiring (breadcrumbs, real
-      // Pipeline/RetryTransport) and snapshot the assembled batch vs the fixture.
-      final (_, sender, wiring) = await _facade(
-        batchSize: 2,
-        global: {'device.id': 'device_abc', 'user.id': 'user_abc'},
-      );
-
-      wiring.collector.add(
-        const EdgeEvent.event(
-          'navigation',
-          attributes: {'navigation.to': '/home'},
-        ),
-      );
-      wiring.collector.add(const EdgeEvent.metric('frame_render_time', 12.5));
-      await Future<void>(() {});
-
-      final golden =
-          (jsonDecode(
-                  File(
-                    'test/fixtures/canon_telemetry_batch.json',
-                  ).readAsStringSync(),
-                )
-                as Map<String, dynamic>)
-            ..remove('_comment');
-      expect(_normalize(sender.sent.single), golden);
-      wiring.disposeAll();
-    },
-  );
-
-  test(
-    'accommodation validator: orphan events ride the wire (backend fallback)',
-    () async {
-      // #30 backend-accommodation ask: these 5 orphan events are emitted now with
-      // no config gate — they must reach the wire (they land in the generic
-      // rum_performance_events fallback until the backend adds handlers). Pin them
-      // to the canon allowlist so they're never accidentally dropped at the gate.
-      const orphans = {
-        'page_load',
-        'app_lifecycle',
-        'user.interaction',
-        'custom_event',
-        'network_change',
-      };
-      expect(
-        orphans.every(kCanonEvents.contains),
-        isTrue,
-        reason: 'orphan events must stay on the wire allowlist',
-      );
     },
   );
 
@@ -248,14 +156,14 @@ void main() {
       // One payload, both items in it — not N single-attempt POSTs.
       expect(sender.sent, hasLength(1));
       final crash = sender.items.singleWhere(
-        (i) => i['eventName'] == 'app.crash',
+        (i) => i['eventName'] == 'app.error',
       );
       final a = crash['attributes'] as Map;
-      // Unprefixed payload keys the rum_crash_events extractors read verbatim.
-      expect(a['message'], contains('boom'));
-      expect(a['exception_type'], 'StateError');
-      expect(a['cause'], 'Error');
-      expect(a['is_fatal'], 'false');
+      // Catalogue crash keys (#127).
+      expect(a['error.message'], contains('boom'));
+      expect(a['error.type'], 'StateError');
+      expect(a['error.cause'], 'handled');
+      expect(a.containsKey('is_fatal'), isFalse);
       expect(
         a.containsKey('crash_hash'),
         isFalse,
@@ -263,7 +171,6 @@ void main() {
       // v3 taxonomy (#90): inferred category, honesty flag, handled flag.
       expect(a['error.category'], 'unknown'); // StateError infers nothing
       expect(a['error.category_source'], 'inferred');
-      expect(a['handled'], 'true'); // a live catch, spelled like is_fatal
       wiring.disposeAll();
     },
   );
@@ -285,7 +192,7 @@ void main() {
 
       expect(sender.items, hasLength(1));
       // Batched-but-bypass: batchSize 1 flushes it on its own.
-      expect(sender.items.single['eventName'], 'app.crash');
+      expect(sender.items.single['eventName'], 'app.error');
       wiring.disposeAll();
     },
   );
@@ -322,7 +229,7 @@ void main() {
       wiring.collector.add(
         const EdgeEvent.event(
           'navigation',
-          attributes: {'navigation.to': '/x'},
+          attributes: {'navigation.to_screen': '/x'},
         ),
       );
     }

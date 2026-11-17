@@ -50,6 +50,10 @@ public class EdgeTelemetryFlutterPlugin: NSObject, FlutterPlugin, MXMetricManage
       // ones must be on the main thread, which is where a channel handler
       // already runs. No thread hop, and nothing worth caching.
       result(Self.deviceState())
+    case "processUptimeMs":
+      // Milliseconds since this process started: `app.start` is measured from
+      // process start (catalogue #32), read from the kernel's process record.
+      result(Self.processUptimeMs())
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -177,9 +181,20 @@ public class EdgeTelemetryFlutterPlugin: NSObject, FlutterPlugin, MXMetricManage
     ]
   }
 
+  private static func processUptimeMs() -> Int? {
+    var info = kinfo_proc()
+    var size = MemoryLayout<kinfo_proc>.stride
+    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+    guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else { return nil }
+    let start = info.kp_proc.p_starttime
+    let started = Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000
+    return Int(((Date().timeIntervalSince1970 - started) * 1000).rounded())
+  }
+
   private static func map(hang h: MXHangDiagnostic) -> [String: String] {
     let seconds = h.hangDuration.converted(to: .seconds).value
     return [
+      "hang.duration_ms": String(Int((seconds * 1000).rounded())),
       "message": String(format: "app hang %.1fs", seconds),
       "stacktrace": stack(h.callStackTree),
       "exception_type": "MXHangDiagnostic",

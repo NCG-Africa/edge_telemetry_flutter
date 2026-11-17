@@ -10,6 +10,7 @@ import 'dart:io';
 
 import '../core/http_seam_state.dart';
 import '../core/screen_inflight.dart';
+import '../core/wire_canon.dart' show utc;
 import 'http_url.dart';
 import 'trace_injection.dart';
 
@@ -1185,7 +1186,7 @@ class HttpRequestTelemetry {
         fullUrl
             ? url
             : uri == null
-            ? url.split('#').first.split('?').first
+            ? redactUnparsedUrl(url)
             : redactUrl(uri);
 
     return {
@@ -1206,7 +1207,7 @@ class HttpRequestTelemetry {
         'http.queue_ms': queueDuration!.inMilliseconds.toString(),
       if (phases && redirectCount != null)
         'http.redirect_count': redirectCount!.toString(),
-      'http.timestamp': timestamp.toIso8601String(),
+      'http.timestamp': utc(timestamp),
       if (error != null) 'http.error': error!,
       if (responseSize != null) 'http.response_size': responseSize.toString(),
       if (responseSizeSource != null)

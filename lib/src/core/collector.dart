@@ -48,7 +48,7 @@ class Collector implements EventSink {
   final Pipeline pipeline;
 
   /// Crash-scoped breadcrumb ring. When present, its entries are attached to
-  /// every `app.crash` as `crash.breadcrumbs` (spec #15 §5.5) — never in the
+  /// every crash-family event as `error.breadcrumbs` (spec #15 §5.5) — never in the
   /// global snapshot. Optional so faked collectors can skip it.
   final BreadcrumbManager? breadcrumbs;
 
@@ -160,11 +160,11 @@ class Collector implements EventSink {
     // counts an HTTP hit. These feed the session.finalized summary.
     //
     // The SDK's own failures are exempt (#90): tagging them
-    // `crash.source = sdk` is only half the fix — left in the counters they
+    // `error.source = sdk` is only half the fix — left in the counters they
     // still inflate the one error rate a consumer reads straight off the
     // bookend, with no way to subtract them.
-    if (event.name == 'app.crash') {
-      if (event.attributes['crash.source'] != kSdkCrashSource) {
+    if (event.isCrash) {
+      if (event.attributes['error.source'] != kSdkCrashSource) {
         session.recordCrash();
         if (event.isNonFatalCrash) session.recordError();
       }
@@ -186,7 +186,7 @@ class Collector implements EventSink {
       session.recordDropped('error_cap');
       if (debugMode) {
         print(
-          '🚫 Dropped non-fatal app.crash "${event.crashDedupKey}" — past '
+          '🚫 Dropped ${event.name} "${event.crashDedupKey}" — past '
           'the per-session caps ($kErrorPerKeyCap per fault, '
           '$kErrorSessionCap overall)',
         );
@@ -233,19 +233,20 @@ class Collector implements EventSink {
     //
     // A fatal ships the whole 50-crumb ring; a non-fatal ships the newest ten
     // (#90). An empty ring omits the key rather than sending `"[]"`.
-    if (event.name == 'app.crash' && breadcrumbs != null) {
+    if (event.isCrash && breadcrumbs != null) {
       final crumbs = breadcrumbs!.getBreadcrumbsAsJson(
         limit:
             event.isNonFatalCrash
                 ? BreadcrumbManager.nonFatalBreadcrumbs
                 : null,
       );
-      if (crumbs.isNotEmpty) enriched['crash.breadcrumbs'] = jsonEncode(crumbs);
+      if (crumbs.isNotEmpty) enriched['error.breadcrumbs'] = jsonEncode(crumbs);
     }
 
     // Backdated when the item says so — an aggregate held in a reservoir
     // describes a window that closed long before this flush.
-    final timestamp = (event.occurredAt ?? DateTime.now()).toIso8601String();
+    final timestamp = utc(event.occurredAt ?? DateTime.now());
+    final attributes = typedAttributes(enriched);
 
     final wireItem =
         event.type == 'metric'
@@ -254,7 +255,7 @@ class Collector implements EventSink {
               'metricName': event.name,
               'value': event.value,
               'timestamp': timestamp,
-              'attributes': enriched,
+              'attributes': attributes,
             }
             : {
               // 'event' — incl. the immediate `app.crash` (unprefixed keys ride in
@@ -262,7 +263,7 @@ class Collector implements EventSink {
               'type': 'event',
               'eventName': event.name,
               'timestamp': timestamp,
-              'attributes': enriched,
+              'attributes': attributes,
             };
 
     // Counted here and nowhere else: this is the one place an item is known to

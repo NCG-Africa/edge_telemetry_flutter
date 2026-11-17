@@ -561,7 +561,9 @@ void main() {
       final item = sender.items.singleWhere(
         (i) => i['eventName'] == 'task.complete',
       );
-      final attrs = (item['attributes'] as Map).cast<String, String>();
+      final attrs = (item['attributes'] as Map).map(
+        (k, v) => MapEntry('$k', '$v'),
+      );
 
       expect(attrs['task.name'], 'transfer');
       expect(attrs['task.outcome'], TaskOutcome.abandoned.name);
@@ -592,7 +594,9 @@ void main() {
       final done = sender.items.lastWhere(
         (i) => i['eventName'] == 'task.complete',
       );
-      final doneAttrs = (done['attributes'] as Map).cast<String, String>();
+      final doneAttrs = (done['attributes'] as Map).map(
+        (k, v) => MapEntry('$k', '$v'),
+      );
       expect(doneAttrs['task.name'], 'checkout');
       expect(doneAttrs['task.outcome'], TaskOutcome.completed.name);
       expect(doneAttrs['session.id'], 'session_live');
