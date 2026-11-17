@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **`flutter_secure_storage` 10 and 11 are allowed** (`>=9.2.4 <12.0.0`). Apps on
+  `flutter_secure_storage ^10.0.0` could not resolve 3.0.0+.
+
 ## [4.2.0]
 
 > **Needs a processor with the event catalogue (processor #47–#49).** It reads
