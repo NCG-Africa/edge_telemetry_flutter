@@ -306,3 +306,17 @@ never the SDK's own keys, which are unique per item by design and would be senti
 - `sdk.version` is a constant in `lib/src/core/sdk_version.dart`, asserted against
   `pubspec.yaml` by a test. **A release bumps both.**
 - Changes visible to consumers must land in `README.md` + `CHANGELOG.md`.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `NCG-Africa/edge_telemetry_flutter` via `gh`; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at repo root, created lazily. See `docs/agents/domain.md`.
