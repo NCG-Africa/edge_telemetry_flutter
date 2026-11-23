@@ -20,11 +20,16 @@ flutter test                                     # run all tests
 flutter test test/unit/models/report_data_test.dart   # single file
 flutter test --name "substring of test name"     # single test by name
 dart format lib test                             # format
-UPDATE_GOLDENS=1 flutter test test/integration/golden_batch_test.dart   # re-record goldens
-scripts/conform.sh                               # goldens vs the pinned catalogue (needs go)
+flutter test test/integration/golden_batch_test.dart   # dump raw batches to test/raw (gitignored)
+scripts/conform.sh                               # test/raw vs the pinned catalogue + test/shape.txt (needs go)
+scripts/conform.sh -update                       # intended wire change: rewrite test/shape.txt, commit the diff
+PROCESSOR_DIR=../edge_telemetry_processor_go scripts/conform.sh   # dev: untagged catalogue change (pin untouched)
 ```
 
-Publishing: bump `version:` in `pubspec.yaml`, update `CHANGELOG.md`, then push a `vX.Y.Z` tag —
+Publishing: (1) is the catalogue change this release needs tagged (`catalogue-v*` on the processor)?
+If not, tag it first. (2) Bump `catalogue.version` to that tag (only here, never in a feature PR).
+(3) Run the golden test, then `scripts/conform.sh`; it must pass. Then bump `version:` in
+`pubspec.yaml`, update `CHANGELOG.md`, then push a `vX.Y.Z` tag —
 `.github/workflows/publish.yml` publishes to pub.dev via OIDC (tag-gated; no manual `flutter pub publish`).
 
 ## Architecture
@@ -47,10 +52,13 @@ library entry point.
 ### The wire is a closed contract
 
 **The event catalogue is the contract** (#127): every name, key, type and unit is defined in
-`edge_telemetry_processor_go/docs/catalogue/*.yaml`, pinned in `catalogue.version`. The goldens in
-`test/golden/` are recorded through the real SDK by `test/integration/golden_batch_test.dart`, and
+`edge_telemetry_processor_go/docs/catalogue/*.yaml`, pinned in `catalogue.version` (always a `catalogue-v*` tag). `test/integration/golden_batch_test.dart`
+records through the real SDK and dumps raw batches to the gitignored `test/raw/`;
 `scripts/conform.sh` (run locally; no CI job) fails on an
-unknown name, an unregistered key, a wrong type, an old (aliased) name, or an `emitted_by` mismatch.
+unknown name, an unregistered key, a wrong type, an old (aliased) name, an `emitted_by` mismatch, or
+a derived shape (event, key, JSON type; never a value) that differs from the committed
+`test/shape.txt`. A key that shows up only by timing is a test-input bug: fix the input, don't widen
+the shape.
 A new event or key goes into the catalogue first (a processor PR and a new `catalogue-v4.N` tag),
 then here. `lib/src/core/wire_canon.dart` holds the names this SDK emits. **`Collector.add`
 drops any batched item whose name is off-canon** — adding an event means adding it to the canon

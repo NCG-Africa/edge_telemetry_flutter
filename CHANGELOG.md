@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Stable goldens (#135).** The golden test now only dumps raw batches to the
+  gitignored `test/raw/`; `scripts/conform.sh` checks them against the catalogue
+  and compares their derived shape (event, key, JSON type; no values) with the
+  committed `test/shape.txt` (`-update` rewrites it). The host OS and the SDK
+  version no longer break the check. Pin: `catalogue-v4.6`.
+
 ### Removed
+
+- **Committed golden JSON (`test/golden/`), its normalizer and `UPDATE_GOLDENS`.**
 
 - **The conformance CI job (`conform.yml`)**, to cut Actions spend. Run
   `scripts/conform.sh` locally before a release.

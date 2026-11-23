@@ -6,7 +6,6 @@
 // the wire — the seam that would have caught v2's seven silent drops.
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:edge_telemetry_flutter/src/core/collector.dart';
@@ -120,11 +119,10 @@ void main() {
   test('the canon is exactly the events the goldens record (#127)', () {
     // The goldens are the catalogue-conformance input, so a canon name with no
     // golden is an event nobody checks, and a golden off the canon never ships.
+    // test/shape.txt lines: `<event.name> <event|metric> <key> <type>`.
     final goldens = <String>{
-      for (final f in Directory('test/golden').listSync().whereType<File>())
-        for (final e
-            in (jsonDecode(f.readAsStringSync())['events'] as List).cast<Map>())
-          (e['eventName'] ?? e['metricName']) as String,
+      for (final l in File('test/shape.txt').readAsLinesSync())
+        if (l.split(' ') case [final name, 'event' || 'metric', _, _]) name,
     };
     expect({...kCanonEvents, ...kCanonMetrics}, goldens);
   });

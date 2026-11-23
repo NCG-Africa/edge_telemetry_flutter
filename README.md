@@ -175,7 +175,7 @@ class MyApp extends StatelessWidget {
 > family's event catalogue,
 > [`edge_telemetry_processor_go/docs/catalogue/`](https://github.com/NCG-Africa/edge_telemetry_processor_go/tree/main/docs/catalogue),
 > at the tag in [`catalogue.version`](catalogue.version). What this SDK sends is
-> recorded in [`test/golden/`](test/golden/) and checked against it in CI. The
+> recorded as a shape in [`test/shape.txt`](test/shape.txt) and checked against it before each release. The
 > sections below explain behaviour; the catalogue is the schema.
 
 ### 🌐 HTTP Requests (Zero Setup Required)
