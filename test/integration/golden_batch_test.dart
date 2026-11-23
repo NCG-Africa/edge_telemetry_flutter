@@ -1,16 +1,12 @@
 // test/integration/golden_batch_test.dart
 //
-// Golden batches (#127, processor #40): every catalogue event this SDK emits,
-// recorded through the real `EdgeTelemetry.initialize()` → public API → real
-// `RetryTransport` POST to a loopback server, one batch per event under
-// `test/golden/`. CI runs the processor's `cmd/conform` on that directory at the
-// tag pinned in `catalogue.version` (`scripts/conform.sh`).
-//
-// Values that change per run (ids, timestamps, durations, stacks) are
-// normalized to a fixed value of the same JSON type, so the snapshot pins
-// names, keys and types. Regenerate with:
-//
-//   UPDATE_GOLDENS=1 flutter test test/integration/golden_batch_test.dart
+// Golden batches (#127, #135): every catalogue event this SDK emits, recorded
+// through the real `EdgeTelemetry.initialize()` → public API → real
+// `RetryTransport` POST to a loopback server. Every POSTed batch is dumped raw
+// to the gitignored `test/raw/`. `scripts/conform.sh` runs the processor's
+// `cmd/conform` on it at the tag pinned in `catalogue.version`: catalogue
+// check, then the derived shape (event, key, type; no values) must equal the
+// committed `test/shape.txt`. Nothing here compares values.
 
 import 'dart:convert';
 import 'dart:io';
@@ -39,85 +35,10 @@ class _FakePathProvider extends PathProviderPlatform
   Future<String?> getApplicationDocumentsPath() async => docsPath;
 }
 
-const _golden = 'test/golden';
-const _ts = '2026-01-01T00:00:00.000Z';
-
-/// Keys whose values differ per run. Strings become a fixed string; numbers
-/// keep their JSON type (int or float) under a fixed value.
-const _volatile = {
-  'session.id',
-  'user.id',
-  'trace.id',
-  'span.id',
-  'parent.span.id',
-  'rum.action.id',
-  'screen.id',
-  'error.stacktrace',
-  'error.breadcrumbs',
-  'http.url',
-  'http.host',
-  'device.platform_version',
-};
-
-Object? _normalize(String key, Object? v) {
-  if (v is String && DateTime.tryParse(v) != null && v.contains('T')) {
-    return _ts;
-  }
-  if (v is int) return 1;
-  if (v is double) return 1.5;
-  if (v is String && _volatile.contains(key)) return '<$key>';
-  // The run flips connectivity mid-way, so which value an event carries is a
-  // race. Pinned to a value the catalogue's enum accepts.
-  if (key == 'network.type') return 'wifi';
-  // The host OS the tests run on (macos locally, linux in CI). Pinned to the
-  // envelope's platform so goldens match wherever they are generated.
-  if (key == 'device.platform') return 'android';
-  return v;
-}
-
-Map<String, dynamic> _normalizeItem(Map<String, dynamic> item) {
-  final attrs = (item['attributes'] as Map<String, dynamic>).map(
-    (k, v) => MapEntry(k, _normalize(k, v)),
-  );
-  return {
-    ...item,
-    'timestamp': _ts,
-    if (item['value'] != null) 'value': 1.5,
-    'attributes': Map.fromEntries(
-      attrs.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
-    ),
-  };
-}
-
-/// One golden per event name holding every distinct variant of it, sorted, so
-/// the file does not depend on the order concurrent POSTs arrive in. A crash
-/// drained from the previous launch rides that launch's `app` block, so it
-/// gets its own file (`*-prior_launch.json`).
-Map<String, String> _goldens(List<Map<String, dynamic>> batches) {
-  final variants = <String, Set<String>>{};
-  final envelopes = <String, Map<String, dynamic>>{};
-  for (final batch in batches) {
-    final prior = (batch['app'] as Map)['version'] != '1.0.0';
-    for (final item in (batch['events'] as List).cast<Map<String, dynamic>>()) {
-      final name = (item['eventName'] ?? item['metricName']) as String;
-      final file =
-          '${name.replaceAll('.', '-')}${prior ? '-prior_launch' : ''}.json';
-      envelopes[file] = batch;
-      (variants[file] ??= {}).add(jsonEncode(_normalizeItem(item)));
-    }
-  }
-  const encoder = JsonEncoder.withIndent('  ');
-  return {
-    for (final MapEntry(key: file, value: items) in variants.entries)
-      file:
-          '${encoder.convert({...envelopes[file]!, 'timestamp': _ts, 'batch_size': items.length, 'device_id': '<device_id>', 'events': (items.toList()..sort()).map(jsonDecode).toList()})}\n',
-  };
-}
-
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('goldens match the real wire', (tester) async {
+  testWidgets('dumps the real wire to test/raw', (tester) async {
     // Real sockets and timers: everything runs outside the fake clock.
     await tester.runAsync(() => _record(binding));
   });
@@ -341,19 +262,12 @@ Future<void> _record(TestWidgetsFlutterBinding binding) async {
 
     await restore();
 
-    final goldens = _goldens(batches);
-    final dir = Directory(_golden);
-    if (Platform.environment['UPDATE_GOLDENS'] != null) {
-      if (dir.existsSync()) dir.deleteSync(recursive: true);
-      dir.createSync(recursive: true);
-      goldens.forEach((file, json) {
-        File('$_golden/$file').writeAsStringSync(json);
-      });
+    expect(batches, isNotEmpty);
+    final raw = Directory('test/raw');
+    if (raw.existsSync()) raw.deleteSync(recursive: true);
+    raw.createSync(recursive: true);
+    for (final (i, b) in batches.indexed) {
+      File('test/raw/batch-$i.json').writeAsStringSync(jsonEncode(b));
     }
-    final onDisk = {
-      for (final f in dir.listSync().whereType<File>())
-        f.uri.pathSegments.last: f.readAsStringSync(),
-    };
-    expect(goldens, onDisk, reason: 'regenerate with UPDATE_GOLDENS=1');
   }
 }

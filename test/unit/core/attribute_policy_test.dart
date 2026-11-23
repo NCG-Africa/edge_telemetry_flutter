@@ -98,16 +98,11 @@ void main() {
 
   group('cardinality cap', () {
     // #127: a renamed key silently drops out of the cap. Every capped key must
-    // be one the SDK actually emits, i.e. appear in some golden.
+    // be one the SDK actually emits, i.e. appear in the golden shape.
     test('every capped key is still on the wire', () {
-      final goldens =
-          [
-            for (final f
-                in Directory('test/golden').listSync().whereType<File>())
-              f.readAsStringSync(),
-          ].join();
+      final shape = File('test/shape.txt').readAsStringSync();
       for (final key in kCappedSdkKeys) {
-        expect(goldens, contains('"$key"'), reason: key);
+        expect(shape, contains(' $key '), reason: key);
       }
     });
 

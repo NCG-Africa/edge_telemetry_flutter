@@ -9,7 +9,7 @@
 Your Dart code compiles unchanged. What moves is what lands on the wire, so
 anything that queries the raw events (dashboards, alerts, exports) needs the new
 names. The full list is the catalogue YAML pinned in `catalogue.version`; the
-SDK's real output for every event is in `test/golden/`.
+SDK's keys and types for every event are in `test/shape.txt`.
 
 ## Renames
 
