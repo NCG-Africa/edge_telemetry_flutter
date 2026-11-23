@@ -341,6 +341,13 @@ Future<void> _record(TestWidgetsFlutterBinding binding) async {
 
     await restore();
 
+    // PROTOTYPE #90: raw batches, gitignored.
+    final raw = Directory('test/raw');
+    if (raw.existsSync()) raw.deleteSync(recursive: true);
+    raw.createSync(recursive: true);
+    for (final (i, b) in batches.indexed) {
+      File('test/raw/batch-$i.json').writeAsStringSync(jsonEncode(b));
+    }
     final goldens = _goldens(batches);
     final dir = Directory(_golden);
     if (Platform.environment['UPDATE_GOLDENS'] != null) {
